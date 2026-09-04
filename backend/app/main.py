@@ -1,5 +1,7 @@
+import json
 import os
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
@@ -9,6 +11,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
+from app.tokenization import tokenize_document
 
 app = FastAPI()
 
@@ -155,3 +158,98 @@ def list_documents(
     ]
 
     return DocumentPage(items=items, total=total, page=page, page_size=page_size)
+
+
+class Token(BaseModel):
+    id: int
+    document_id: int
+    position: int
+    char_begin: int
+    char_end: int
+    surface: str
+    dictionary_form: str
+    normalized_form: str
+    reading_katakana: str
+    part_of_speech: list[str]
+    is_oov: bool
+    furigana_spans: list[dict]
+    needs_review: bool
+    review_reason: Optional[str]
+    furigana_override: Optional[list[dict]]
+    start_time: Optional[Decimal]
+    end_time: Optional[Decimal]
+
+
+def _fetch_tokens(conn, document_id: int) -> list[Token]:
+    rows = conn.execute(
+        text(
+            """
+            SELECT id, document_id, position, char_begin, char_end, surface,
+                   dictionary_form, normalized_form, reading_katakana,
+                   part_of_speech, is_oov, furigana_spans, needs_review,
+                   review_reason, furigana_override, start_time, end_time
+            FROM tokens
+            WHERE document_id = :document_id
+            ORDER BY position
+            """
+        ),
+        {"document_id": document_id},
+    ).all()
+    return [Token(**row._mapping) for row in rows]
+
+
+@app.get("/documents/{document_id}/tokens", response_model=list[Token])
+def get_document_tokens(document_id: int) -> list[Token]:
+    with engine.begin() as conn:
+        doc_row = conn.execute(
+            text("SELECT text FROM documents WHERE id = :id"),
+            {"id": document_id},
+        ).one_or_none()
+
+        if doc_row is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        existing = _fetch_tokens(conn, document_id)
+        if existing:
+            return existing
+
+        records = tokenize_document(doc_row.text)
+
+        if records:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO tokens (
+                        document_id, position, char_begin, char_end, surface,
+                        dictionary_form, normalized_form, reading_katakana,
+                        part_of_speech, is_oov, furigana_spans, needs_review,
+                        review_reason
+                    ) VALUES (
+                        :document_id, :position, :char_begin, :char_end, :surface,
+                        :dictionary_form, :normalized_form, :reading_katakana,
+                        CAST(:part_of_speech AS JSONB), :is_oov,
+                        CAST(:furigana_spans AS JSONB), :needs_review, :review_reason
+                    )
+                    """
+                ),
+                [
+                    {
+                        "document_id": document_id,
+                        "position": r.position,
+                        "char_begin": r.char_begin,
+                        "char_end": r.char_end,
+                        "surface": r.surface,
+                        "dictionary_form": r.dictionary_form,
+                        "normalized_form": r.normalized_form,
+                        "reading_katakana": r.reading_katakana,
+                        "part_of_speech": json.dumps(r.part_of_speech),
+                        "is_oov": r.is_oov,
+                        "furigana_spans": json.dumps(r.furigana_spans),
+                        "needs_review": r.needs_review,
+                        "review_reason": r.review_reason,
+                    }
+                    for r in records
+                ],
+            )
+
+        return _fetch_tokens(conn, document_id)

@@ -94,6 +94,10 @@
   font-family: inherit;
 }
 
+.readonly-text {
+  margin: 0;
+}
+
 .new-document-form input[readonly],
 .new-document-form textarea[readonly] {
   background-color: var(--bg);
@@ -197,4 +201,40 @@
 .pagination button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+.text-size-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  color: var(--text-muted);
+  font-size: 0.9em;
+}
+
+.text-size-controls label {
+  margin-top: 0;
+  font-weight: 400;
+}
+
+.lyrics-box {
+  line-height: 2.6;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  white-space: pre-wrap;
+  font-size: var(--lyrics-font-size, 18px);
+  margin: 0;
+}
+
+.lyrics-box ruby rt {
+  font-size: var(--furigana-font-size, 11px);
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.token.needs-review {
+  border-bottom: 2px dotted var(--danger);
+  cursor: help;
 }
