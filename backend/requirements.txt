@@ -1,0 +1,10 @@
+SudachiDict-full==20260723
+SudachiPy==0.6.11
+
+alembic==1.19.2
+SQLAlchemy==2.0.52
+psycopg2-binary==2.9.12
+python-dotenv==1.2.3
+
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
