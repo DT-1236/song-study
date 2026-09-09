@@ -1,3 +1,4 @@
+import os
 from datetime import datetime
 from typing import Literal, Optional
 
@@ -11,9 +12,15 @@ from app.db import engine
 
 app = FastAPI()
 
+allowed_origins = [
+    origin.strip()
+    for origin in os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
+    if origin.strip()
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
+    allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
 )
