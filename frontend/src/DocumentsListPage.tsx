@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ApiError, fetchDocuments } from './api'
-import type { DocumentListItem, SortDir, SortField } from './api'
+import { fetchDocuments } from './api'
+import type { SortDir, SortField } from './api'
 import { useTabs } from './TabsContext'
+import { useApiResource } from './useApiResource'
 
 const PAGE_SIZE = 20
 
@@ -21,34 +22,13 @@ export function DocumentsListPage() {
   const [sortBy, setSortBy] = useState<SortField>('created_at')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
 
-  const [items, setItems] = useState<DocumentListItem[]>([])
-  const [total, setTotal] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setLoading(true)
-    setError(null)
-
-    fetchDocuments({ page, pageSize: PAGE_SIZE, sortBy, sortDir })
-      .then((result) => {
-        if (cancelled) return
-        setItems(result.items)
-        setTotal(result.total)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Failed to load documents.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [page, sortBy, sortDir])
+  const fetchFn = useCallback(
+    () => fetchDocuments({ page, pageSize: PAGE_SIZE, sortBy, sortDir }),
+    [page, sortBy, sortDir],
+  )
+  const { data, loading, error } = useApiResource(fetchFn, [page, sortBy, sortDir], 'Failed to load documents.')
+  const items = data?.items ?? []
+  const total = data?.total ?? 0
 
   function handleSort(field: SortField) {
     if (field === sortBy) {

@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { ApiError, fetchDocument } from './api'
-import type { Document } from './api'
+import { fetchDocument } from './api'
 import { useTabs } from './TabsContext'
+import { useApiResource } from './useApiResource'
 import { YouTubePlayer } from './YouTubePlayer'
 
 export function DocumentViewPage() {
@@ -11,42 +11,14 @@ export function DocumentViewPage() {
 
   const { visitDocument } = useTabs()
 
-  const [doc, setDoc] = useState<Document | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    setDoc(null)
-    setLoading(true)
-    setError(null)
-
-    fetchDocument(documentId)
-      .then((result) => {
-        if (cancelled) return
-        setDoc(result)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Failed to load document.')
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [documentId])
+  const fetchFn = useCallback(() => fetchDocument(documentId), [documentId])
+  const { data: doc, loading, error } = useApiResource(fetchFn, [documentId], 'Failed to load document.')
 
   useEffect(() => {
     if (doc) {
       visitDocument(doc.id, doc.title)
     }
-    // visitDocument is stable (useCallback in TabsProvider); only re-run when the
-    // loaded document changes, not on every tabs-context update.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [doc])
+  }, [doc, visitDocument])
 
   if (loading) return <p>Loading…</p>
   if (error) return <p className="form-error">{error}</p>

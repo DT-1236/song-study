@@ -27,7 +27,9 @@ class DocumentCreate(BaseModel):
     @field_validator("youtube_video_id")
     @classmethod
     def blank_to_none(cls, value: Optional[str]) -> Optional[str]:
-        return value.strip() or None if value is not None else None
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class Document(BaseModel):
@@ -87,15 +89,6 @@ def get_document(document_id: int) -> Document:
 
 SortField = Literal["id", "title", "youtube_video_id", "created_at"]
 
-# sort_by/sort_dir come from the client, so they're validated against this
-# allowlist and never interpolated as raw strings into SQL.
-SORT_COLUMNS: dict[str, str] = {
-    "id": "id",
-    "title": "title",
-    "youtube_video_id": "youtube_video_id",
-    "created_at": "created_at",
-}
-
 
 class DocumentListItem(BaseModel):
     id: int
@@ -118,7 +111,6 @@ def list_documents(
     sort_by: SortField = "created_at",
     sort_dir: Literal["asc", "desc"] = "desc",
 ) -> DocumentPage:
-    column = SORT_COLUMNS[sort_by]
     direction = "ASC" if sort_dir == "asc" else "DESC"
     offset = (page - 1) * page_size
 
@@ -129,7 +121,7 @@ def list_documents(
                 SELECT id, title, youtube_video_id, created_at,
                        COUNT(*) OVER() AS total
                 FROM documents
-                ORDER BY {column} {direction}, id {direction}
+                ORDER BY {sort_by} {direction}, id {direction}
                 LIMIT :limit OFFSET :offset
                 """
             ),

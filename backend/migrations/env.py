@@ -1,11 +1,11 @@
 import os
 from logging.config import fileConfig
 
-from dotenv import load_dotenv
 from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
+from app.db import load_env
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -19,7 +19,7 @@ if config.config_file_name is not None:
 # alembic.ini leaves sqlalchemy.url blank; pull the real connection string
 # from the environment (repo-root .env locally, real env vars in deployment)
 # so credentials never end up committed.
-load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
+load_env()
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
     config.set_main_option("sqlalchemy.url", database_url)

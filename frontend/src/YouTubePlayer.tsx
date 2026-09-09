@@ -45,7 +45,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
     getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
     getDuration: () => playerRef.current?.getDuration() ?? 0,
     getVideoData: () => playerRef.current?.getVideoData() ?? null,
-  }))
+  }), [])
 
   return (
     <div className="youtube-player">

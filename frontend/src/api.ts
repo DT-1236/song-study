@@ -10,6 +10,15 @@ export type Document = {
 
 export class ApiError extends Error {}
 
+async function assertOk(response: Response): Promise<void> {
+  if (response.ok) return
+
+  const body = await response.json().catch(() => null)
+  const message =
+    typeof body?.detail === 'string' ? body.detail : `Request failed (${response.status})`
+  throw new ApiError(message)
+}
+
 export async function createDocument(input: {
   title: string
   text: string
@@ -25,14 +34,7 @@ export async function createDocument(input: {
     }),
   })
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    const message =
-      typeof body?.detail === 'string'
-        ? body.detail
-        : `Request failed (${response.status})`
-    throw new ApiError(message)
-  }
+  await assertOk(response)
 
   return response.json()
 }
@@ -40,10 +42,7 @@ export async function createDocument(input: {
 export async function fetchDocument(id: number): Promise<Document> {
   const response = await fetch(`${API_URL}/documents/${id}`)
 
-  if (!response.ok) {
-    const message = response.status === 404 ? 'Document not found.' : `Request failed (${response.status})`
-    throw new ApiError(message)
-  }
+  await assertOk(response)
 
   return response.json()
 }
@@ -79,9 +78,7 @@ export async function fetchDocuments(params: {
 
   const response = await fetch(url)
 
-  if (!response.ok) {
-    throw new ApiError(`Request failed (${response.status})`)
-  }
+  await assertOk(response)
 
   return response.json()
 }
