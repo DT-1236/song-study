@@ -1,5 +1,4 @@
 import { useCallback, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { fetchDocuments } from './api'
 import type { SortDir, SortField } from './api'
 import { useTabs } from './TabsContext'
@@ -15,8 +14,7 @@ const COLUMNS: { field: SortField; label: string }[] = [
 ]
 
 export function DocumentsListPage() {
-  const navigate = useNavigate()
-  const { openIds } = useTabs()
+  const { openIds, processingIds, ensureProcessed } = useTabs()
 
   const [page, setPage] = useState(1)
   const [sortBy, setSortBy] = useState<SortField>('created_at')
@@ -79,9 +77,19 @@ export function DocumentsListPage() {
             <tr
               key={doc.id}
               className="clickable-row"
-              onClick={() => navigate(`/documents/${doc.id}`)}
+              onClick={() => {
+                ensureProcessed(doc.id, doc.title).catch(() => {})
+              }}
             >
-              <td className="tab-indicator">{openIds.has(doc.id) ? '👁' : ''}</td>
+              <td className="tab-indicator">
+                {processingIds.has(doc.id) ? (
+                  <span className="spinner" aria-label="Processing" title="Processing…" />
+                ) : openIds.has(doc.id) ? (
+                  '👁'
+                ) : (
+                  ''
+                )}
+              </td>
               <td>{doc.id}</td>
               <td>{doc.title}</td>
               <td>{doc.youtube_video_id ?? '—'}</td>

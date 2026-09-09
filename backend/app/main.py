@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import os
+import re
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
@@ -11,9 +12,16 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from app.conflicts import (
+    ConflictNotFound,
+    TokenNotFound,
+    correct_reading,
+    create_conflicts,
+    resolve_conflict,
+)
 from app.db import engine
-from app.glosses import search_jmdict
-from app.tokenization import tokenize_document
+from app.glosses import attach_glosses, needs_gloss_pass, rank_senses, search_jmdict
+from app.tokenization import dictionary_form_note, mixed_reading, tokenize_document
 
 app = FastAPI()
 
@@ -107,6 +115,48 @@ def get_document(document_id: int) -> Document:
     return Document(**row._mapping)
 
 
+class DocumentTextUpdate(BaseModel):
+    text: str = Field(min_length=1)
+
+
+@app.patch("/documents/{document_id}", response_model=Document)
+def update_document_text(document_id: int, body: DocumentTextUpdate) -> Document:
+    """Editing the lyrics invalidates every token derived from the old text
+    — furigana, gloss links, conflicts, all of it no longer corresponds to
+    anything real. No version history is kept (not asked for), so this just
+    deletes them outright; they're regenerated from scratch (same as a
+    never-before-processed document) the next time tokens are requested.
+    The shared gloss_lookups cache is untouched — it's keyed by word, not
+    by document, so other documents' (and this one's next processing
+    pass's) cached lookups stay valid."""
+    with engine.begin() as conn:
+        row = conn.execute(
+            text(
+                """
+                UPDATE documents SET text = :text WHERE id = :id
+                RETURNING id, title, text, youtube_video_id, created_at
+                """
+            ),
+            {"id": document_id, "text": body.text},
+        ).one_or_none()
+
+        if row is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+
+        conn.execute(
+            text(
+                """
+                DELETE FROM conflicts
+                WHERE token_id IN (SELECT id FROM tokens WHERE document_id = :id)
+                """
+            ),
+            {"id": document_id},
+        )
+        conn.execute(text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id})
+
+    return Document(**row._mapping)
+
+
 SortField = Literal["id", "title", "youtube_video_id", "created_at"]
 
 
@@ -184,6 +234,35 @@ def jmdict_search(
     return [JmdictEntry(**entry) for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)]
 
 
+class GlossSense(BaseModel):
+    entry_idseq: int
+    pos: list[str]
+    misc: list[str]
+    field: list[str]
+    gloss: list[str]
+
+
+class GlossPiece(BaseModel):
+    surface: str
+    reading: str
+    senses: list[GlossSense]
+    ambiguous_readings: list[str]
+
+
+class Gloss(BaseModel):
+    reading: str
+    senses: list[GlossSense]
+    source: str
+    pieces: list[GlossPiece] = []
+
+
+class Conflict(BaseModel):
+    id: int
+    kind: str
+    value: dict
+    selected: bool
+
+
 class Token(BaseModel):
     id: int
     document_id: int
@@ -192,6 +271,8 @@ class Token(BaseModel):
     char_end: int
     surface: str
     dictionary_form: str
+    dictionary_form_reading: str
+    dictionary_form_note: Optional[str]
     normalized_form: str
     reading_katakana: str
     part_of_speech: list[str]
@@ -200,6 +281,8 @@ class Token(BaseModel):
     needs_review: bool
     review_reason: Optional[str]
     furigana_override: Optional[list[dict]]
+    gloss: Optional[Gloss]
+    conflicts: list[Conflict]
     start_time: Optional[Decimal]
     end_time: Optional[Decimal]
 
@@ -208,18 +291,69 @@ def _fetch_tokens(conn, document_id: int) -> list[Token]:
     rows = conn.execute(
         text(
             """
-            SELECT id, document_id, position, char_begin, char_end, surface,
-                   dictionary_form, normalized_form, reading_katakana,
-                   part_of_speech, is_oov, furigana_spans, needs_review,
-                   review_reason, furigana_override, start_time, end_time
-            FROM tokens
-            WHERE document_id = :document_id
-            ORDER BY position
+            SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end, t.surface,
+                   t.dictionary_form, t.normalized_form, t.reading_katakana,
+                   t.part_of_speech, t.is_oov, t.furigana_spans, t.needs_review,
+                   t.review_reason, t.furigana_override, t.start_time, t.end_time,
+                   gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source
+            FROM tokens t
+            LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
+            WHERE t.document_id = :document_id
+            ORDER BY t.position
             """
         ),
         {"document_id": document_id},
     ).all()
-    return [Token(**row._mapping) for row in rows]
+
+    conflict_rows = conn.execute(
+        text(
+            """
+            SELECT c.id, c.token_id, c.kind, c.value, c.selected
+            FROM conflicts c
+            JOIN tokens t ON t.id = c.token_id
+            WHERE t.document_id = :document_id
+            ORDER BY c.id
+            """
+        ),
+        {"document_id": document_id},
+    ).all()
+    conflicts_by_token: dict[int, list[Conflict]] = {}
+    for c in conflict_rows:
+        conflicts_by_token.setdefault(c.token_id, []).append(
+            Conflict(id=c.id, kind=c.kind, value=c.value, selected=c.selected)
+        )
+
+    tokens = []
+    for row in rows:
+        data = dict(row._mapping)
+        gloss_reading = data.pop("gloss_reading")
+        gloss_entries = data.pop("gloss_entries")
+        gloss_source = data.pop("gloss_source")
+        if gloss_reading is None:
+            data["gloss"] = None
+        elif gloss_source == "composite":
+            # Pieces were already ranked (using each piece's own
+            # part-of-speech) when the composite was built, so no
+            # re-ranking needed here the way the flat jmdict case needs.
+            data["gloss"] = Gloss(
+                reading=gloss_reading,
+                senses=[],
+                source=gloss_source,
+                pieces=[GlossPiece(**piece) for piece in gloss_entries["pieces"]],
+            )
+        else:
+            data["gloss"] = Gloss(
+                reading=gloss_reading,
+                senses=rank_senses(gloss_entries, data["part_of_speech"][0]),
+                source=gloss_source,
+            )
+        data["conflicts"] = conflicts_by_token.get(data["id"], [])
+        data["dictionary_form_reading"] = mixed_reading(data["dictionary_form"])
+        data["dictionary_form_note"] = dictionary_form_note(
+            data["dictionary_form"], data["normalized_form"], data["part_of_speech"][4]
+        )
+        tokens.append(Token(**data))
+    return tokens
 
 
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
@@ -235,6 +369,9 @@ def get_document_tokens(document_id: int) -> list[Token]:
 
         existing = _fetch_tokens(conn, document_id)
         if existing:
+            if needs_gloss_pass(conn, document_id):
+                attach_glosses(conn, document_id)
+                return _fetch_tokens(conn, document_id)
             return existing
 
         records = tokenize_document(doc_row.text)
@@ -269,4 +406,51 @@ def get_document_tokens(document_id: int) -> list[Token]:
             ],
         )
 
+        create_conflicts(conn, document_id, records)
+
+        # Gloss lookups run as a second pass, after furigana tokens are
+        # committed, since they're keyed off the finished (normalized_form,
+        # reading) pairs and are far more expensive per unique word.
+        attach_glosses(conn, document_id)
+
         return _fetch_tokens(conn, document_id)
+
+
+class ConflictResolution(BaseModel):
+    conflict_id: int
+
+
+@app.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
+def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolution) -> Token:
+    with engine.begin() as conn:
+        try:
+            resolve_conflict(conn, document_id, token_id, body.conflict_id)
+        except ConflictNotFound:
+            raise HTTPException(status_code=404, detail="Conflict option not found for this token.")
+
+        return next(t for t in _fetch_tokens(conn, document_id) if t.id == token_id)
+
+
+_KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")
+
+
+class ReadingCorrection(BaseModel):
+    reading: str = Field(min_length=1)
+
+    @field_validator("reading")
+    @classmethod
+    def kana_only(cls, value: str) -> str:
+        if not _KANA_ONLY_RE.match(value):
+            raise ValueError("Reading must be hiragana and/or katakana only.")
+        return value
+
+
+@app.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
+def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrection) -> Token:
+    with engine.begin() as conn:
+        try:
+            correct_reading(conn, document_id, token_id, body.reading)
+        except TokenNotFound:
+            raise HTTPException(status_code=404, detail="Token not found for this document.")
+
+        return next(t for t in _fetch_tokens(conn, document_id) if t.id == token_id)

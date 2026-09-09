@@ -47,6 +47,29 @@ export async function fetchDocument(id: number): Promise<Document> {
   return response.json()
 }
 
+export async function updateDocumentText(id: number, text: string): Promise<Document> {
+  const response = await fetch(`${API_URL}/documents/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  })
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    let message = `Request failed (${response.status})`
+    if (response.status === 404) {
+      message = 'Document not found.'
+    } else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === 'string') {
+      message = body.detail[0].msg.replace(/^Value error,\s*/, '')
+    } else if (typeof body?.detail === 'string') {
+      message = body.detail
+    }
+    throw new ApiError(message)
+  }
+
+  return response.json()
+}
+
 export type DocumentListItem = {
   id: number
   title: string
@@ -68,6 +91,40 @@ export type FuriganaSpan = {
   reading: string | null
 }
 
+export type GlossSense = {
+  entry_idseq: number
+  pos: string[]
+  misc: string[]
+  field: string[]
+  gloss: string[]
+}
+
+export type GlossPiece = {
+  surface: string
+  reading: string
+  senses: GlossSense[]
+  ambiguous_readings: string[]
+}
+
+export type Gloss = {
+  reading: string
+  senses: GlossSense[]
+  source: 'jmdict' | 'english_stub' | 'composite'
+  pieces: GlossPiece[]
+}
+
+export type ConflictOptionValue = {
+  reading: string
+  furigana_spans: FuriganaSpan[]
+}
+
+export type Conflict = {
+  id: number
+  kind: 'heteronym' | 'no_kana_anchor' | 'custom'
+  value: ConflictOptionValue
+  selected: boolean
+}
+
 export type Token = {
   id: number
   document_id: number
@@ -76,6 +133,8 @@ export type Token = {
   char_end: number
   surface: string
   dictionary_form: string
+  dictionary_form_reading: string
+  dictionary_form_note: string | null
   normalized_form: string
   reading_katakana: string
   part_of_speech: string[]
@@ -84,6 +143,8 @@ export type Token = {
   needs_review: boolean
   review_reason: string | null
   furigana_override: FuriganaSpan[] | null
+  gloss: Gloss | null
+  conflicts: Conflict[]
   start_time: string | null
   end_time: string | null
 }
@@ -92,6 +153,48 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens`)
 
   await assertOk(response)
+
+  return response.json()
+}
+
+export async function resolveConflict(
+  documentId: number,
+  tokenId: number,
+  conflictId: number,
+): Promise<Token> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conflict_id: conflictId }),
+  })
+
+  if (!response.ok) {
+    const message = response.status === 404 ? 'Conflict option not found.' : `Request failed (${response.status})`
+    throw new ApiError(message)
+  }
+
+  return response.json()
+}
+
+export async function correctReading(documentId: number, tokenId: number, reading: string): Promise<Token> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/correct`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ reading }),
+  })
+
+  if (!response.ok) {
+    const body = await response.json().catch(() => null)
+    let message = `Request failed (${response.status})`
+    if (response.status === 404) {
+      message = 'Token not found.'
+    } else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === 'string') {
+      message = body.detail[0].msg.replace(/^Value error,\s*/, '')
+    } else if (typeof body?.detail === 'string') {
+      message = body.detail
+    }
+    throw new ApiError(message)
+  }
 
   return response.json()
 }
