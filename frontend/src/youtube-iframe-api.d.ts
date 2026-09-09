@@ -15,6 +15,13 @@ declare global {
       getCurrentTime(): number
       getDuration(): number
       getVideoData(): VideoData
+      playVideo(): void
+      pauseVideo(): void
+      seekTo(seconds: number, allowSeekAhead: boolean): void
+      // 1 = playing, 2 = paused, among others — see PlayerState in the real
+      // API reference. Only "is it currently playing" is needed here, so
+      // the full enum isn't declared.
+      getPlayerState(): number
       destroy(): void
     }
 

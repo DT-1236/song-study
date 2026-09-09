@@ -1,4 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
+import { JmdictSearch } from './JmdictSearch'
 import { useTabs } from './TabsContext'
 
 export function Layout() {
@@ -32,6 +33,9 @@ export function Layout() {
       <main className="content">
         <Outlet />
       </main>
+      <aside className="right-panel">
+        <JmdictSearch />
+      </aside>
     </div>
   )
 }

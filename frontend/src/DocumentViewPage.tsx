@@ -1,10 +1,16 @@
-import { memo, useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { fetchDocument, fetchTokens } from './api'
 import type { Token } from './api'
 import { useTabs } from './TabsContext'
 import { useApiResource } from './useApiResource'
 import { YouTubePlayer } from './YouTubePlayer'
+import type { YouTubePlayerHandle } from './YouTubePlayer'
+
+// Elements where a focused Space already activates the control natively
+// (typing targets are handled separately, in isTypingTarget) — the global
+// play/pause listener must not override this.
+const SPACE_HANDLED_NATIVELY = new Set(['BUTTON', 'SELECT', 'A'])
 
 const REVIEW_REASON_LABELS: Record<string, string> = {
   oov: 'Not in dictionary',
@@ -91,6 +97,42 @@ export function DocumentViewPage() {
 
   const [fontSize, setFontSize] = useState(18)
   const [furiganaSize, setFuriganaSize] = useState(11)
+  const [seekSeconds, setSeekSeconds] = useState(3)
+
+  const youtubePlayerRef = useRef<YouTubePlayerHandle>(null)
+
+  // Spacebar play/pause and ,/. seek by seekSeconds, same as YouTube's own
+  // page — but only when focus isn't on something these keys already have
+  // a native meaning for: typing (the lyrics textarea, a reading-correction
+  // input) for all three, or activating a focused button/link for Space
+  // specifically, which would otherwise get silently overridden.
+  useEffect(() => {
+    function isTypingTarget(active: Element | null): boolean {
+      return active instanceof HTMLElement && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const active = document.activeElement
+
+      if (event.code === 'Space') {
+        const isNativeSpaceTarget =
+          active instanceof HTMLElement && SPACE_HANDLED_NATIVELY.has(active.tagName)
+        if (isNativeSpaceTarget || isTypingTarget(active)) return
+        event.preventDefault()
+        youtubePlayerRef.current?.togglePlay()
+        return
+      }
+
+      if (event.code === 'Comma' || event.code === 'Period') {
+        if (isTypingTarget(active)) return
+        event.preventDefault()
+        youtubePlayerRef.current?.seekBy(event.code === 'Comma' ? -seekSeconds : seekSeconds)
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [seekSeconds])
 
   useEffect(() => {
     if (doc) {
@@ -120,6 +162,15 @@ export function DocumentViewPage() {
           min={6}
           max={20}
         />
+        <label htmlFor="seek-seconds">Seek step {seekSeconds}s</label>
+        <input
+          id="seek-seconds"
+          type="range"
+          min={1}
+          max={30}
+          value={seekSeconds}
+          onChange={(e) => setSeekSeconds(Number(e.target.value))}
+        />
       </div>
       <div
         id="lyrics"
@@ -142,7 +193,7 @@ export function DocumentViewPage() {
 
       <label htmlFor="youtube-video-id">YouTube video ID</label>
       {doc.youtube_video_id ? (
-        <YouTubePlayer videoId={doc.youtube_video_id} />
+        <YouTubePlayer ref={youtubePlayerRef} videoId={doc.youtube_video_id} />
       ) : (
         <input type="text" value="—" readOnly />
       )}

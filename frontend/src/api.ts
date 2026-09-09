@@ -99,6 +99,33 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
 export type SortField = 'id' | 'title' | 'youtube_video_id' | 'created_at'
 export type SortDir = 'asc' | 'desc'
 
+export type JmdictSense = {
+  pos: string[]
+  misc: string[]
+  field: string[]
+  gloss: string[]
+}
+
+export type JmdictEntry = {
+  idseq: number
+  kanji_forms: string[]
+  kana_forms: string[]
+  senses: JmdictSense[]
+}
+
+export async function searchJmdict(query: string): Promise<JmdictEntry[]> {
+  const url = new URL(`${API_URL}/jmdict/search`)
+  url.searchParams.set('q', query)
+
+  const response = await fetch(url)
+
+  if (!response.ok) {
+    throw new ApiError(`Request failed (${response.status})`)
+  }
+
+  return response.json()
+}
+
 export async function fetchDocuments(params: {
   page: number
   pageSize: number

@@ -5,10 +5,14 @@ import { loadYouTubeIframeApi } from './loadYouTubeIframeApi'
 // channel/"author" name) are all the YouTube IFrame Player API exposes.
 // There's no album, and no access to the raw audio signal — the player is a
 // cross-origin iframe, so it can't be routed into Web Audio API.
+const YT_PLAYING_STATE = 1
+
 export type YouTubePlayerHandle = {
   getCurrentTime: () => number
   getDuration: () => number
   getVideoData: () => YT.VideoData | null
+  togglePlay: () => void
+  seekBy: (deltaSeconds: number) => void
 }
 
 type Props = {
@@ -45,6 +49,22 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
     getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
     getDuration: () => playerRef.current?.getDuration() ?? 0,
     getVideoData: () => playerRef.current?.getVideoData() ?? null,
+    togglePlay: () => {
+      const player = playerRef.current
+      if (!player) return
+      if (player.getPlayerState() === YT_PLAYING_STATE) {
+        player.pauseVideo()
+      } else {
+        player.playVideo()
+      }
+    },
+    seekBy: (deltaSeconds) => {
+      const player = playerRef.current
+      if (!player) return
+      const target = player.getCurrentTime() + deltaSeconds
+      const clamped = Math.min(Math.max(target, 0), player.getDuration())
+      player.seekTo(clamped, true)
+    },
   }), [])
 
   return (
