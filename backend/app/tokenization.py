@@ -2,17 +2,25 @@
 
 Pipeline per document:
   1. Tokenize with SplitMode.C (coarsest, closest to "word" granularity).
-  2. For each token, align its Sudachi reading (katakana) against its surface
-     text to produce per-span furigana, accounting for okurigana (kana in the
+  2. Ask Sudachi itself whether this C-mode token is a merge of independently
+     recognized words: `morpheme.split(SplitMode.A)` returns the finer-grained
+     decomposition when one exists (e.g. 勝利の女神, one C-mode token, splits
+     into 勝利/の/女神), or nothing when the token is already irreducible at
+     Sudachi's finest granularity. This gives correct word boundaries
+     directly — including across a kana particle in the middle of a
+     kanji-heavy span, which no amount of regex alignment on the merged
+     surface could recover, since that boundary information only exists on
+     the morpheme itself.
+  3. For each piece (the whole token if it didn't decompose, or each
+     SplitMode.A sub-word otherwise), align its reading against its surface
+     to produce per-span furigana, accounting for okurigana (kana in the
      surface anchors the reading; only kanji runs need ruby).
-  3. Kanji runs of two or more characters have no anchor inside them, so the
-     reading can't be positionally split without more work. We try (a) the
-     SplitMode.A tokenization of the same span, in case it decomposes the run
-     into independently-recognized words, then (b) a per-character dictionary
-     reading lookup to brute-force a consistent split. If neither yields a
-     single unambiguous split, we fall back to one span covering the whole
-     run and flag the token for human review.
-  4. Tokens are also flagged when Sudachi marks them out-of-vocabulary (kanji
+  4. A kanji run of two or more characters with no kana anchor inside it
+     (e.g. 勝利 on its own) still can't be positionally split — Sudachi
+     doesn't decompose within a single word. A per-character dictionary
+     reading lookup brute-forces a consistent split; if that's ambiguous or
+     impossible, the run falls back to one span and is flagged for review.
+  5. Tokens are also flagged when Sudachi marks them out-of-vocabulary (kanji
      present, reading is a guess) or when the dictionary lists more than one
      reading for the exact same part-of-speech as the chosen token (a
      genuine heteronym Sudachi's own grammar can't disambiguate, e.g. 今日).
@@ -126,47 +134,15 @@ class TokenRecord:
     review_reason: Optional[str]
 
 
-def _kanji_run_spans(
-    run: str,
-    run_reading: str,
-    abs_start: int,
-    a_mode_tokens: list,
-) -> tuple[list[FuriganaSpan], bool]:
+def _kanji_run_spans(run: str, run_reading: str) -> tuple[list[FuriganaSpan], bool]:
     """Split a single multi-character kanji run's reading across its
-    characters. Returns (spans relative to run start, needs_review)."""
+    characters, via a per-character dictionary reading partition search.
+    Returns (spans relative to run start, needs_review).
 
-    # Try SplitMode.A first: if it independently recognizes sub-words inside
-    # this run whose own readings add up to exactly run_reading, use those
-    # boundaries (handles compounds Sudachi's C mode over-merged).
-    abs_end = abs_start + len(run)
-    sub_tokens = [
-        t for t in a_mode_tokens if abs_start <= t.begin() and t.end() <= abs_end
-    ]
-    if len(sub_tokens) >= 2 and sub_tokens[0].begin() == abs_start and sub_tokens[-1].end() == abs_end:
-        pieces = [t.reading_form() for t in sub_tokens]
-        if sum(len(p) for p in pieces) == len(run_reading) and "".join(pieces) == run_reading:
-            spans: list[FuriganaSpan] = []
-            flagged = False
-            offset = 0
-            for t, piece in zip(sub_tokens, pieces):
-                sub_run = t.surface()
-                if len(sub_run) == 1:
-                    spans.append(
-                        FuriganaSpan(offset, offset + 1, sub_run, _to_hiragana(piece))
-                    )
-                else:
-                    sub_spans, sub_flag = _kanji_run_spans(sub_run, piece, abs_start + offset, [])
-                    for s in sub_spans:
-                        spans.append(
-                            FuriganaSpan(
-                                offset + s.start, offset + s.end, s.text, s.reading
-                            )
-                        )
-                    flagged = flagged or sub_flag
-                offset += len(sub_run)
-            return spans, flagged
+    This only runs on a run Sudachi couldn't already decompose into
+    independent words (see module docstring) — so there's no boundary
+    information left to exploit, just a brute-force character-level search."""
 
-    # Fall back to a per-character dictionary reading partition search.
     split, ambiguous = _partition_search(run, run_reading)
     if split is not None:
         spans = []
@@ -183,12 +159,7 @@ def _kanji_run_spans(
     return [FuriganaSpan(0, len(run), run, _to_hiragana(run_reading))], ambiguous
 
 
-def _build_furigana_spans(
-    surface: str,
-    reading_katakana: str,
-    abs_start: int,
-    a_mode_tokens: list,
-) -> tuple[list[dict], bool]:
+def _build_furigana_spans(surface: str, reading_katakana: str) -> tuple[list[dict], bool]:
     if not _KANJI_RE.search(surface):
         return [{"start": 0, "end": len(surface), "text": surface, "reading": None}], False
 
@@ -242,7 +213,7 @@ def _build_furigana_spans(
             )
             continue
 
-        sub_spans, sub_flagged = _kanji_run_spans(run, run_reading, abs_start + start, a_mode_tokens)
+        sub_spans, sub_flagged = _kanji_run_spans(run, run_reading)
         for s in sub_spans:
             spans.append(
                 {
@@ -255,6 +226,44 @@ def _build_furigana_spans(
         flagged = flagged or sub_flagged
 
     return spans, flagged
+
+
+def _furigana_spans_for_morpheme(m) -> tuple[list[dict], bool]:
+    """Top-level furigana span builder for one SplitMode.C morpheme.
+
+    Tries Sudachi's own SplitMode.A decomposition first (see module
+    docstring): if it splits `m` into independently-recognized words whose
+    readings concatenate back to `m`'s own reading, each piece is placed via
+    its own reading — real word boundaries, not a guess. Otherwise `m` is
+    already irreducible, so its surface/reading go straight to
+    `_build_furigana_spans` (which still uses kana anchors to place furigana
+    within it, and falls to `_kanji_run_spans` for any anchor-less run)."""
+    surface = m.surface()
+    reading = m.reading_form()
+
+    if len(surface) > 1 and _KANJI_RE.search(surface):
+        sub_morphemes = m.split(sudachi_tokenizer.Tokenizer.SplitMode.A)
+        if len(sub_morphemes) >= 2 and "".join(s.reading_form() for s in sub_morphemes) == reading:
+            spans: list[dict] = []
+            flagged = False
+            offset = 0
+            for sub in sub_morphemes:
+                sub_surface = sub.surface()
+                sub_spans, sub_flagged = _build_furigana_spans(sub_surface, sub.reading_form())
+                for s in sub_spans:
+                    spans.append(
+                        {
+                            "start": offset + s["start"],
+                            "end": offset + s["end"],
+                            "text": s["text"],
+                            "reading": s["reading"],
+                        }
+                    )
+                flagged = flagged or sub_flagged
+                offset += len(sub_surface)
+            return spans, flagged
+
+    return _build_furigana_spans(surface, reading)
 
 
 @lru_cache(maxsize=4096)
@@ -272,9 +281,7 @@ def _heteronym_flag(surface: str, pos: tuple) -> bool:
 def tokenize_document(text: str) -> list[TokenRecord]:
     tok = _get_tokenizer()
     mode_c = sudachi_tokenizer.Tokenizer.SplitMode.C
-    mode_a = sudachi_tokenizer.Tokenizer.SplitMode.A
 
-    a_mode_tokens = list(tok.tokenize(text, mode_a))
     records: list[TokenRecord] = []
 
     for position, m in enumerate(tok.tokenize(text, mode_c)):
@@ -284,7 +291,7 @@ def tokenize_document(text: str) -> list[TokenRecord]:
         is_oov = m.is_oov()
         has_kanji = bool(_KANJI_RE.search(surface))
 
-        furigana_spans, span_flag = _build_furigana_spans(surface, reading, m.begin(), a_mode_tokens)
+        furigana_spans, span_flag = _furigana_spans_for_morpheme(m)
 
         review_reason = None
         if has_kanji and is_oov:
