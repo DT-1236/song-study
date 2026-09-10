@@ -555,14 +555,21 @@ def tokenize_document(text: str) -> list[TokenRecord]:
             elif span_flag:
                 review_reason = "no_kana_anchor"
                 # These alternatives only differ in how the (single, already
-                # correct) reading is distributed across kanji — the reading
-                # itself doesn't change between options, so it's already the
-                # right citation_reading regardless of inflection.
+                # correct) reading is distributed across kanji — but
+                # `reading` is this token's own occurrence reading, which for
+                # a conjugated form (出来上がった -> デキアガッ) still carries
+                # the inflected tail. JMDict is keyed by the citation form
+                # (出来上がる -> できあがる), same as the default option
+                # (create_conflicts) already uses — using `reading` directly
+                # here would send an inflected, non-citation reading to the
+                # gloss lookup the moment a user picks a non-default option
+                # on anything but a bare citation-form occurrence.
+                citation = mixed_reading(m.normalized_form())
                 conflict_options = [
                     {
                         "reading": to_hiragana(reading),
                         "furigana_spans": alt,
-                        "citation_reading": to_hiragana(reading),
+                        "citation_reading": citation,
                     }
                     for alt in span_alternatives
                 ]

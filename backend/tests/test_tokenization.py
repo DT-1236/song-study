@@ -751,6 +751,50 @@ class TestTokenizeDocument:
             assert "furigana_spans" in option
             assert "citation_reading" in option
 
+    def test_no_kana_anchor_conflict_options_use_citation_reading_not_inflected_reading(self, monkeypatch):
+        """出来上がった's stem token ('出来上がっ') has its own occurrence
+        reading デキアガッ, which still carries the past-tense okurigana
+        mutation — but JMDict is keyed by the citation reading できあがる
+        (mixed_reading of normalized_form), same as what the default
+        conflict option (app/conflicts.py::create_conflicts) already uses.
+        A no_kana_anchor conflict option's citation_reading must always be
+        the latter: using the raw occurrence reading directly would send an
+        inflected, non-citation reading to the gloss lookup the moment a
+        user resolves to a non-default option on anything but a bare
+        citation-form occurrence.
+
+        Real words that are both per-character-ambiguous *and* conjugating
+        are rare enough that none exist in the golden cases above, so this
+        forces the no_kana_anchor path via monkeypatch — the invariant
+        matters regardless of how rare the natural trigger is.
+        """
+        import app.tokenization as tok
+
+        def fake_furigana_spans_for_morpheme(m):
+            surface = m.surface()
+            reading = m.reading_form()
+            spans = [{"start": 0, "end": len(surface), "text": surface, "reading": tok.to_hiragana(reading)}]
+            alt = [{"start": 0, "end": len(surface), "text": surface, "reading": "dummy"}]
+            return spans, True, [alt]
+
+        monkeypatch.setattr(tok, "_furigana_spans_for_morpheme", fake_furigana_spans_for_morpheme)
+
+        records = tok.tokenize_document("出来上がった")
+        stem = next(r for r in records if r.surface == "出来上がっ")
+
+        assert stem.review_reason == "no_kana_anchor"
+        assert stem.reading_katakana == "デキアガッ"
+
+        citation = tok.mixed_reading(stem.normalized_form)
+        inflected = tok.to_hiragana(stem.reading_katakana)
+        assert citation == "できあがる"
+        assert inflected == "できあがっ"
+
+        assert stem.conflict_options, "expected at least one no_kana_anchor alternative"
+        for option in stem.conflict_options:
+            assert option["citation_reading"] == citation
+            assert option["citation_reading"] != inflected
+
     def test_non_heteronym_token_is_not_flagged(self):
         records = tokenize_document("花火")
         assert len(records) == 1
