@@ -177,8 +177,11 @@ class JmdictEntry(BaseModel):
 
 
 @app.get("/jmdict/search", response_model=list[JmdictEntry])
-def jmdict_search(q: str = Query(min_length=1)) -> list[JmdictEntry]:
-    return [JmdictEntry(**entry) for entry in search_jmdict(q)]
+def jmdict_search(
+    q: str = Query(min_length=1),
+    max_results_per_tier: int = Query(default=3, ge=1, le=20),
+) -> list[JmdictEntry]:
+    return [JmdictEntry(**entry) for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)]
 
 
 class Token(BaseModel):

@@ -113,15 +113,14 @@ export type JmdictEntry = {
   senses: JmdictSense[]
 }
 
-export async function searchJmdict(query: string): Promise<JmdictEntry[]> {
+export async function searchJmdict(query: string, maxResultsPerTier = 3): Promise<JmdictEntry[]> {
   const url = new URL(`${API_URL}/jmdict/search`)
   url.searchParams.set('q', query)
+  url.searchParams.set('max_results_per_tier', String(maxResultsPerTier))
 
   const response = await fetch(url)
 
-  if (!response.ok) {
-    throw new ApiError(`Request failed (${response.status})`)
-  }
+  await assertOk(response)
 
   return response.json()
 }

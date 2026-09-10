@@ -10,6 +10,7 @@ const DEBOUNCE_MS = 300
 // any surrounding sentence context.
 export function JmdictSearch() {
   const [query, setQuery] = useState('')
+  const [maxResultsPerTier, setMaxResultsPerTier] = useState(3)
   const [results, setResults] = useState<JmdictEntry[] | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -28,7 +29,7 @@ export function JmdictSearch() {
     setError(null)
 
     const timeout = window.setTimeout(() => {
-      searchJmdict(trimmed)
+      searchJmdict(trimmed, maxResultsPerTier)
         .then((entries) => {
           if (cancelled) return
           setResults(entries)
@@ -46,7 +47,7 @@ export function JmdictSearch() {
       cancelled = true
       window.clearTimeout(timeout)
     }
-  }, [query])
+  }, [query, maxResultsPerTier])
 
   return (
     <div className="jmdict-search">
@@ -58,6 +59,16 @@ export function JmdictSearch() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
+      <label className="jmdict-search-tier-limit">
+        Prefix/suffix/substring matches per group
+        <input
+          type="number"
+          min={1}
+          max={20}
+          value={maxResultsPerTier}
+          onChange={(e) => setMaxResultsPerTier(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+        />
+      </label>
       {loading && <div className="jmdict-search-status">Searching…</div>}
       {error && <div className="jmdict-search-status form-error">{error}</div>}
       {!loading && !error && results !== null && results.length === 0 && (
