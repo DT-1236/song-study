@@ -61,6 +61,41 @@ export type DocumentPage = {
   page_size: number
 }
 
+export type FuriganaSpan = {
+  start: number
+  end: number
+  text: string
+  reading: string | null
+}
+
+export type Token = {
+  id: number
+  document_id: number
+  position: number
+  char_begin: number
+  char_end: number
+  surface: string
+  dictionary_form: string
+  normalized_form: string
+  reading_katakana: string
+  part_of_speech: string[]
+  is_oov: boolean
+  furigana_spans: FuriganaSpan[]
+  needs_review: boolean
+  review_reason: string | null
+  furigana_override: FuriganaSpan[] | null
+  start_time: string | null
+  end_time: string | null
+}
+
+export async function fetchTokens(documentId: number): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens`)
+
+  await assertOk(response)
+
+  return response.json()
+}
+
 export type SortField = 'id' | 'title' | 'youtube_video_id' | 'created_at'
 export type SortDir = 'asc' | 'desc'
 
