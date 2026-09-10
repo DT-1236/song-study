@@ -1,3 +1,4 @@
+import dataclasses
 import json
 import os
 from datetime import datetime
@@ -214,42 +215,35 @@ def get_document_tokens(document_id: int) -> list[Token]:
             return existing
 
         records = tokenize_document(doc_row.text)
+        if not records:
+            return []
 
-        if records:
-            conn.execute(
-                text(
-                    """
-                    INSERT INTO tokens (
-                        document_id, position, char_begin, char_end, surface,
-                        dictionary_form, normalized_form, reading_katakana,
-                        part_of_speech, is_oov, furigana_spans, needs_review,
-                        review_reason
-                    ) VALUES (
-                        :document_id, :position, :char_begin, :char_end, :surface,
-                        :dictionary_form, :normalized_form, :reading_katakana,
-                        CAST(:part_of_speech AS JSONB), :is_oov,
-                        CAST(:furigana_spans AS JSONB), :needs_review, :review_reason
-                    )
-                    """
-                ),
-                [
-                    {
-                        "document_id": document_id,
-                        "position": r.position,
-                        "char_begin": r.char_begin,
-                        "char_end": r.char_end,
-                        "surface": r.surface,
-                        "dictionary_form": r.dictionary_form,
-                        "normalized_form": r.normalized_form,
-                        "reading_katakana": r.reading_katakana,
-                        "part_of_speech": json.dumps(r.part_of_speech),
-                        "is_oov": r.is_oov,
-                        "furigana_spans": json.dumps(r.furigana_spans),
-                        "needs_review": r.needs_review,
-                        "review_reason": r.review_reason,
-                    }
-                    for r in records
-                ],
-            )
+        conn.execute(
+            text(
+                """
+                INSERT INTO tokens (
+                    document_id, position, char_begin, char_end, surface,
+                    dictionary_form, normalized_form, reading_katakana,
+                    part_of_speech, is_oov, furigana_spans, needs_review,
+                    review_reason
+                ) VALUES (
+                    :document_id, :position, :char_begin, :char_end, :surface,
+                    :dictionary_form, :normalized_form, :reading_katakana,
+                    CAST(:part_of_speech AS JSONB), :is_oov,
+                    CAST(:furigana_spans AS JSONB), :needs_review, :review_reason
+                )
+                """
+            ),
+            [
+                {
+                    "document_id": document_id,
+                    **{
+                        k: json.dumps(v) if k in ("part_of_speech", "furigana_spans") else v
+                        for k, v in dataclasses.asdict(r).items()
+                    },
+                }
+                for r in records
+            ],
+        )
 
         return _fetch_tokens(conn, document_id)

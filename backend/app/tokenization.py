@@ -50,23 +50,20 @@ def _is_kanji(ch: str) -> bool:
     return bool(_KANJI_RE.match(ch))
 
 
-_dictionary = None
-_tokenizer = None
+@lru_cache(maxsize=1)
+def _get_dictionary() -> sudachi_dictionary.Dictionary:
+    return sudachi_dictionary.Dictionary(dict="full")
 
 
+@lru_cache(maxsize=1)
 def _get_tokenizer():
-    global _dictionary, _tokenizer
-    if _tokenizer is None:
-        _dictionary = sudachi_dictionary.Dictionary(dict="full")
-        _tokenizer = _dictionary.create()
-    return _tokenizer
+    return _get_dictionary().create()
 
 
 @lru_cache(maxsize=4096)
 def _char_readings(ch: str) -> frozenset[str]:
     """All katakana readings the dictionary lists for a single character."""
-    tok = _get_tokenizer()
-    return frozenset(m.reading_form() for m in _dictionary.lookup(ch))
+    return frozenset(m.reading_form() for m in _get_dictionary().lookup(ch))
 
 
 def _partition_search(run: str, reading: str) -> tuple[Optional[list[str]], bool]:
@@ -260,9 +257,10 @@ def _build_furigana_spans(
     return spans, flagged
 
 
-def _heteronym_flag(surface: str, reading_katakana: str, pos: tuple) -> bool:
+@lru_cache(maxsize=4096)
+def _heteronym_flag(surface: str, pos: tuple) -> bool:
     try:
-        candidates = _dictionary.lookup(surface)
+        candidates = _get_dictionary().lookup(surface)
     except Exception:
         return False
     readings = {
@@ -291,7 +289,7 @@ def tokenize_document(text: str) -> list[TokenRecord]:
         review_reason = None
         if has_kanji and is_oov:
             review_reason = "oov"
-        elif has_kanji and _heteronym_flag(surface, reading, pos):
+        elif has_kanji and _heteronym_flag(surface, pos):
             review_reason = "heteronym"
         elif span_flag:
             review_reason = "no_kana_anchor"

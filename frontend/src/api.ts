@@ -91,10 +91,7 @@ export type Token = {
 export async function fetchTokens(documentId: number): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens`)
 
-  if (!response.ok) {
-    const message = response.status === 404 ? 'Document not found.' : `Request failed (${response.status})`
-    throw new ApiError(message)
-  }
+  await assertOk(response)
 
   return response.json()
 }

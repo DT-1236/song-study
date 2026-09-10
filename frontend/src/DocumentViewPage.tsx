@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { fetchDocument, fetchTokens } from './api'
 import type { Token } from './api'
@@ -6,16 +6,23 @@ import { useTabs } from './TabsContext'
 import { useApiResource } from './useApiResource'
 import { YouTubePlayer } from './YouTubePlayer'
 
-function TokenizedText({ tokens }: { tokens: Token[] }) {
+const REVIEW_REASON_LABELS: Record<string, string> = {
+  oov: 'Not in dictionary',
+  heteronym: 'Multiple possible readings',
+  no_kana_anchor: 'Ambiguous furigana split',
+}
+
+const TokenizedText = memo(function TokenizedText({ tokens }: { tokens: Token[] }) {
   return (
     <p className="lyrics-box">
       {tokens.map((token) => {
         const spans = token.furigana_override ?? token.furigana_spans
+        const reviewLabel = token.review_reason ? REVIEW_REASON_LABELS[token.review_reason] ?? 'Needs review' : undefined
         return (
           <span
             key={token.id}
             className={token.needs_review ? 'token needs-review' : 'token'}
-            title={token.needs_review ? `Needs review: ${token.review_reason}` : undefined}
+            title={reviewLabel ? `Needs review: ${reviewLabel}` : undefined}
           >
             {spans.map((span, i) =>
               span.reading ? (
@@ -31,6 +38,38 @@ function TokenizedText({ tokens }: { tokens: Token[] }) {
         )
       })}
     </p>
+  )
+})
+
+function SizeSlider({
+  id,
+  label,
+  value,
+  onChange,
+  min,
+  max,
+}: {
+  id: string
+  label: string
+  value: number
+  onChange: (value: number) => void
+  min: number
+  max: number
+}) {
+  return (
+    <>
+      <label htmlFor={id}>
+        {label} {value}px
+      </label>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => onChange(Number(e.target.value))}
+      />
+    </>
   )
 }
 
@@ -72,23 +111,14 @@ export function DocumentViewPage() {
 
       <label htmlFor="lyrics">Lyrics</label>
       <div className="text-size-controls">
-        <label htmlFor="font-size">Text size {fontSize}px</label>
-        <input
-          id="font-size"
-          type="range"
-          min={14}
-          max={32}
-          value={fontSize}
-          onChange={(e) => setFontSize(Number(e.target.value))}
-        />
-        <label htmlFor="furigana-size">Furigana size {furiganaSize}px</label>
-        <input
+        <SizeSlider id="font-size" label="Text size" value={fontSize} onChange={setFontSize} min={14} max={32} />
+        <SizeSlider
           id="furigana-size"
-          type="range"
+          label="Furigana size"
+          value={furiganaSize}
+          onChange={setFuriganaSize}
           min={6}
           max={20}
-          value={furiganaSize}
-          onChange={(e) => setFuriganaSize(Number(e.target.value))}
         />
       </div>
       <div
