@@ -6,6 +6,7 @@ const MAX_OPEN_TABS = 5
 export type Tab = {
   documentId: number
   title: string
+  lastAccessedAt: number
 }
 
 type TabsContextValue = {
@@ -21,11 +22,23 @@ export function TabsProvider({ children }: { children: ReactNode }) {
 
   const visitDocument = useCallback((documentId: number, title: string) => {
     setTabs((prev) => {
-      const next = prev.filter((tab) => tab.documentId !== documentId)
-      next.push({ documentId, title })
+      const now = Date.now()
+      const existingIndex = prev.findIndex((tab) => tab.documentId === documentId)
+
+      if (existingIndex !== -1) {
+        const next = [...prev]
+        next[existingIndex] = { ...next[existingIndex], title, lastAccessedAt: now }
+        return next
+      }
+
+      const next = [...prev, { documentId, title, lastAccessedAt: now }]
 
       if (next.length > MAX_OPEN_TABS) {
-        next.shift()
+        let lruIndex = 0
+        for (let i = 1; i < next.length; i++) {
+          if (next[i].lastAccessedAt < next[lruIndex].lastAccessedAt) lruIndex = i
+        }
+        next.splice(lruIndex, 1)
       }
 
       return next

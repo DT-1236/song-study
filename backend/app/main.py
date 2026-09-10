@@ -66,10 +66,18 @@ def create_document(document: DocumentCreate) -> Document:
                 },
             ).one()
         except IntegrityError as exc:
-            raise HTTPException(
-                status_code=409,
-                detail="A document with this YouTube video ID already exists.",
-            ) from exc
+            with engine.connect() as lookup_conn:
+                existing = lookup_conn.execute(
+                    text("SELECT title FROM documents WHERE youtube_video_id = :youtube_video_id"),
+                    {"youtube_video_id": document.youtube_video_id},
+                ).one_or_none()
+
+            detail = (
+                f'A document with this YouTube video ID already exists: "{existing.title}".'
+                if existing
+                else "A document with this YouTube video ID already exists."
+            )
+            raise HTTPException(status_code=409, detail=detail) from exc
 
     return Document(**row._mapping)
 
