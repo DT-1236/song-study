@@ -71,38 +71,47 @@ def search_jmdict(query: str, max_results_per_tier: int = 3) -> list[dict]:
         return []
 
     jam = _get_jamdict()
-    result = jam.lookup(f"%{query}%")
-    scored_entries = []
+    # lookup_chars/lookup_ne pull in per-character dictionary and
+    # name-entity data we never read (only result.entries is used below) —
+    # for a common character, that extra work costs *seconds* on a query
+    # that would otherwise take a fraction of one, so it's disabled here.
+    result = jam.lookup(f"%{query}%", lookup_chars=False, lookup_ne=False)
+
+    # Rank first using only the cheap fields (headword text), before paying
+    # for the senses/gloss extraction below — a common single-character
+    # query can match well over a thousand entries, and only a handful of
+    # those ever get serialized.
+    scored = []
     for e in result.entries:
         has_priority = any(k.pri for k in e.kanji_forms) or any(k.pri for k in e.kana_forms)
-        scored_entries.append(
-            (
-                (_match_tier(query, e), not has_priority),
-                {
-                    "idseq": e.idseq,
-                    "kanji_forms": [k.text for k in e.kanji_forms],
-                    "kana_forms": [k.text for k in e.kana_forms],
-                    "senses": [
-                        {
-                            "pos": s.pos,
-                            "misc": s.misc,
-                            "field": s.field,
-                            "gloss": [g.text for g in s.gloss if g.lang == "eng"],
-                        }
-                        for s in e.senses
-                    ],
-                },
-            )
-        )
-    scored_entries.sort(key=lambda pair: pair[0])
+        scored.append(((_match_tier(query, e), not has_priority), e))
+    scored.sort(key=lambda pair: pair[0])
 
-    results = []
+    selected = []
     tier_counts = {_PREFIX: 0, _SUFFIX: 0, _SUBSTRING: 0}
-    for (tier, _priority_key), entry in scored_entries:
+    for (tier, _priority_key), e in scored:
         if tier in tier_counts:
             if tier_counts[tier] >= max_results_per_tier:
                 continue
             tier_counts[tier] += 1
-        results.append(entry)
+        selected.append(e)
+        if len(selected) >= _SEARCH_RESULT_LIMIT:
+            break
 
-    return results[:_SEARCH_RESULT_LIMIT]
+    return [
+        {
+            "idseq": e.idseq,
+            "kanji_forms": [k.text for k in e.kanji_forms],
+            "kana_forms": [k.text for k in e.kana_forms],
+            "senses": [
+                {
+                    "pos": s.pos,
+                    "misc": s.misc,
+                    "field": s.field,
+                    "gloss": [g.text for g in s.gloss if g.lang == "eng"],
+                }
+                for s in e.senses
+            ],
+        }
+        for e in selected
+    ]
