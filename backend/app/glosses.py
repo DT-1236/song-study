@@ -52,13 +52,19 @@ def _match_tier(query: str, entry) -> int:
     return _SUBSTRING
 
 
-def search_jmdict(query: str) -> list[dict]:
+def search_jmdict(query: str, max_results_per_tier: int = 3) -> list[dict]:
     """Ad-hoc JMDict lookup for the standalone search box in the sidebar —
     unlike a per-token gloss lookup, this isn't scoped to a single reading
     (there's no token context to key a match off of here), so every entry
     whose headword contains `query` is returned (kana_forms included so each
     entry's own reading(s) stay visible to the user), ranked exact match
     first, then prefix, then suffix, then substring.
+
+    Exact matches are never capped — there's usually only a handful, and
+    they're what the user is most likely looking for. The looser tiers
+    (prefix/suffix/substring) are each capped independently at
+    `max_results_per_tier`, so a broad query doesn't bury the closer matches
+    under a wall of loosely-related compounds.
     """
     query = query.strip()
     if not query:
@@ -89,4 +95,14 @@ def search_jmdict(query: str) -> list[dict]:
             )
         )
     scored_entries.sort(key=lambda pair: pair[0])
-    return [entry for _, entry in scored_entries][:_SEARCH_RESULT_LIMIT]
+
+    results = []
+    tier_counts = {_PREFIX: 0, _SUFFIX: 0, _SUBSTRING: 0}
+    for (tier, _priority_key), entry in scored_entries:
+        if tier in tier_counts:
+            if tier_counts[tier] >= max_results_per_tier:
+                continue
+            tier_counts[tier] += 1
+        results.append(entry)
+
+    return results[:_SEARCH_RESULT_LIMIT]
