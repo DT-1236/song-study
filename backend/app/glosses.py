@@ -34,26 +34,44 @@ def _get_jamdict() -> Jamdict:
 
 _SEARCH_RESULT_LIMIT = 50
 
+# Ranks how well an entry's headword matches the raw query, best first. A
+# single "%query%" jamdict lookup already returns every substring match (a
+# superset of exact/prefix/suffix), so ranking happens here rather than as
+# four separate lookups.
+_EXACT, _PREFIX, _SUFFIX, _SUBSTRING = range(4)
+
+
+def _match_tier(query: str, entry) -> int:
+    texts = [k.text for k in entry.kanji_forms] + [k.text for k in entry.kana_forms]
+    if any(t == query for t in texts):
+        return _EXACT
+    if any(t.startswith(query) for t in texts):
+        return _PREFIX
+    if any(t.endswith(query) for t in texts):
+        return _SUFFIX
+    return _SUBSTRING
+
 
 def search_jmdict(query: str) -> list[dict]:
     """Ad-hoc JMDict lookup for the standalone search box in the sidebar —
     unlike a per-token gloss lookup, this isn't scoped to a single reading
     (there's no token context to key a match off of here), so every entry
-    JMDict has for the exact headword is returned, with kana_forms included
-    so each entry's own reading(s) stay visible to the user.
+    whose headword contains `query` is returned (kana_forms included so each
+    entry's own reading(s) stay visible to the user), ranked exact match
+    first, then prefix, then suffix, then substring.
     """
     query = query.strip()
     if not query:
         return []
 
     jam = _get_jamdict()
-    result = jam.lookup(query)
+    result = jam.lookup(f"%{query}%")
     scored_entries = []
     for e in result.entries:
         has_priority = any(k.pri for k in e.kanji_forms) or any(k.pri for k in e.kana_forms)
         scored_entries.append(
             (
-                not has_priority,
+                (_match_tier(query, e), not has_priority),
                 {
                     "idseq": e.idseq,
                     "kanji_forms": [k.text for k in e.kanji_forms],
