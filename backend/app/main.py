@@ -12,6 +12,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.db import engine
+from app.glosses import search_jmdict
 from app.tokenization import tokenize_document
 
 app = FastAPI()
@@ -159,6 +160,28 @@ def list_documents(
     ]
 
     return DocumentPage(items=items, total=total, page=page, page_size=page_size)
+
+
+class JmdictSense(BaseModel):
+    pos: list[str]
+    misc: list[str]
+    field: list[str]
+    gloss: list[str]
+
+
+class JmdictEntry(BaseModel):
+    idseq: int
+    kanji_forms: list[str]
+    kana_forms: list[str]
+    senses: list[JmdictSense]
+
+
+@app.get("/jmdict/search", response_model=list[JmdictEntry])
+def jmdict_search(
+    q: str = Query(min_length=1),
+    max_results_per_tier: int = Query(default=3, ge=1, le=20),
+) -> list[JmdictEntry]:
+    return [JmdictEntry(**entry) for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)]
 
 
 class Token(BaseModel):
