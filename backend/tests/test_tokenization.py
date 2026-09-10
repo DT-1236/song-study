@@ -33,6 +33,7 @@ hand at the time (see the case comments), not invented examples.
 
 from app.tokenization import (
     _build_furigana_spans,
+    _conjugation_type,
     _is_regular_potential_form,
     _reconstruct_citation_reading,
     a_split_decomposition,
@@ -697,29 +698,54 @@ class TestHeteronymReadings:
 
 
 class TestReconstructCitationReading:
-    def test_ichidan_append_pattern(self):
-        # 温め (アタタメ) -> citation アタタメル adds ル; the same suffix
-        # reconstructs the other heteronym candidates' citation readings.
+    def test_ichidan_inflected_append_pattern(self):
+        # 温め is 温める's stem/renyou form (e.g. from 温めた) — citation
+        # adds back exactly what's missing from the (shorter) stem reading,
+        # almost always just る.
         citation = citation_reading("温める")
-        assert _reconstruct_citation_reading("アタタメ", citation, "ヌクメ") == "ヌクメル"
-        assert _reconstruct_citation_reading("アタタメ", citation, "ヌルメ") == "ヌルメル"
+        conjugation_type = _conjugation_type("温める")
+        assert conjugation_type == "下一段-マ行"
+        assert _reconstruct_citation_reading("アタタメ", citation, "ヌクメ", conjugation_type) == "ヌクメル"
+        assert _reconstruct_citation_reading("アタタメ", citation, "ヌルメ", conjugation_type) == "ヌルメル"
 
-    def test_godan_substitution_pattern(self):
-        # 開く is a real, registered heteronym: ひらく vs あく, renyou stems
-        # ヒラキ/アキ. Godan doesn't append a mora, it replaces the final
-        # one (カク/カキ) — a naive suffix-append is wrong here, which is
-        # exactly the gap this function exists to close.
+    def test_ichidan_already_at_citation_form_needs_no_change(self):
+        # Regression: when the token occurs in its OWN citation-form
+        # reading directly (温める itself, not conjugated), reading already
+        # equals dict_form_citation — blindly appending citation's last
+        # character regardless would double it up (ぬくめる -> ぬくめるる).
+        # A heteronym alternative sharing that exact shape needs no
+        # transformation at all.
+        citation = citation_reading("温める")
+        conjugation_type = _conjugation_type("温める")
+        assert _reconstruct_citation_reading(citation, citation, "ヌクメル", conjugation_type) == "ヌクメル"
+
+    def test_godan_inflected_substitution_pattern(self):
+        # 開き is 開く's stem/renyou form and a real, registered heteronym:
+        # ひらく vs あく, renyou stems ヒラキ/アキ. Godan doesn't append a
+        # mora, it replaces the final one (カク/カキ) — a naive suffix-append
+        # is wrong here, which is exactly the gap this function exists to
+        # close.
         citation = citation_reading("開く")  # Sudachi's own default: ヒラク
-        assert _reconstruct_citation_reading("ヒラキ", citation, "アキ") == "アク"
+        conjugation_type = _conjugation_type("開く")
+        assert conjugation_type == "五段-カ行"
+        assert _reconstruct_citation_reading("ヒラキ", citation, "アキ", conjugation_type) == "アク"
 
-    def test_falls_back_safely_when_reading_and_citation_share_no_prefix(self):
-        # Known limitation: if the token's own contextual reading isn't
-        # Sudachi's isolated citation default, the two readings being
-        # compared may not represent the same sense at all. Must degrade to
-        # "leave it unchanged", never fabricate a garbage reading.
-        citation = citation_reading("開く")  # ヒラク
-        result = _reconstruct_citation_reading("アキ", citation, "ヒラキ")
-        assert result == "ヒラキ"
+    def test_godan_already_at_citation_form_needs_no_change(self):
+        # Same regression as the ichidan case, for godan: a token occurring
+        # in its own citation form (開く itself) needs no substitution.
+        citation = citation_reading("開く")
+        conjugation_type = _conjugation_type("開く")
+        assert _reconstruct_citation_reading(citation, citation, "アク", conjugation_type) == "アク"
+
+    def test_falls_back_safely_for_irregular_verbs(self):
+        # する/来る (サ行変格/カ行変格) don't follow either fixed rule — their
+        # stem readings vary irregularly across forms — so this must
+        # degrade to "leave it unchanged" rather than apply a rule that
+        # doesn't hold for them.
+        citation = citation_reading("する")
+        conjugation_type = _conjugation_type("する")
+        assert conjugation_type == "サ行変格"
+        assert _reconstruct_citation_reading("シ", citation, "シ", conjugation_type) == "シ"
 
 
 class TestTokenizeDocument:

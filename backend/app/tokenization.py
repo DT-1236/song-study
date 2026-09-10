@@ -449,62 +449,47 @@ def heteronym_readings(surface: str, pos: tuple) -> list[str]:
     return readings
 
 
-def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_reading: str) -> str:
-    """Given how this token's own inflected reading relates to its citation
-    reading, reconstruct the citation reading for a heteronym alternative
-    that shares the exact same conjugation type and form.
+def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_reading: str, conjugation_type: str) -> str:
+    """Reconstruct the citation reading for a heteronym alternative that
+    shares the token's own exact conjugation type and form, given
+    `conjugation_type` — Sudachi's own paradigm tag for the lexeme
+    (`_conjugation_type(normalized_form)`), e.g. '五段-カ行' or '下一段-バ行'.
 
-    Not a simple suffix-append: that only holds for ichidan verbs, where
-    the citation form is the stem plus る (揃え -> 揃える, アタタメ -> アタタメル).
-    Godan verbs work differently — the renyou stem replaces the citation
-    form's final mora entirely rather than adding one (書く/カク -> 書き/カキ:
-    the final ク becomes キ, same mora count, not an append). A naive
-    startswith-based suffix check silently fails for these (カク doesn't
-    start with カキ), which would leave alternates' citation_reading wrong
-    for any godan heteronym-stem token.
+    If `reading` already equals `dict_form_citation`, this occurrence is
+    already in its own citation-form reading (終止形/連体形) — alt_reading,
+    sharing the same surface and part-of-speech, is shaped the same way and
+    needs no transformation at all.
 
-    This instead finds the longest common prefix between `reading` and
-    `dict_form_citation` — for ichidan that's the whole stem (empty tail),
-    for godan it's everything but the last mora (one-mora tail) — and
-    reapplies the same "keep this many leading characters, replace the
-    rest with the citation form's own tail" transformation to `alt_reading`.
-    Verified against real Sudachi data for both patterns: ichidan (揃える)
-    and godan heteronyms sharing a stem (開く as ひらく vs あく, renyou
-    stems ヒラキ/アキ, citation ヒラク/アク).
+    Otherwise this is an inflected (stem) occurrence, and the two verb
+    classes transform differently. Ichidan verbs' citation form is the stem
+    plus る (揃え -> 揃える, アタタメ -> アタタメル) — not a fixed one-character
+    append in general, but whatever's missing from this occurrence's own
+    (shorter) reading, which is almost always exactly る. Godan verbs work
+    differently — the renyou stem replaces the citation form's final mora
+    entirely rather than adding one (書く/カク -> 書き/カキ: the final ク
+    becomes キ, same mora count) — always exactly one mora, since a godan
+    citation ending is always exactly one mora (the row's own -u kana).
 
-    Known limitation: this assumes `dict_form_citation` — Sudachi's own
-    default reading for the citation text in isolation — represents the
-    same sense as `reading` — the token's actual contextual reading. That
-    holds whenever the token's chosen sense is also Sudachi's most common
-    one (true for every real case tested), but isn't logically guaranteed
-    for a token whose contextual reading is a rarer sense that isn't
-    Sudachi's own isolated default. Falls back to `alt_reading` unchanged
-    (matching the token's own display reading) if the arithmetic doesn't
-    work out, rather than producing something worse than what the
-    surface's own reading would give.
+    Verified against real Sudachi data for all three patterns: ichidan in
+    both its own citation form and inflected (温める / 温めた -> 温め), and
+    godan heteronyms sharing a stem (開く as ひらく vs あく, renyou stems
+    ヒラキ/アキ, citation ヒラク/アク).
+
+    Irregular verbs (サ行変格 する / カ行変格 来る) don't follow either fixed
+    rule — their stem readings vary irregularly across forms — so this
+    leaves alt_reading unchanged rather than guess at a transformation that
+    might not hold.
     """
-    prefix_len = 0
-    for a, b in zip(reading, dict_form_citation):
-        if a != b:
-            break
-        prefix_len += 1
-
-    # No shared prefix at all is a strong signal `reading` and
-    # dict_form_citation aren't the same sense to begin with (the known
-    # limitation above) — concatenating under that assumption anyway
-    # produces outright garbage (アキ vs citation ヒラク reconstructing ヒキ's
-    # alt ヒラキ as "ヒヒラク"), not just an imprecise answer. Bail out to the
-    # same safe fallback as the length guard below rather than risk that.
-    if prefix_len == 0:
+    if reading == dict_form_citation:
         return alt_reading
 
-    tail_len = len(reading) - prefix_len
-    citation_tail = dict_form_citation[prefix_len:]
+    if conjugation_type.startswith(("上一段", "下一段")):
+        return alt_reading + dict_form_citation[len(reading):]
 
-    if len(alt_reading) < tail_len:
-        return alt_reading
+    if conjugation_type.startswith("五段"):
+        return alt_reading[:-1] + dict_form_citation[-1:]
 
-    return alt_reading[: len(alt_reading) - tail_len] + citation_tail
+    return alt_reading
 
 
 def tokenize_document(text: str) -> list[TokenRecord]:
@@ -542,9 +527,10 @@ def tokenize_document(text: str) -> list[TokenRecord]:
                 # form. See _reconstruct_citation_reading for how (it's not
                 # a plain suffix append — that only works for ichidan verbs).
                 dict_form_citation = citation_reading(m.dictionary_form())
+                conjugation_type = _conjugation_type(m.normalized_form())
                 for alt_reading in alt_readings:
                     alt_spans, _, _ = _build_furigana_spans(surface, alt_reading)
-                    alt_citation = _reconstruct_citation_reading(reading, dict_form_citation, alt_reading)
+                    alt_citation = _reconstruct_citation_reading(reading, dict_form_citation, alt_reading, conjugation_type)
                     conflict_options.append(
                         {
                             "reading": to_hiragana(alt_reading),
