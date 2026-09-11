@@ -7,16 +7,15 @@ same process, so this pass is deliberately synchronous and run once per
 unique word rather than once per token occurrence.
 
 Lookups are keyed off normalized_form, not Sudachi's dictionary_form.
-dictionary_form is the grammatically precise lemma for whatever conjugation
-paradigm actually matched (e.g. 挟める, the lexicalized potential of 挟む),
-but JMDict often doesn't carry that paradigm as its own headword the way
-Sudachi's own dictionary does. normalized_form collapses exactly this kind
-of derived/variant spelling back to the form JMDict actually has an entry
-for. Tested against a batch of genuine potential forms (書ける->書く,
-読める->読む, ...) and independent -める verbs that only superficially
-resemble potentials (決める, 集める, 込める, ...): normalization only ever
-fires for true derivational/orthographic variants — independent verbs keep
-normalized_form == dictionary_form, it never substitutes an unrelated word.
+Sudachi's own dictionary carries entries for derivations like the
+lexicalized potential (挟める, its own dictionary_form, normalized_form
+挟む) that JMDict doesn't register as separate headwords; normalized_form
+collapses exactly that kind of derived/variant spelling back to the form
+JMDict actually has an entry for. Verified against a batch of genuine
+potential forms (書ける->書く, 読める->読む, ...) and independent -める verbs
+that only superficially resemble potentials (決める, 集める, 込める, ...):
+normalization only ever fires for true derivational variants — independent
+verbs keep normalized_form == dictionary_form.
 """
 
 from __future__ import annotations

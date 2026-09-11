@@ -39,11 +39,12 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
     rows = []
     for record in flagged:
         token_id = token_ids[record.position]
-        # citation_reading uses mixed_reading(normalized_form), same as the
-        # unflagged default gloss path — for an inflected token that's the
-        # citation form's reading (揃える -> そろえる), not
-        # record.reading_katakana's inflected-surface reading (揃え ->
-        # そろえ), which is what furigana needs but JMDict is not keyed by.
+        # `reading` below is the inflected surface's own reading (what
+        # furigana needs); `citation_reading` is deliberately different —
+        # mixed_reading of normalized_form, the citation form's reading,
+        # which is what a later gloss lookup is actually keyed by. These
+        # differ for an inflected token (揃える's citation reading そろえる
+        # vs 揃え's own reading そろえ).
         default_value = conflict_option_value(
             to_hiragana(record.reading_katakana), record.furigana_spans, mixed_reading(record.normalized_form)
         )
@@ -55,6 +56,11 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
                 "selected": True,
             }
         )
+        # record.conflict_options never includes this default: heteronym
+        # alternatives are built from `[r for r in heteronym_readings(...)
+        # if r != reading]`, and no_kana_anchor alternatives are `solutions[1:]`
+        # (the chosen split is solutions[0]) — both already exclude the
+        # option selected above, so there's no duplicate row here.
         for option in record.conflict_options:
             rows.append(
                 {
@@ -81,8 +87,8 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
 
 def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], gloss_lookup_id: int) -> None:
     """Write a newly-selected reading's furigana and gloss onto the token
-    row itself — shared by resolve_conflict and correct_reading, which both
-    end by committing whatever reading just became selected the same way."""
+    row itself. Shared by resolve_conflict and correct_reading, so both
+    commit a selection through the same code path."""
     conn.execute(
         text(
             """
@@ -155,10 +161,7 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
     # because for an inflected token those differ — value["reading"] is the
     # inflected surface's reading (furigana needs that), citation_reading is
     # what JMDict is actually keyed by. Falls back to "reading" for any
-    # conflict row written before this field existed. alt_lookup_form tries
-    # dictionary_form's own spelling too — normalized_form isn't always the
-    # one JMDict has registered (さり気ない's normalized_form さり気無い isn't
-    # JMDict's spelling; dictionary_form さり気ない is).
+    # conflict row written before this field existed.
     gloss_lookup_id = get_or_create_gloss_lookup(
         conn,
         token.normalized_form,
