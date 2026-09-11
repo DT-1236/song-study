@@ -61,15 +61,10 @@ _jam_local = threading.local()
 def _get_jamdict() -> Jamdict:
     """One Jamdict instance per thread, not a shared module-level singleton.
 
-    FastAPI runs sync endpoint functions in a worker thread pool, so
-    different requests can land on different threads. Jamdict wraps a
-    sqlite3 connection, and sqlite3 connections aren't safe to use from a
-    thread other than the one that created them — a shared singleton means
-    whichever thread happens to create it "owns" it, and any request handled
-    by a different thread crashes with 'SQLite objects created in a thread
-    can only be used in that same thread'. threading.local() sidesteps this
-    entirely: each thread gets its own instance (and its own connection),
-    so nothing is ever shared across threads in the first place.
+    FastAPI runs sync endpoints in a worker thread pool, and Jamdict wraps
+    a sqlite3 connection that's only safe to use from the thread that
+    created it — a shared singleton would crash any request handled by a
+    different thread.
     """
     jam = getattr(_jam_local, "instance", None)
     if jam is None:
@@ -312,11 +307,6 @@ def _lookup_composite(conn, word: str) -> Optional[dict]:
     into 勝利/の/女神 — each of which does have one). Returns None if the word
     doesn't decompose, or decomposes but not a single piece resolves to real
     content (in which case this fallback is no better than the direct miss).
-
-    Piece lookups go through get_or_create_gloss_lookup too (same caching,
-    same English-stub routing), but with allow_composite=False — a piece is
-    deliberately not allowed to recurse into its own composite fallback, to
-    keep this a single level of decomposition rather than arbitrarily deep.
     """
     pieces = a_split_decomposition(word)
     if not pieces:
@@ -328,6 +318,9 @@ def _lookup_composite(conn, word: str) -> Optional[dict]:
             continue
 
         reading = mixed_reading(surface)
+        # allow_composite=False: a piece is deliberately not allowed to
+        # recurse into its own composite fallback, keeping this a single
+        # level of decomposition rather than arbitrarily deep.
         piece_id = get_or_create_gloss_lookup(conn, surface, reading, allow_composite=False)
         piece_entries, piece_source = conn.execute(
             text("SELECT entries, source FROM gloss_lookups WHERE id = :id"),

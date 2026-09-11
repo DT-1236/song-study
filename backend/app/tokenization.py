@@ -110,14 +110,16 @@ _GODAN_TO_POTENTIAL = {
 
 def _is_regular_potential_form(dictionary_form: str, dictionary_form_conjugation: str, normalized_form: str) -> bool:
     """True if dictionary_form is the grammatically regular potential form
-    of the godan verb normalized_form (挟める <- 挟む: 'to be able to X').
+    of the godan verb normalized_form (挟める <- 挟む: "to be able to X").
 
-    Two independent checks both have to hold: dictionary_form's own paradigm
-    is ichidan while normalized_form's is godan (a genuine conjugation-class
-    switch — this is what distinguishes 挟める/挟む from a lexicalized
-    look-alike like キレる/切れる, which are both ichidan, no class switch),
-    and the reading transformation follows the regular godan -u -> -eru
-    pattern. Verified against a batch of real examples before shipping."""
+    Requires a genuine ichidan/godan conjugation-class switch between the
+    two forms, not just a reading match — that's what distinguishes 挟める/
+    挟む from a lexicalized look-alike like キレる/切れる, which are both
+    already ichidan with no class switch at all.
+    """
+    # Both must hold: dictionary_form's own paradigm is ichidan,
+    # normalized_form's is godan, and the reading follows the regular
+    # godan -u -> -eru pattern.
     if not dictionary_form_conjugation.startswith(("上一段", "下一段")):
         return False
     if not _conjugation_type(normalized_form).startswith("五段"):
@@ -235,16 +237,15 @@ def conflict_option_value(reading: str, furigana_spans: list[dict], citation_rea
 
 def _kanji_run_spans(run: str, run_reading: str) -> KanjiRunResult:
     """Split a single multi-character kanji run's reading across its
-    characters, via a per-character dictionary reading partition search.
-    Returns (spans relative to run start, needs_review, alternatives) —
-    alternatives is a list of alternative full-run span lists to offer as a
-    redo-able choice, populated only when more than one valid per-character
-    split was found.
-
-    This only runs on a run Sudachi couldn't already decompose into
-    independent words (see module docstring) — so there's no boundary
-    information left to exploit here, just the brute-force character search.
+    characters. Returns (spans relative to run start, needs_review,
+    alternatives) — alternatives is a list of alternative full-run span
+    lists to offer as a redo-able choice, populated only when more than one
+    valid per-character split was found.
     """
+    # Only called for a run Sudachi couldn't already decompose into
+    # independent words (see module docstring) — no boundary information
+    # is left to exploit, so this falls back to a brute-force per-character
+    # dictionary partition search instead.
     solutions = _partition_search(run, run_reading)
     if solutions:
         chosen = solutions[0]
@@ -269,12 +270,12 @@ def _kanji_run_spans(run: str, run_reading: str) -> KanjiRunResult:
 
 
 def _build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
-    """Returns (spans, needs_review, alternatives) — alternatives is a list
-    of alternative full-token span lists, populated only when some kanji run
-    within the token had more than one valid per-character split. Only the
-    first such run (left to right) contributes alternatives; a token with
-    more than one independently-ambiguous run is a rare enough compounding
-    case that it isn't worth cross-producing here."""
+    """Align furigana across `surface` given its full reading, splitting on
+    kanji vs. non-kanji runs. Returns (spans, needs_review, alternatives) —
+    alternatives is a list of alternative full-token span lists, populated
+    only when some kanji run within the token had more than one valid
+    per-character split.
+    """
     if not _KANJI_RE.search(surface):
         return FuriganaResult([{"start": 0, "end": len(surface), "text": surface, "reading": None}], False, [])
 
@@ -342,6 +343,9 @@ def _build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult
             )
         flagged = flagged or sub_flagged
 
+        # Only the first ambiguous run (left to right) contributes
+        # alternatives; a token with more than one independently-ambiguous
+        # run is rare enough that cross-producing them isn't worth it here.
         if sub_alternatives and ambiguous_range is None:
             ambiguous_range = (start, end, sub_alternatives)
 
@@ -361,27 +365,19 @@ def _build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult
 
 
 def _furigana_spans_for_morpheme(m) -> FuriganaResult:
-    """Top-level furigana span builder for one SplitMode.C morpheme.
-
-    Tries Sudachi's own SplitMode.A decomposition first (see module
-    docstring): if it splits `m` into independently-recognized words whose
-    readings concatenate back to `m`'s own reading, each piece is placed via
-    its own reading — real word boundaries, not a guess. Otherwise `m` is
-    already irreducible, so its surface/reading go straight to
-    `_build_furigana_spans` (which still uses kana anchors to place furigana
-    within it, and falls to `_kanji_run_spans` — with its own alternatives —
-    for any anchor-less run).
-
-    A word-boundary split doesn't currently surface alternatives of its own:
-    each piece's own ambiguity (ended up flagged for review) is included via
-    `flagged`, but a picker for it would need that piece's offset into the
-    whole token, which no caller needs yet — no real document has produced a
-    word-boundary split with an independently-ambiguous piece to justify it.
+    """Build furigana spans for one SplitMode.C morpheme, preferring real
+    Sudachi word boundaries over per-character guessing whenever `m` can be
+    decomposed into them.
     """
     surface = m.surface()
     reading = m.reading_form()
 
     if len(surface) > 1 and _KANJI_RE.search(surface):
+        # Try Sudachi's own SplitMode.A decomposition (see module
+        # docstring) before falling back to guesswork: if it splits `m`
+        # into independently-recognized words whose readings concatenate
+        # back to `m`'s own reading, each piece gets furigana from its own
+        # reading — a real word boundary, not an inference.
         sub_morphemes = m.split(sudachi_tokenizer.Tokenizer.SplitMode.A)
         if len(sub_morphemes) >= 2 and "".join(s.reading_form() for s in sub_morphemes) == reading:
             spans: list[dict] = []
@@ -401,8 +397,15 @@ def _furigana_spans_for_morpheme(m) -> FuriganaResult:
                     )
                 flagged = flagged or sub_flagged
                 offset += len(sub_surface)
+            # No alternatives surfaced here: a picker for a piece's own
+            # ambiguity would need that piece's offset into the whole
+            # token, which nothing needs yet — no real document has hit a
+            # word-boundary split with an independently-ambiguous piece.
             return FuriganaResult(spans, flagged, [])
 
+    # `m` is already irreducible: hand its surface/reading straight to
+    # _build_furigana_spans, which uses kana anchors to place furigana
+    # within it and falls to _kanji_run_spans for any anchor-less run.
     return _build_furigana_spans(surface, reading)
 
 
@@ -423,10 +426,11 @@ def mixed_reading(word: str) -> str:
 def furigana_spans_for_reading(surface: str, reading_katakana: str) -> list[dict]:
     """Build furigana spans for `surface` given an explicit reading — used
     when a user manually corrects a token's pronunciation (e.g. 三股 as
-    さんまた instead of Sudachi's みまた). Reuses the same alignment machinery
-    as automatic tokenization; doesn't surface alternatives since there's
-    nothing left to disambiguate once a human has specified the reading
-    directly."""
+    さんまた instead of Sudachi's みまた). Doesn't surface alternatives since
+    there's nothing left to disambiguate once a human has specified the
+    reading directly.
+    """
+    # Reuses the same alignment machinery as automatic tokenization.
     spans, _, _ = _build_furigana_spans(surface, reading_katakana)
     return spans
 
@@ -467,45 +471,41 @@ def heteronym_readings(surface: str, pos: tuple) -> list[str]:
 
 
 def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_reading: str, conjugation_type: str) -> str:
-    """Reconstruct the citation reading for a heteronym alternative that
-    shares the token's own exact conjugation type and form, given
+    """Reconstruct the citation-form reading for a heteronym alternative
+    that shares the token's own exact conjugation type and form, given
     `conjugation_type` — Sudachi's own paradigm tag for the lexeme
     (`_conjugation_type(normalized_form)`), e.g. '五段-カ行' or '下一段-バ行'.
 
-    If `reading` already equals `dict_form_citation`, this occurrence is
-    already in its own citation-form reading (終止形/連体形) — alt_reading,
-    sharing the same surface and part-of-speech, is shaped the same way and
-    needs no transformation at all.
-
-    Otherwise this is an inflected (stem) occurrence, and the two verb
-    classes transform differently. Ichidan verbs' citation form is the stem
-    plus る (揃え -> 揃える, アタタメ -> アタタメル) — not a fixed one-character
-    append in general, but whatever's missing from this occurrence's own
-    (shorter) reading, which is almost always exactly る. Godan verbs work
-    differently — the renyou stem replaces the citation form's final mora
-    entirely rather than adding one (書く/カク -> 書き/カキ: the final ク
-    becomes キ, same mora count) — always exactly one mora, since a godan
-    citation ending is always exactly one mora (the row's own -u kana).
-
-    Verified against real Sudachi data for all three patterns: ichidan in
-    both its own citation form and inflected (温める / 温めた -> 温め), and
-    godan heteronyms sharing a stem (開く as ひらく vs あく, renyou stems
-    ヒラキ/アキ, citation ヒラク/アク).
-
-    Irregular verbs (サ行変格 する / カ行変格 来る) don't follow either fixed
-    rule — their stem readings vary irregularly across forms — so this
-    leaves alt_reading unchanged rather than guess at a transformation that
-    might not hold.
+    Needed because Sudachi's `dictionary_form()` isn't sense-disambiguated:
+    it returns the same citation form for every heteronym sense of a token
+    (開く's `dictionary_form()` is identical whether the occurrence means
+    あく or ひらく), so `citation_reading(dictionary_form)` alone can't tell
+    the alternative readings apart — the transformation has to be derived
+    from `reading`/`alt_reading` directly instead.
     """
     if reading == dict_form_citation:
+        # This occurrence is already in its own citation-form reading
+        # (終止形/連体形) — alt_reading, sharing the same surface and
+        # part-of-speech, is shaped the same way and needs no transform.
         return alt_reading
 
     if conjugation_type.startswith(("上一段", "下一段")):
+        # Ichidan citation form is the stem plus る (揃え -> 揃える, アタタメ
+        # -> アタタメル): append whatever's missing from this occurrence's
+        # own (shorter) reading, which is almost always exactly る.
         return alt_reading + dict_form_citation[len(reading):]
 
     if conjugation_type.startswith("五段"):
+        # Godan citation form's renyou stem replaces the final mora rather
+        # than adding one (書く/カク -> 書き/カキ: ク becomes キ, same mora
+        # count) — always exactly one mora, since a godan citation ending
+        # is always exactly one mora (the row's own -u kana).
         return alt_reading[:-1] + dict_form_citation[-1:]
 
+    # Irregular verbs (サ行変格 する / カ行変格 来る) don't follow either fixed
+    # rule — their stem readings vary irregularly across forms — so this
+    # leaves alt_reading unchanged rather than guess at a transformation
+    # that might not hold.
     return alt_reading
 
 
