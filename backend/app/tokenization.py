@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Optional
+from typing import NamedTuple, Optional
 
 from sudachipy import dictionary as sudachi_dictionary
 from sudachipy import tokenizer as sudachi_tokenizer
@@ -194,6 +194,18 @@ class FuriganaSpan:
     reading: Optional[str]
 
 
+class KanjiRunResult(NamedTuple):
+    spans: list[FuriganaSpan]
+    needs_review: bool
+    alternatives: list[list[FuriganaSpan]]
+
+
+class FuriganaResult(NamedTuple):
+    spans: list[dict]
+    needs_review: bool
+    alternatives: list[list[dict]]
+
+
 @dataclass
 class TokenRecord:
     position: int
@@ -221,7 +233,7 @@ def conflict_option_value(reading: str, furigana_spans: list[dict], citation_rea
     return {"reading": reading, "furigana_spans": furigana_spans, "citation_reading": citation_reading}
 
 
-def _kanji_run_spans(run: str, run_reading: str) -> tuple[list[FuriganaSpan], bool, list[list[FuriganaSpan]]]:
+def _kanji_run_spans(run: str, run_reading: str) -> KanjiRunResult:
     """Split a single multi-character kanji run's reading across its
     characters, via a per-character dictionary reading partition search.
     Returns (spans relative to run start, needs_review, alternatives) —
@@ -247,16 +259,16 @@ def _kanji_run_spans(run: str, run_reading: str) -> tuple[list[FuriganaSpan], bo
             ]
             for alt in solutions[1:]
         ]
-        return spans, len(solutions) > 1, alternatives
+        return KanjiRunResult(spans, len(solutions) > 1, alternatives)
 
     # No valid split at all: keep the whole run as one span. This is the
     # linguistically correct outcome for non-decomposable (jukujikun)
     # readings like 今日 -> きょう, so no flag and no alternatives here —
     # ambiguity means more than one candidate existed, not zero.
-    return [FuriganaSpan(0, len(run), run, to_hiragana(run_reading))], False, []
+    return KanjiRunResult([FuriganaSpan(0, len(run), run, to_hiragana(run_reading))], False, [])
 
 
-def _build_furigana_spans(surface: str, reading_katakana: str) -> tuple[list[dict], bool, list[list[dict]]]:
+def _build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
     """Returns (spans, needs_review, alternatives) — alternatives is a list
     of alternative full-token span lists, populated only when some kanji run
     within the token had more than one valid per-character split. Only the
@@ -264,7 +276,7 @@ def _build_furigana_spans(surface: str, reading_katakana: str) -> tuple[list[dic
     more than one independently-ambiguous run is a rare enough compounding
     case that it isn't worth cross-producing here."""
     if not _KANJI_RE.search(surface):
-        return [{"start": 0, "end": len(surface), "text": surface, "reading": None}], False, []
+        return FuriganaResult([{"start": 0, "end": len(surface), "text": surface, "reading": None}], False, [])
 
     # Split surface into alternating kanji-run / other-run segments.
     segments: list[tuple[bool, int, int]] = []  # (is_kanji, start, end)
@@ -291,7 +303,7 @@ def _build_furigana_spans(surface: str, reading_katakana: str) -> tuple[list[dic
         # Reading doesn't literally align with the surface's kana (rare:
         # OOV guesses, unusual symbols like ヶ). Can't place furigana per
         # character; keep it as a single flagged span.
-        return (
+        return FuriganaResult(
             [{"start": 0, "end": len(surface), "text": surface, "reading": to_hiragana(reading_katakana)}],
             True,
             [],
@@ -345,10 +357,10 @@ def _build_furigana_spans(surface: str, reading_katakana: str) -> tuple[list[dic
             ]
             alternatives.append(before + middle + after)
 
-    return spans, flagged, alternatives
+    return FuriganaResult(spans, flagged, alternatives)
 
 
-def _furigana_spans_for_morpheme(m) -> tuple[list[dict], bool, list[list[dict]]]:
+def _furigana_spans_for_morpheme(m) -> FuriganaResult:
     """Top-level furigana span builder for one SplitMode.C morpheme.
 
     Tries Sudachi's own SplitMode.A decomposition first (see module
@@ -389,7 +401,7 @@ def _furigana_spans_for_morpheme(m) -> tuple[list[dict], bool, list[list[dict]]]
                     )
                 flagged = flagged or sub_flagged
                 offset += len(sub_surface)
-            return spans, flagged, []
+            return FuriganaResult(spans, flagged, [])
 
     return _build_furigana_spans(surface, reading)
 

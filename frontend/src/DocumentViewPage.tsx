@@ -29,6 +29,17 @@ function hasAmbiguousCompositePiece(token: Token): boolean {
   return token.gloss?.source === 'composite' && token.gloss.pieces.some((p) => p.ambiguous_readings.length > 0)
 }
 
+// A clean JMDict miss under the reading we currently have — a real gloss
+// lookup ran and came back with zero senses, so a manual reading correction
+// could still fix it. Excludes composite glosses (a compound with no single
+// JMDict entry of its own, shown broken into parts instead — see
+// gloss.source): those already found real content via their pieces, just
+// not as one entry, so an empty top-level senses list there doesn't mean
+// the same thing it does for a plain jmdict/english_stub gloss.
+function hasMissingGloss(token: Token): boolean {
+  return token.gloss !== null && token.gloss.senses.length === 0 && token.gloss.source !== 'composite'
+}
+
 function renderFuriganaSpans(spans: FuriganaSpan[]) {
   return spans.map((span, i) =>
     span.reading ? (
@@ -107,12 +118,12 @@ function ConflictResolver({
   const [resolvingId, setResolvingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  // A clean JMDict miss under the reading we currently have is worth
-  // offering a correction for regardless of whether anything else flagged
-  // this token — Sudachi's own heteronym check only catches disagreement
-  // within its own dictionary, not "JMDict would match a different
-  // reading than the one Sudachi chose" (e.g. 三股 as みまた vs さんまた).
-  const missingGloss = token.gloss !== null && token.gloss.senses.length === 0
+  // Worth offering a correction for regardless of whether anything else
+  // flagged this token — Sudachi's own heteronym check only catches
+  // disagreement within its own dictionary, not "JMDict would match a
+  // different reading than the one Sudachi chose" (e.g. 三股 as みまた vs
+  // さんまた).
+  const missingGloss = hasMissingGloss(token)
 
   if (token.review_reason === 'oov') {
     return (
@@ -282,7 +293,7 @@ function GlossPopup({
       )}
       {(token.needs_review ||
         token.conflicts.length > 0 ||
-        (gloss !== null && gloss.senses.length === 0 && gloss.source !== 'composite') ||
+        hasMissingGloss(token) ||
         hasAmbiguousCompositePiece(token)) && (
         <ConflictResolver token={token} documentId={documentId} onTokenUpdated={onTokenUpdated} />
       )}
@@ -368,8 +379,7 @@ const TokenizedText = memo(function TokenizedText({
         //   a composite piece with its own unresolved reading ambiguity
         //   (e.g. 女神 within 勝利の女神) — same "hasn't been reviewed yet"
         //   signal, just without a picker behind it yet.
-        const needsCorrection =
-          hasPopup && token.gloss !== null && token.gloss.senses.length === 0 && token.gloss.source !== 'composite'
+        const needsCorrection = hasPopup && hasMissingGloss(token)
         const needsReadingReview =
           (token.needs_review && token.conflicts.length > 0) || hasAmbiguousCompositePiece(token)
 

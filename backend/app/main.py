@@ -234,12 +234,8 @@ def jmdict_search(
     return [JmdictEntry(**entry) for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)]
 
 
-class GlossSense(BaseModel):
+class GlossSense(JmdictSense):
     entry_idseq: int
-    pos: list[str]
-    misc: list[str]
-    field: list[str]
-    gloss: list[str]
 
 
 class GlossPiece(BaseModel):

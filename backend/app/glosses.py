@@ -78,6 +78,22 @@ def _get_jamdict() -> Jamdict:
     return jam
 
 
+def _serialize_senses(entry) -> list[dict]:
+    """The {pos, misc, field, gloss} shape both jamdict entry serializers
+    (this file's per-token lookup and the ad-hoc search box) build from an
+    entry's senses — English glosses only, since that's the only language
+    this app shows."""
+    return [
+        {
+            "pos": s.pos,
+            "misc": s.misc,
+            "field": s.field,
+            "gloss": [g.text for g in s.gloss if g.lang == "eng"],
+        }
+        for s in entry.senses
+    ]
+
+
 def _lookup_entries(lookup_form: str, reading_hiragana: str) -> list[dict]:
     jam = _get_jamdict()
     result = jam.lookup(lookup_form)
@@ -97,15 +113,7 @@ def _lookup_entries(lookup_form: str, reading_hiragana: str) -> list[dict]:
                 {
                     "idseq": e.idseq,
                     "kanji_forms": [{"text": k.text, "pri": k.pri} for k in e.kanji_forms],
-                    "senses": [
-                        {
-                            "pos": s.pos,
-                            "misc": s.misc,
-                            "field": s.field,
-                            "gloss": [g.text for g in s.gloss if g.lang == "eng"],
-                        }
-                        for s in e.senses
-                    ],
+                    "senses": _serialize_senses(e),
                 },
             )
         )
@@ -191,15 +199,7 @@ def search_jmdict(query: str, max_results_per_tier: int = 3) -> list[dict]:
             "idseq": e.idseq,
             "kanji_forms": [k.text for k in e.kanji_forms],
             "kana_forms": [k.text for k in e.kana_forms],
-            "senses": [
-                {
-                    "pos": s.pos,
-                    "misc": s.misc,
-                    "field": s.field,
-                    "gloss": [g.text for g in s.gloss if g.lang == "eng"],
-                }
-                for s in e.senses
-            ],
+            "senses": _serialize_senses(e),
         }
         for e in selected
     ]
