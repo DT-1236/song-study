@@ -211,6 +211,16 @@ class TokenRecord:
     conflict_options: list
 
 
+def conflict_option_value(reading: str, furigana_spans: list[dict], citation_reading: str) -> dict:
+    """The shared shape for a conflict's `value` JSONB column: one candidate
+    reading, its furigana display, and the JMDict-keyed citation reading
+    gloss lookups need. Built in one place so the three keys don't drift
+    between the call sites that construct one — the auto-flagged
+    heteronym/no_kana_anchor options here, and the default/manual-correction
+    options in app/conflicts.py."""
+    return {"reading": reading, "furigana_spans": furigana_spans, "citation_reading": citation_reading}
+
+
 def _kanji_run_spans(run: str, run_reading: str) -> tuple[list[FuriganaSpan], bool, list[list[FuriganaSpan]]]:
     """Split a single multi-character kanji run's reading across its
     characters, via a per-character dictionary reading partition search.
@@ -431,6 +441,7 @@ def a_split_decomposition(word: str) -> list[tuple[str, str, tuple]]:
     return [(m.surface(), m.reading_form(), tuple(m.part_of_speech())) for m in morphemes]
 
 
+@lru_cache(maxsize=4096)
 def heteronym_readings(surface: str, pos: tuple) -> list[str]:
     """Other katakana readings the dictionary lists for this exact surface
     under this exact part-of-speech — a genuine heteronym Sudachi's own
@@ -532,11 +543,7 @@ def tokenize_document(text: str) -> list[TokenRecord]:
                     alt_spans, _, _ = _build_furigana_spans(surface, alt_reading)
                     alt_citation = _reconstruct_citation_reading(reading, dict_form_citation, alt_reading, conjugation_type)
                     conflict_options.append(
-                        {
-                            "reading": to_hiragana(alt_reading),
-                            "furigana_spans": alt_spans,
-                            "citation_reading": to_hiragana(alt_citation),
-                        }
+                        conflict_option_value(to_hiragana(alt_reading), alt_spans, to_hiragana(alt_citation))
                     )
             elif span_flag:
                 review_reason = "no_kana_anchor"
@@ -552,12 +559,7 @@ def tokenize_document(text: str) -> list[TokenRecord]:
                 # on anything but a bare citation-form occurrence.
                 citation = mixed_reading(m.normalized_form())
                 conflict_options = [
-                    {
-                        "reading": to_hiragana(reading),
-                        "furigana_spans": alt,
-                        "citation_reading": citation,
-                    }
-                    for alt in span_alternatives
+                    conflict_option_value(to_hiragana(reading), alt, citation) for alt in span_alternatives
                 ]
 
         records.append(

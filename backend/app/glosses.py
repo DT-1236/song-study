@@ -42,7 +42,7 @@ _JAPANESE_SCRIPT_RE = re.compile(r"[ぁ-んァ-ヶー一-龥]")
 _LATIN_LETTER_RE = re.compile(r"[A-Za-z]")
 
 
-def _is_probably_english(word: str) -> bool:
+def is_probably_english(word: str) -> bool:
     return bool(_LATIN_LETTER_RE.search(word)) and not _JAPANESE_SCRIPT_RE.search(word)
 
 
@@ -391,7 +391,7 @@ def get_or_create_gloss_lookup(
     if existing is not None:
         return existing.id
 
-    if _is_probably_english(lookup_form):
+    if is_probably_english(lookup_form):
         entries: object = _lookup_english_entries(lookup_form)
         source = "english_stub"
     else:

@@ -14,7 +14,14 @@ import json
 from sqlalchemy import text
 
 from app.glosses import get_or_create_gloss_lookup
-from app.tokenization import TokenRecord, furigana_spans_for_reading, mixed_reading, to_hiragana, to_katakana
+from app.tokenization import (
+    TokenRecord,
+    conflict_option_value,
+    furigana_spans_for_reading,
+    mixed_reading,
+    to_hiragana,
+    to_katakana,
+)
 
 
 def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None:
@@ -32,17 +39,14 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
     rows = []
     for record in flagged:
         token_id = token_ids[record.position]
-        default_value = {
-            "reading": to_hiragana(record.reading_katakana),
-            "furigana_spans": record.furigana_spans,
-            # Same reading the unflagged default gloss path already uses
-            # (mixed_reading(normalized_form)) — for an inflected token
-            # this is the citation form's reading (揃える -> そろえる), not
-            # record.reading_katakana's inflected-surface reading (揃え ->
-            # そろえ), which is what furigana needs but JMDict is not keyed
-            # by.
-            "citation_reading": mixed_reading(record.normalized_form),
-        }
+        # citation_reading uses mixed_reading(normalized_form), same as the
+        # unflagged default gloss path — for an inflected token that's the
+        # citation form's reading (揃える -> そろえる), not
+        # record.reading_katakana's inflected-surface reading (揃え ->
+        # そろえ), which is what furigana needs but JMDict is not keyed by.
+        default_value = conflict_option_value(
+            to_hiragana(record.reading_katakana), record.furigana_spans, mixed_reading(record.normalized_form)
+        )
         rows.append(
             {
                 "token_id": token_id,
@@ -72,6 +76,28 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
             """
         ),
         rows,
+    )
+
+
+def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], gloss_lookup_id: int) -> None:
+    """Write a newly-selected reading's furigana and gloss onto the token
+    row itself — shared by resolve_conflict and correct_reading, which both
+    end by committing whatever reading just became selected the same way."""
+    conn.execute(
+        text(
+            """
+            UPDATE tokens
+            SET furigana_override = CAST(:furigana_spans AS JSONB),
+                needs_review = FALSE,
+                gloss_lookup_id = :gloss_lookup_id
+            WHERE id = :token_id
+            """
+        ),
+        {
+            "furigana_spans": json.dumps(furigana_spans),
+            "gloss_lookup_id": gloss_lookup_id,
+            "token_id": token_id,
+        },
     )
 
 
@@ -140,22 +166,7 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
         alt_lookup_form=token.dictionary_form,
     )
 
-    conn.execute(
-        text(
-            """
-            UPDATE tokens
-            SET furigana_override = CAST(:furigana_spans AS JSONB),
-                needs_review = FALSE,
-                gloss_lookup_id = :gloss_lookup_id
-            WHERE id = :token_id
-            """
-        ),
-        {
-            "furigana_spans": json.dumps(value["furigana_spans"]),
-            "gloss_lookup_id": gloss_lookup_id,
-            "token_id": token_id,
-        },
-    )
+    _apply_selected_reading(conn, token_id, value["furigana_spans"], gloss_lookup_id)
 
 
 class TokenNotFound(Exception):
@@ -223,11 +234,11 @@ def correct_reading(conn, document_id: int, token_id: int, reading_hiragana: str
             {
                 "token_id": token_id,
                 "value": json.dumps(
-                    {
-                        "reading": to_hiragana(token.reading_katakana),
-                        "furigana_spans": token.furigana_override or token.furigana_spans,
-                        "citation_reading": mixed_reading(token.normalized_form),
-                    }
+                    conflict_option_value(
+                        to_hiragana(token.reading_katakana),
+                        token.furigana_override or token.furigana_spans,
+                        mixed_reading(token.normalized_form),
+                    )
                 ),
             },
         )
@@ -241,33 +252,12 @@ def correct_reading(conn, document_id: int, token_id: int, reading_hiragana: str
         ),
         {
             "token_id": token_id,
-            "value": json.dumps(
-                {
-                    "reading": reading_hiragana,
-                    "furigana_spans": spans,
-                    # The user's own input, used as-is — for a non-inflected
-                    # word (the common case for a manual correction) this
-                    # already is the citation reading; for an inflected one
-                    # it's the best approximation available without deeper
-                    # analysis of what they typed.
-                    "citation_reading": reading_hiragana,
-                }
-            ),
+            # The user's own input is used as-is for citation_reading — for
+            # a non-inflected word (the common case for a manual correction)
+            # this already is the citation reading; for an inflected one
+            # it's the best approximation available without deeper analysis
+            # of what they typed.
+            "value": json.dumps(conflict_option_value(reading_hiragana, spans, reading_hiragana)),
         },
     )
-    conn.execute(
-        text(
-            """
-            UPDATE tokens
-            SET furigana_override = CAST(:furigana_spans AS JSONB),
-                needs_review = FALSE,
-                gloss_lookup_id = :gloss_lookup_id
-            WHERE id = :token_id
-            """
-        ),
-        {
-            "furigana_spans": json.dumps(spans),
-            "gloss_lookup_id": gloss_lookup_id,
-            "token_id": token_id,
-        },
-    )
+    _apply_selected_reading(conn, token_id, spans, gloss_lookup_id)

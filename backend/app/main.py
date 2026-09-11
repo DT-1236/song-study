@@ -20,7 +20,7 @@ from app.conflicts import (
     resolve_conflict,
 )
 from app.db import engine
-from app.glosses import attach_glosses, needs_gloss_pass, rank_senses, search_jmdict
+from app.glosses import attach_glosses, is_probably_english, needs_gloss_pass, rank_senses, search_jmdict
 from app.tokenization import dictionary_form_note, mixed_reading, tokenize_document
 
 app = FastAPI()
@@ -281,16 +281,18 @@ class Token(BaseModel):
     needs_review: bool
     review_reason: Optional[str]
     furigana_override: Optional[list[dict]]
+    is_english: bool
     gloss: Optional[Gloss]
     conflicts: list[Conflict]
     start_time: Optional[Decimal]
     end_time: Optional[Decimal]
 
 
-def _fetch_tokens(conn, document_id: int) -> list[Token]:
+def _fetch_tokens(conn, document_id: int, token_id: Optional[int] = None) -> list[Token]:
+    token_filter = "AND t.id = :token_id" if token_id is not None else ""
     rows = conn.execute(
         text(
-            """
+            f"""
             SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end, t.surface,
                    t.dictionary_form, t.normalized_form, t.reading_katakana,
                    t.part_of_speech, t.is_oov, t.furigana_spans, t.needs_review,
@@ -298,24 +300,24 @@ def _fetch_tokens(conn, document_id: int) -> list[Token]:
                    gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
-            WHERE t.document_id = :document_id
+            WHERE t.document_id = :document_id {token_filter}
             ORDER BY t.position
             """
         ),
-        {"document_id": document_id},
+        {"document_id": document_id, "token_id": token_id},
     ).all()
 
     conflict_rows = conn.execute(
         text(
-            """
+            f"""
             SELECT c.id, c.token_id, c.kind, c.value, c.selected
             FROM conflicts c
             JOIN tokens t ON t.id = c.token_id
-            WHERE t.document_id = :document_id
+            WHERE t.document_id = :document_id {token_filter}
             ORDER BY c.id
             """
         ),
-        {"document_id": document_id},
+        {"document_id": document_id, "token_id": token_id},
     ).all()
     conflicts_by_token: dict[int, list[Conflict]] = {}
     for c in conflict_rows:
@@ -348,12 +350,21 @@ def _fetch_tokens(conn, document_id: int) -> list[Token]:
                 source=gloss_source,
             )
         data["conflicts"] = conflicts_by_token.get(data["id"], [])
+        data["is_english"] = is_probably_english(data["surface"])
         data["dictionary_form_reading"] = mixed_reading(data["dictionary_form"])
         data["dictionary_form_note"] = dictionary_form_note(
             data["dictionary_form"], data["normalized_form"], data["part_of_speech"][4]
         )
         tokens.append(Token(**data))
     return tokens
+
+
+def _fetch_token(conn, document_id: int, token_id: int) -> Token:
+    """A single token, scoped by id — for the resolve/correct endpoints,
+    which only ever need to return the one token they just mutated. Avoids
+    re-fetching and re-ranking every other token in the document just to
+    pick one row back out."""
+    return _fetch_tokens(conn, document_id, token_id=token_id)[0]
 
 
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
@@ -428,7 +439,7 @@ def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolu
         except ConflictNotFound:
             raise HTTPException(status_code=404, detail="Conflict option not found for this token.")
 
-        return next(t for t in _fetch_tokens(conn, document_id) if t.id == token_id)
+        return _fetch_token(conn, document_id, token_id)
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")
@@ -453,4 +464,4 @@ def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrecti
         except TokenNotFound:
             raise HTTPException(status_code=404, detail="Token not found for this document.")
 
-        return next(t for t in _fetch_tokens(conn, document_id) if t.id == token_id)
+        return _fetch_token(conn, document_id, token_id)

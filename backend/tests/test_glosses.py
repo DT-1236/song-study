@@ -9,22 +9,22 @@ interacts, not something a mock would have caught.
 
 from sqlalchemy import text
 
-from app.glosses import _is_probably_english, get_or_create_gloss_lookup, rank_senses
+from app.glosses import get_or_create_gloss_lookup, is_probably_english, rank_senses
 
 
 class TestIsProbablyEnglish:
     def test_pure_latin_is_english(self):
         for word in ["gifted", "yeah", "BAD", "the wanted"]:
-            assert _is_probably_english(word), word
+            assert is_probably_english(word), word
 
     def test_katakana_loanword_slang_is_not_english(self):
         # Written in Japanese script, even if English-derived — should go
         # through the real JMDict path, not the English stub.
         for word in ["無理ゲー", "ゼッテー", "パッ"]:
-            assert not _is_probably_english(word), word
+            assert not is_probably_english(word), word
 
     def test_kanji_word_is_not_english(self):
-        assert not _is_probably_english("花火")
+        assert not is_probably_english("花火")
 
 
 class TestRankSenses:

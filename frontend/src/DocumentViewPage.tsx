@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { ApiError, correctReading, fetchDocument, resolveConflict, updateDocumentText } from './api'
-import type { Document, FuriganaSpan, Gloss, GlossSense, Token } from './api'
+import type { Document, FuriganaSpan, GlossSense, Token } from './api'
 import { getPosInfo } from './PosLegend'
 import { useTabs } from './TabsContext'
 import { YouTubePlayer } from './YouTubePlayer'
@@ -18,21 +18,6 @@ const SENSE_LIMIT = 5
 // (typing targets are handled separately, in isTypingTarget) — the global
 // play/pause listener must not override this.
 const SPACE_HANDLED_NATIVELY = new Set(['BUTTON', 'SELECT', 'A'])
-
-// What's actually written in the lyrics, not what Sudachi normalized it to.
-// gloss.source === 'english_stub' alone isn't enough: Sudachi normalizes
-// some Latin-script tokens to katakana loanword-slang internally (Bling ->
-// ブリン, It's -> イッツ, don't -> ドント), which routes them through a real
-// JMDict lookup (gloss.source 'jmdict') even though they're clearly English
-// as written — so those were leaking through. Checking surface directly
-// catches every clearly-English token regardless of how Sudachi normalized
-// it, so gloss.source doesn't need to be consulted here at all anymore.
-const LATIN_LETTER_RE = /[A-Za-z]/
-const JAPANESE_SCRIPT_RE = /[ぁ-んァ-ヶー一-龥]/
-
-function isProbablyEnglish(token: Token): boolean {
-  return LATIN_LETTER_RE.test(token.surface) && !JAPANESE_SCRIPT_RE.test(token.surface)
-}
 
 // True when a composite gloss (a compound with no JMDict entry of its own,
 // shown broken into parts instead — see gloss.source) has a piece whose own
@@ -233,7 +218,7 @@ function GlossPopup({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
-  const gloss = token.gloss as Gloss | null
+  const gloss = token.gloss
   const posTerm = token.part_of_speech[0]
   const posInfo = getPosInfo(posTerm)
 
@@ -305,7 +290,7 @@ function GlossPopup({
   )
 }
 
-function TokenizedText({
+const TokenizedText = memo(function TokenizedText({
   tokens,
   documentId,
   onTokenUpdated,
@@ -364,7 +349,7 @@ function TokenizedText({
       {tokens.map((token) => {
         const spans = token.furigana_override ?? token.furigana_spans
         const hasPopup =
-          !isProbablyEnglish(token) &&
+          !token.is_english &&
           (token.gloss !== null || token.conflicts.length > 0 || token.review_reason === 'oov')
         const isPinned = pinnedId === token.id
         const isActive = isPinned || (pinnedId === null && hoveredId === token.id)
@@ -424,7 +409,7 @@ function TokenizedText({
       })}
     </p>
   )
-}
+})
 
 function SizeSlider({
   id,
@@ -570,6 +555,10 @@ export function DocumentViewPage() {
     }
   }, [doc, ensureProcessed])
 
+  const handleTokenUpdated = useCallback((updated: Token) => {
+    setTokens((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev)
+  }, [])
+
   if (loading) return <p>Loading…</p>
   if (error) return <p className="form-error">{error}</p>
   if (!doc) return null
@@ -677,9 +666,7 @@ export function DocumentViewPage() {
               <TokenizedText
                 tokens={tokens}
                 documentId={documentId}
-                onTokenUpdated={(updated) =>
-                  setTokens((prev) => prev?.map((t) => (t.id === updated.id ? updated : t)) ?? prev)
-                }
+                onTokenUpdated={handleTokenUpdated}
               />
             )}
             {tokensError && (

@@ -10,13 +10,22 @@ export type Document = {
 
 export class ApiError extends Error {}
 
-async function assertOk(response: Response): Promise<void> {
+async function assertOk(response: Response, statusMessages: Record<number, string> = {}): Promise<void> {
   if (response.ok) return
 
+  if (statusMessages[response.status]) {
+    throw new ApiError(statusMessages[response.status])
+  }
+
   const body = await response.json().catch(() => null)
-  const message =
-    typeof body?.detail === 'string' ? body.detail : `Request failed (${response.status})`
-  throw new ApiError(message)
+  if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === 'string') {
+    // FastAPI/pydantic validation error shape: {"detail": [{"msg": "Value error, ...", ...}]}
+    throw new ApiError(body.detail[0].msg.replace(/^Value error,\s*/, ''))
+  }
+  if (typeof body?.detail === 'string') {
+    throw new ApiError(body.detail)
+  }
+  throw new ApiError(`Request failed (${response.status})`)
 }
 
 export async function createDocument(input: {
@@ -54,18 +63,7 @@ export async function updateDocumentText(id: number, text: string): Promise<Docu
     body: JSON.stringify({ text }),
   })
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    let message = `Request failed (${response.status})`
-    if (response.status === 404) {
-      message = 'Document not found.'
-    } else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === 'string') {
-      message = body.detail[0].msg.replace(/^Value error,\s*/, '')
-    } else if (typeof body?.detail === 'string') {
-      message = body.detail
-    }
-    throw new ApiError(message)
-  }
+  await assertOk(response, { 404: 'Document not found.' })
 
   return response.json()
 }
@@ -143,6 +141,7 @@ export type Token = {
   needs_review: boolean
   review_reason: string | null
   furigana_override: FuriganaSpan[] | null
+  is_english: boolean
   gloss: Gloss | null
   conflicts: Conflict[]
   start_time: string | null
@@ -168,10 +167,7 @@ export async function resolveConflict(
     body: JSON.stringify({ conflict_id: conflictId }),
   })
 
-  if (!response.ok) {
-    const message = response.status === 404 ? 'Conflict option not found.' : `Request failed (${response.status})`
-    throw new ApiError(message)
-  }
+  await assertOk(response, { 404: 'Conflict option not found.' })
 
   return response.json()
 }
@@ -183,18 +179,7 @@ export async function correctReading(documentId: number, tokenId: number, readin
     body: JSON.stringify({ reading }),
   })
 
-  if (!response.ok) {
-    const body = await response.json().catch(() => null)
-    let message = `Request failed (${response.status})`
-    if (response.status === 404) {
-      message = 'Token not found.'
-    } else if (Array.isArray(body?.detail) && typeof body.detail[0]?.msg === 'string') {
-      message = body.detail[0].msg.replace(/^Value error,\s*/, '')
-    } else if (typeof body?.detail === 'string') {
-      message = body.detail
-    }
-    throw new ApiError(message)
-  }
+  await assertOk(response, { 404: 'Token not found.' })
 
   return response.json()
 }
