@@ -408,20 +408,14 @@ def _furigana_spans_for_morpheme(m) -> FuriganaResult:
 
 @lru_cache(maxsize=4096)
 def mixed_reading(word: str) -> str:
-    """The reading of `word` in JMDict's own convention: kanji portions
-    rendered in hiragana, any kana portions left exactly as written —
-    including katakana, e.g. the katakana loanword abbreviation ゲー in
-    無理ゲー stays ゲー, giving むりゲー, not むりげー.
-
-    citation_reading() alone can't produce this: Sudachi's reading_form()
-    is always pure katakana regardless of the surface's own script, which
-    loses the hiragana/katakana distinction JMDict's kana_forms actually
-    depend on for an exact match (無理ゲー's real entry is keyed to むりゲー;
-    a naive to_hiragana(citation_reading(...)) produces むりげー, which
-    matches nothing and silently drops a real entry). Reuses the same
-    kanji/kana segment alignment already trusted for furigana — a span's
-    own text is already in whatever script it's actually written in, so
-    non-kanji spans just get passed through unchanged."""
+    """The reading of `word` in JMDict's convention: kanji rendered in
+    hiragana, kana kept exactly as written — including katakana, since
+    JMDict's kana_forms mix hiragana and katakana per word (無理ゲー's
+    real entry is keyed to むりゲー, not むりげー).
+    """
+    # Reuses the furigana span alignment: each span's own text is already
+    # in whatever script it's written in, so non-kanji spans just pass
+    # through unchanged.
     spans, _, _ = _build_furigana_spans(word, citation_reading(word))
     return "".join(span["reading"] if span["reading"] is not None else span["text"] for span in spans)
 
