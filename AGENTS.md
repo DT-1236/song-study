@@ -1,5 +1,39 @@
 # Instructions for AI agents working in this repo
 
+## Function descriptions (docstrings)
+
+- Limit a docstring to the function's *intended effect*, phrased in terms
+  of its inputs — what it does/returns, not how. Add one to two lines of
+  reasoning only when the *why* isn't obvious from the signature/effect
+  alone (a non-obvious constraint, a domain rule the caller needs to know).
+- Keep implementation details — which helper it delegates to, a specific
+  data-shape quirk being worked around, an algorithmic choice — out of the
+  docstring. Put them as inline comments next to the specific line they
+  explain instead. That keeps the note easy to find and update if that
+  implementation ever changes, rather than living one level removed in
+  prose above the whole function.
+- Example (`backend/app/tokenization.py`'s `mixed_reading`):
+
+  ```python
+  def mixed_reading(word: str) -> str:
+      """The reading of `word` in JMDict's convention: kanji rendered in
+      hiragana, kana kept exactly as written — including katakana, since
+      JMDict's kana_forms mix hiragana and katakana per word (無理ゲー's
+      real entry is keyed to むりゲー, not むりげー).
+      """
+      # Reuses the furigana span alignment: each span's own text is already
+      # in whatever script it's written in, so non-kanji spans just pass
+      # through unchanged.
+      spans, _, _ = _build_furigana_spans(word, citation_reading(word))
+      ...
+  ```
+
+  The docstring says what it does (kanji rendered to hiragana, kana kept
+  as-is) and why (JMDict's kana convention differs from Sudachi's own
+  always-katakana reading). The "reuses the furigana span alignment"
+  note is an implementation detail, so it sits as a comment directly
+  above the line it's about, not in the docstring.
+
 ## Pull requests
 
 - When opening, updating, or reviewing a PR with a large diff, don't rely
