@@ -8,21 +8,19 @@ from __future__ import annotations
 import threading
 
 import pytest
-from sqlalchemy import event, text
+from sqlalchemy import event
 from sqlalchemy.exc import IntegrityError
 
-import app.main
-from app.main import DocumentTextUpdate, get_document_tokens, update_document_text
+from app.main import (
+    DocumentCreate,
+    DocumentTextUpdate,
+    attach_glosses,
+    create_document,
+    get_document_tokens,
+    update_document_text,
+)
 from tests.fixtures.kumo_no_ito import TEXT, TITLE
 from tests.support import BackgroundCall, wait_for_lock_wait
-
-
-def _create_document(engine) -> int:
-    with engine.begin() as conn:
-        return conn.execute(
-            text("INSERT INTO documents (title, text) VALUES (:title, :text) RETURNING id"),
-            {"title": TITLE, "text": TEXT},
-        ).scalar_one()
 
 
 def _statements_sent(engine, fn) -> list[tuple[str, int]]:
@@ -49,7 +47,7 @@ def test_first_processing_round_trips(committed_engine):
     """Pins how many DB round trips a document's first processing costs
     today, with an empty gloss cache and with a warm one, so batching its
     writes has a baseline to beat."""
-    document_id = _create_document(committed_engine)
+    document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
     assert _trips(cold) == 1368
@@ -75,20 +73,22 @@ def test_first_processing_round_trips(committed_engine):
     ),
 )
 def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeypatch):
-    document_id = _create_document(committed_engine)
+    # One sentence is enough to collide on token positions, and keeps the
+    # first request's real gloss pass short.
+    first_sentence = TEXT.split("。")[0] + "。"
+    document_id = create_document(DocumentCreate(title=TITLE, text=first_sentence)).id
 
     # Holds the first request between inserting its tokens and committing,
     # so the second is guaranteed to arrive while they're uncommitted.
     tokens_inserted = threading.Event()
     release = threading.Event()
-    real_attach_glosses = app.main.attach_glosses
 
     def attach_glosses_once_released(conn, document_id):
         tokens_inserted.set()
         release.wait(timeout=30)
-        real_attach_glosses(conn, document_id)
+        attach_glosses(conn, document_id)
 
-    monkeypatch.setattr(app.main, "attach_glosses", attach_glosses_once_released)
+    monkeypatch.setattr("app.main.attach_glosses", attach_glosses_once_released)
 
     try:
         first = BackgroundCall(get_document_tokens, document_id)

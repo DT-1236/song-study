@@ -1,12 +1,8 @@
 import os
 
-from dotenv import load_dotenv
 from sqlalchemy import create_engine
 
-
-def load_env() -> None:
-    load_dotenv(os.path.join(os.path.dirname(__file__), "..", "..", ".env"))
-
+from app.env import load_env
 
 load_env()
 

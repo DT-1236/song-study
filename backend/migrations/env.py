@@ -5,7 +5,7 @@ from sqlalchemy import engine_from_config
 from sqlalchemy import pool
 
 from alembic import context
-from app.db import load_env
+from app.env import load_env
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -18,10 +18,11 @@ if config.config_file_name is not None:
 
 # alembic.ini leaves sqlalchemy.url blank; pull the real connection string
 # from the environment (repo-root .env locally, real env vars in deployment)
-# so credentials never end up committed.
+# so credentials never end up committed. A URL set on the Config by the
+# caller (the test suite does this) takes precedence.
 load_env()
 database_url = os.environ.get("DATABASE_URL")
-if database_url:
+if database_url and not config.get_main_option("sqlalchemy.url"):
     config.set_main_option("sqlalchemy.url", database_url)
 
 # add your model's MetaData object here
