@@ -67,3 +67,15 @@ npm run dev
 
 The frontend runs at `http://localhost:5173` and talks to the backend at
 `http://localhost:8000` by default (see each `.env.example` to change either).
+
+## Running tests
+
+Backend tests run against their own database, `TEST_DATABASE_URL` in `.env`
+(`song_study_test` on the same Postgres server by default), which is dropped
+and re-created from the migrations on every run. They never connect to
+`DATABASE_URL`.
+
+```bash
+cd backend
+pytest
+```

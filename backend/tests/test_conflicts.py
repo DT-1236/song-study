@@ -9,10 +9,10 @@ here reproduces a real bug found this session:
   later gap-fill pass (fixed elsewhere, in glosses.py, but correct_reading's
   own "preserve the original as an unselected row" behavior is what makes
   redo possible at all, so it's covered here).
-- Concurrent resolve/correct calls for the same token raced past the
+- Concurrent correct_reading calls for the same token raced past the
   "one selected row per token" unique index before the FOR UPDATE locks
-  were added; that's a concurrency property, not something a single-threaded
-  test can usefully assert, so it's not re-tested here.
+  were added. Covered with two connections over committed rows (see
+  `committed_engine`), since neither can see the other's uncommitted work.
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ from app.conflicts import (
     resolve_conflict,
 )
 from app.tokenization import TokenRecord
-from tests.conftest import make_token
+from tests.support import BackgroundCall, make_token, wait_for_lock_wait
 
 
 def _conflicts_for(conn, token_id):
@@ -271,6 +271,28 @@ class TestCorrectReading:
         assert "".join(s["reading"] or "" for s in token.furigana_override) == "みまた"
         rows = _conflicts_for(db_conn, token_id)
         assert next(r for r in rows if r.selected).id == original_row.id
+
+    def test_concurrent_corrections_serialize_instead_of_racing(self, committed_engine):
+        with committed_engine.begin() as conn:
+            document_id, token_id = self._seed_uncorrected_token(conn)
+
+        def correct_in_own_transaction():
+            with committed_engine.begin() as conn:
+                correct_reading(conn, document_id, token_id, "みつまた")
+
+        with committed_engine.connect() as first_conn:
+            correct_reading(first_conn, document_id, token_id, "さんまた")
+            second = BackgroundCall(correct_in_own_transaction)
+            wait_for_lock_wait()
+            first_conn.commit()
+        second.outcome()
+
+        with committed_engine.connect() as conn:
+            rows = _conflicts_for(conn, token_id)
+        # The second call saw the first's committed rows: one preserved
+        # original, not two, and only its own reading left selected.
+        assert sorted(r.value["reading"] for r in rows) == sorted(["みまた", "さんまた", "みつまた"])
+        assert [r.value["reading"] for r in rows if r.selected] == ["みつまた"]
 
     def test_raises_when_token_not_found(self, db_conn):
         document_id = db_conn.execute(
