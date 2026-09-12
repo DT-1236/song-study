@@ -34,6 +34,21 @@
   note is an implementation detail, so it sits as a comment directly
   above the line it's about, not in the docstring.
 
+## Testing
+
+- Tests and ad-hoc verification scripts run against the test database
+  (`TEST_DATABASE_URL`, set up in `backend/tests/support.py`), never the
+  app database at `DATABASE_URL` — not even inside a transaction that gets
+  rolled back. That still takes locks and advances sequences on real data,
+  and a row already cached there can quietly skip the code path a test
+  claims to exercise.
+- Fixtures never contain song lyrics or other copyrighted text, even when
+  copied from the app database. For realistic Japanese text, use a
+  public-domain work (e.g. from Aozora Bunko) and keep its credits, as
+  `backend/tests/fixtures/kumo_no_ito.py` does. For other real data, copy
+  exactly the rows a case reads instead of pointing the test at the app
+  database.
+
 ## Pull requests
 
 - When opening, updating, or reviewing a PR with a large diff, don't rely

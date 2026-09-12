@@ -1,10 +1,11 @@
 """Regression tests for app.glosses.
 
 Pure-function tests (English detection, sense ranking) need no database.
-The lookup-routing tests do — they exercise the real JMDict lookup (via a
-throwaway document/token inside a rolled-back transaction, see conftest.py),
-because these bugs were specifically about how real Sudachi/JMDict data
-interacts, not something a mock would have caught.
+The lookup-routing tests do — they exercise the real JMDict lookup against
+the empty test database (see conftest.py), so each lookup is a cache miss
+that runs the routing under test rather than returning a cached row. Real
+JMDict rather than a mock, because these bugs were specifically about how
+real Sudachi/JMDict data interacts.
 """
 
 from sqlalchemy import text
