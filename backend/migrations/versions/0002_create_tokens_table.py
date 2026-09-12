@@ -42,7 +42,7 @@ def upgrade() -> None:
 
             -- ambiguity flagging
             needs_review     BOOLEAN,
-            review_reason    TEXT,                  -- 'oov' | 'rendaku_mismatch' | 'heteronym' | 'no_kana_anchor' | NULL
+            review_reason    TEXT,                  -- 'oov' | 'heteronym' | 'no_kana_anchor' | NULL
 
             -- human override
             furigana_override JSONB,                -- same shape as furigana_spans, NULL until overridden

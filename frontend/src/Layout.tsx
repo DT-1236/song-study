@@ -1,5 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom'
 import { JmdictSearch } from './JmdictSearch'
+import { PosLegend } from './PosLegend'
 import { useTabs } from './TabsContext'
 
 export function Layout() {
@@ -34,6 +35,7 @@ export function Layout() {
         <Outlet />
       </main>
       <aside className="right-panel">
+        <PosLegend />
         <JmdictSearch />
       </aside>
     </div>

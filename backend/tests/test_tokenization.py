@@ -23,9 +23,28 @@ Each case's expected output was captured directly from a verified-correct
 run and double-checked by hand against the old (whole-document rescan)
 implementation before this file existed — see the tokenization refactor
 commit for how that comparison was done.
+
+The classes further down (TestFuriganaAlignment onward) are separate
+regression tests for the reading-disambiguation/gloss-support functions
+added alongside conflict_options — each case here is a real bug found and
+fixed this session, grounded in real Sudachi/JMDict behavior verified by
+hand at the time (see the case comments), not invented examples.
 """
 
-from app.tokenization import tokenize_document
+from app.tokenization import (
+    _build_furigana_spans,
+    _conjugation_type,
+    _is_regular_potential_form,
+    _reconstruct_citation_reading,
+    a_split_decomposition,
+    citation_reading,
+    dictionary_form_note,
+    heteronym_readings,
+    mixed_reading,
+    to_hiragana,
+    to_katakana,
+    tokenize_document,
+)
 
 CASES = {
     "jukujikun": (
@@ -537,3 +556,273 @@ def test_pure_kana_has_no_furigana():
     records = tokenize_document("ひらがなだけのぶんしょう")
     assert all(record.review_reason is None for record in records)
     assert all(span["reading"] is None for record in records for span in record.furigana_spans)
+
+
+def test_to_katakana_and_to_hiragana_roundtrip():
+    assert to_katakana("そろえ") == "ソロエ"
+    assert to_hiragana("ソロエ") == "そろえ"
+    assert to_hiragana(to_katakana("あたためる")) == "あたためる"
+
+
+class TestFuriganaAlignment:
+    def test_kanji_run_with_dictionary_split(self):
+        # 荒技 -> あら/わざ, a 2-kanji run resolved via the per-character
+        # partition search (no kana anchor between them).
+        spans, flagged, alts = _build_furigana_spans("荒技", "アラワザ")
+        assert [(s["text"], s["reading"]) for s in spans] == [("荒", "あら"), ("技", "わざ")]
+        assert not flagged
+        assert alts == []
+
+    def test_okurigana_anchors_the_kanji_reading(self):
+        # 揃える: kana anchor "える" pins the kanji run to just 揃 -> そろ.
+        spans, flagged, _ = _build_furigana_spans("揃える", "ソロエル")
+        assert spans[0] == {"start": 0, "end": 1, "text": "揃", "reading": "そろ"}
+        assert spans[1]["reading"] is None
+        assert spans[1]["text"] == "える"
+        assert not flagged
+
+    def test_jukujikun_is_a_single_whole_word_span_not_flagged(self):
+        # 今日 -> きょう has no per-character decomposition (jukujikun) —
+        # that's expected and correct, not an error to flag.
+        spans, flagged, alts = _build_furigana_spans("今日", "キョウ")
+        assert spans == [{"start": 0, "end": 2, "text": "今日", "reading": "きょう"}]
+        assert not flagged
+        assert alts == []
+
+    def test_no_kanji_gives_a_single_unread_span(self):
+        for surface, reading in [("gifted", "gifted"), ("ライバル", "ライバル"), ("それ", "ソレ")]:
+            spans, flagged, _ = _build_furigana_spans(surface, reading)
+            assert spans == [{"start": 0, "end": len(surface), "text": surface, "reading": None}]
+            assert not flagged
+
+    def test_spans_always_exactly_partition_the_surface(self):
+        # No gaps, no overlaps, in order — the invariant the frontend
+        # relies on to render furigana by just walking the span list.
+        for surface, reading in [("荒技", "アラワザ"), ("揃える", "ソロエル"), ("今日", "キョウ")]:
+            spans, _, _ = _build_furigana_spans(surface, reading)
+            pos = 0
+            for span in spans:
+                assert span["start"] == pos
+                assert span["text"] == surface[span["start"] : span["end"]]
+                pos = span["end"]
+            assert pos == len(surface)
+
+
+class TestMixedReading:
+    def test_katakana_loanword_portion_is_preserved_not_hiraganized(self):
+        # The bug: a blind to_hiragana(citation_reading(...)) turns 無理ゲー
+        # into むりげー, which matches nothing in JMDict (its real entry is
+        # むりゲー — ゲー stays katakana since it's a loanword abbreviation).
+        assert mixed_reading("無理ゲー") == "むりゲー"
+
+    def test_pure_katakana_word_is_left_alone(self):
+        assert mixed_reading("ライバル") == "ライバル"
+
+    def test_pure_kanji_word(self):
+        assert mixed_reading("揃える") == "そろえる"
+        assert mixed_reading("花火") == "はなび"
+
+    def test_jukujikun_word(self):
+        assert mixed_reading("今日") == "きょう"
+
+
+class TestCitationReading:
+    def test_matches_sudachis_own_standalone_tokenization(self):
+        assert citation_reading("温める") == "アタタメル"
+        assert citation_reading("揃える") == "ソロエル"
+
+
+class TestPotentialFormDetection:
+    def test_genuine_potential_forms(self):
+        # Verified against real Sudachi conjugation-type data: the
+        # dictionary_form is ichidan while normalized_form's own standalone
+        # conjugation type is godan — a real paradigm switch.
+        cases = [
+            ("挟める", "下一段-マ行", "挟む"),
+            ("行ける", "下一段-カ行", "行く"),
+            ("買える", "下一段-ア行", "買う"),
+            ("書ける", "下一段-カ行", "書く"),
+            ("読める", "下一段-マ行", "読む"),
+        ]
+        for dictionary_form, conjugation, normalized_form in cases:
+            assert _is_regular_potential_form(dictionary_form, conjugation, normalized_form), dictionary_form
+
+    def test_lexicalized_lookalike_is_not_a_potential_form(self):
+        # キレる/切れる are BOTH ichidan (no conjugation-class switch) — a
+        # slang orthographic variant, not a potential form. This is the
+        # false-positive case the conjugation-type check exists to catch.
+        assert not _is_regular_potential_form("キレる", "下一段-ラ行", "切れる")
+
+
+class TestDictionaryFormNote:
+    def test_none_when_forms_match(self):
+        assert dictionary_form_note("誰", "誰", "*") is None
+
+    def test_potential_form_gets_the_specific_note(self):
+        note = dictionary_form_note("挟める", "挟む", "下一段-マ行")
+        assert note is not None
+        assert "potential form" in note
+        assert "挟む" in note
+
+    def test_generic_variant_gets_the_generic_note(self):
+        # 無理ゲー's dictionary_form/normalized_form are identical in
+        # practice (no divergence to test here), so use a constructed
+        # non-potential divergence to check the generic branch fires and
+        # doesn't claim "potential form" when it isn't one.
+        note = dictionary_form_note("キレる", "切れる", "下一段-ラ行")
+        assert note is not None
+        assert "potential form" not in note
+
+
+class TestASplitDecomposition:
+    def test_decomposes_a_compound_with_no_jmdict_headword(self):
+        pieces = a_split_decomposition("勝利の女神")
+        assert [p[0] for p in pieces] == ["勝利", "の", "女神"]
+
+    def test_does_not_decompose_an_atomic_word(self):
+        assert a_split_decomposition("ぱっ") == []
+        assert a_split_decomposition("ゼッテー") == []
+
+
+class TestHeteronymReadings:
+    def test_finds_a_real_heteronym(self):
+        # 今日 has two Sudachi-registered readings under the identical POS
+        # tuple: きょう and こんにち.
+        readings = heteronym_readings("今日", ("名詞", "普通名詞", "副詞可能", "*", "*", "*"))
+        assert "コンニチ" in readings or "キョウ" in readings
+        assert len(set(readings)) >= 2
+
+    def test_non_heteronym_word_has_no_alternates(self):
+        readings = heteronym_readings("花火", ("名詞", "普通名詞", "一般", "*", "*", "*"))
+        assert len(set(readings)) <= 1
+
+
+class TestReconstructCitationReading:
+    def test_ichidan_inflected_append_pattern(self):
+        # 温め is 温める's stem/renyou form (e.g. from 温めた) — citation
+        # adds back exactly what's missing from the (shorter) stem reading,
+        # almost always just る.
+        citation = citation_reading("温める")
+        conjugation_type = _conjugation_type("温める")
+        assert conjugation_type == "下一段-マ行"
+        assert _reconstruct_citation_reading("アタタメ", citation, "ヌクメ", conjugation_type) == "ヌクメル"
+        assert _reconstruct_citation_reading("アタタメ", citation, "ヌルメ", conjugation_type) == "ヌルメル"
+
+    def test_ichidan_already_at_citation_form_needs_no_change(self):
+        # Regression: when the token occurs in its OWN citation-form
+        # reading directly (温める itself, not conjugated), reading already
+        # equals dict_form_citation — blindly appending citation's last
+        # character regardless would double it up (ぬくめる -> ぬくめるる).
+        # A heteronym alternative sharing that exact shape needs no
+        # transformation at all.
+        citation = citation_reading("温める")
+        conjugation_type = _conjugation_type("温める")
+        assert _reconstruct_citation_reading(citation, citation, "ヌクメル", conjugation_type) == "ヌクメル"
+
+    def test_godan_inflected_substitution_pattern(self):
+        # 開き is 開く's stem/renyou form and a real, registered heteronym:
+        # ひらく vs あく, renyou stems ヒラキ/アキ. Godan doesn't append a
+        # mora, it replaces the final one (カク/カキ) — a naive suffix-append
+        # is wrong here, which is exactly the gap this function exists to
+        # close.
+        citation = citation_reading("開く")  # Sudachi's own default: ヒラク
+        conjugation_type = _conjugation_type("開く")
+        assert conjugation_type == "五段-カ行"
+        assert _reconstruct_citation_reading("ヒラキ", citation, "アキ", conjugation_type) == "アク"
+
+    def test_godan_already_at_citation_form_needs_no_change(self):
+        # Same regression as the ichidan case, for godan: a token occurring
+        # in its own citation form (開く itself) needs no substitution.
+        citation = citation_reading("開く")
+        conjugation_type = _conjugation_type("開く")
+        assert _reconstruct_citation_reading(citation, citation, "アク", conjugation_type) == "アク"
+
+    def test_falls_back_safely_for_irregular_verbs(self):
+        # する/来る (サ行変格/カ行変格) don't follow either fixed rule — their
+        # stem readings vary irregularly across forms — so this must
+        # degrade to "leave it unchanged" rather than apply a rule that
+        # doesn't hold for them.
+        citation = citation_reading("する")
+        conjugation_type = _conjugation_type("する")
+        assert conjugation_type == "サ行変格"
+        assert _reconstruct_citation_reading("シ", citation, "シ", conjugation_type) == "シ"
+
+
+class TestTokenizeDocument:
+    def test_partitions_the_whole_text_with_no_gaps_or_overlaps(self):
+        text_sample = "チート、gifted、荒技\n無理ゲー、それ聞いてないって..."
+        records = tokenize_document(text_sample)
+        pos = 0
+        for r in records:
+            assert r.char_begin == pos
+            assert r.surface == text_sample[r.char_begin : r.char_end]
+            pos = r.char_end
+        assert pos == len(text_sample)
+
+    def test_english_token_gets_no_furigana_reading(self):
+        records = tokenize_document("gifted")
+        assert len(records) == 1
+        assert records[0].furigana_spans == [
+            {"start": 0, "end": 6, "text": "gifted", "reading": None}
+        ]
+
+    def test_heteronym_token_is_flagged_with_citation_reading_on_options(self):
+        records = tokenize_document("今日")
+        assert len(records) == 1
+        r = records[0]
+        assert r.review_reason == "heteronym"
+        assert r.conflict_options, "expected at least one alternate reading candidate"
+        for option in r.conflict_options:
+            assert "reading" in option
+            assert "furigana_spans" in option
+            assert "citation_reading" in option
+
+    def test_no_kana_anchor_conflict_options_use_citation_reading_not_inflected_reading(self, monkeypatch):
+        """出来上がった's stem token ('出来上がっ') has its own occurrence
+        reading デキアガッ, which still carries the past-tense okurigana
+        mutation — but JMDict is keyed by the citation reading できあがる
+        (mixed_reading of normalized_form), same as what the default
+        conflict option (app/conflicts.py::create_conflicts) already uses.
+        A no_kana_anchor conflict option's citation_reading must always be
+        the latter: using the raw occurrence reading directly would send an
+        inflected, non-citation reading to the gloss lookup the moment a
+        user resolves to a non-default option on anything but a bare
+        citation-form occurrence.
+
+        Real words that are both per-character-ambiguous *and* conjugating
+        are rare enough that none exist in the golden cases above, so this
+        forces the no_kana_anchor path via monkeypatch — the invariant
+        matters regardless of how rare the natural trigger is.
+        """
+        import app.tokenization as tok
+
+        def fake_furigana_spans_for_morpheme(m):
+            surface = m.surface()
+            reading = m.reading_form()
+            spans = [{"start": 0, "end": len(surface), "text": surface, "reading": tok.to_hiragana(reading)}]
+            alt = [{"start": 0, "end": len(surface), "text": surface, "reading": "dummy"}]
+            return spans, True, [alt]
+
+        monkeypatch.setattr(tok, "_furigana_spans_for_morpheme", fake_furigana_spans_for_morpheme)
+
+        records = tok.tokenize_document("出来上がった")
+        stem = next(r for r in records if r.surface == "出来上がっ")
+
+        assert stem.review_reason == "no_kana_anchor"
+        assert stem.reading_katakana == "デキアガッ"
+
+        citation = tok.mixed_reading(stem.normalized_form)
+        inflected = tok.to_hiragana(stem.reading_katakana)
+        assert citation == "できあがる"
+        assert inflected == "できあがっ"
+
+        assert stem.conflict_options, "expected at least one no_kana_anchor alternative"
+        for option in stem.conflict_options:
+            assert option["citation_reading"] == citation
+            assert option["citation_reading"] != inflected
+
+    def test_non_heteronym_token_is_not_flagged(self):
+        records = tokenize_document("花火")
+        assert len(records) == 1
+        assert records[0].review_reason is None
+        assert records[0].conflict_options == []
