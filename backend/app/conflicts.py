@@ -25,20 +25,12 @@ from app.tokenization import (
 
 
 def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None:
-    flagged = [r for r in records if r.conflict_options]
-    if not flagged:
-        return
-
-    token_ids = dict(
-        conn.execute(
-            text("SELECT position, id FROM tokens WHERE document_id = :document_id"),
-            {"document_id": document_id},
-        ).all()
-    )
-
+    """Insert a selected default plus unselected alternatives for every
+    flagged record, attached to the document's already-inserted tokens."""
     rows = []
-    for record in flagged:
-        token_id = token_ids[record.position]
+    for record in records:
+        if not record.conflict_options:
+            continue
         # `reading` below is the inflected surface's own reading (what
         # furigana needs); `citation_reading` is deliberately different —
         # mixed_reading of normalized_form, the citation form's reading,
@@ -48,40 +40,38 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
         default_value = conflict_option_value(
             to_hiragana(record.reading_katakana), record.furigana_spans, mixed_reading(record.normalized_form)
         )
-        rows.append(
-            {
-                "token_id": token_id,
-                "kind": record.review_reason,
-                "value": json.dumps(default_value),
-                "selected": True,
-            }
-        )
         # record.conflict_options never includes this default: heteronym
         # alternatives are built from `[r for r in heteronym_readings(...)
         # if r != reading]`, and no_kana_anchor alternatives are `solutions[1:]`
         # (the chosen split is solutions[0]) — both already exclude the
         # option selected above, so there's no duplicate row here.
-        for option in record.conflict_options:
+        for index, value in enumerate([default_value, *record.conflict_options]):
             rows.append(
                 {
-                    "token_id": token_id,
+                    "position": record.position,
                     "kind": record.review_reason,
-                    "value": json.dumps(option),
-                    "selected": False,
+                    "value": value,
+                    "selected": index == 0,
+                    "ord": len(rows),
                 }
             )
+    if not rows:
+        return
 
+    # Ordered, so each token's options get ids in order: the selected
+    # default first, then its alternatives.
     conn.execute(
         text(
             """
             INSERT INTO conflicts (token_id, kind, value, selected, selected_at)
-            VALUES (
-                :token_id, :kind, CAST(:value AS JSONB), :selected,
-                CASE WHEN :selected THEN now() ELSE NULL END
-            )
+            SELECT t.id, c.kind, c.value, c.selected, CASE WHEN c.selected THEN now() END
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB))
+                AS c(position int, kind text, value jsonb, selected boolean, ord int)
+            JOIN tokens t ON t.document_id = :document_id AND t.position = c.position
+            ORDER BY c.ord
             """
         ),
-        rows,
+        {"document_id": document_id, "rows": json.dumps(rows)},
     )
 
 

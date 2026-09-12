@@ -1,26 +1,31 @@
-"""Tests for GET /documents/{id}/tokens on a document's first processing,
-using public-domain text (tests/fixtures/kumo_no_ito.py). The route commits
-its own transaction, so these use `committed_engine`.
+"""Tests for GET /documents/{id}/tokens, using public-domain text
+(tests/fixtures/kumo_no_ito.py) and short test sentences. The route commits
+its own transactions, so these use `committed_engine`.
 """
 
 from __future__ import annotations
 
 import threading
 
-import pytest
-from sqlalchemy import event
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import event, text
 
+from app.glosses import is_glossable
 from app.main import (
+    ConflictResolution,
     DocumentCreate,
     DocumentTextUpdate,
-    attach_glosses,
+    _process_document,
+    _write_processed_document,
     create_document,
     get_document_tokens,
+    resolve_token_conflict,
     update_document_text,
 )
+from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import TEXT, TITLE
 from tests.support import BackgroundCall, wait_for_lock_wait
+
+FIRST_SENTENCE, SECOND_SENTENCE = (sentence + "。" for sentence in TEXT.split("。")[:2])
 
 
 def _statements_sent(engine, fn) -> list[tuple[str, int]]:
@@ -43,56 +48,45 @@ def _trips(statements, prefix: str = "") -> int:
     return sum(n for s, n in statements if s.startswith(prefix))
 
 
-def test_first_processing_round_trips(committed_engine):
-    """Pins how many DB round trips a document's first processing costs
-    today, with an empty gloss cache and with a warm one, so batching its
-    writes has a baseline to beat."""
+def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
+    """A document's first processing costs one statement per kind of read
+    and write, not one per token or per word, whether or not its glosses
+    are already cached."""
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert _trips(cold) == 1368
-    assert _trips(cold, "SELECT id FROM gloss_lookups") == 209
-    assert _trips(cold, "INSERT INTO gloss_lookups") == 172
+    assert _trips(cold) == 10
+    assert _trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Saving the text deletes the tokens but keeps the gloss cache, so the
     # next request is a first processing where every gloss is already cached.
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
     warm = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert _trips(warm) == 1196
-    assert _trips(warm, "SELECT id FROM gloss_lookups") == 209
+    assert _trips(warm) == 9
     assert _trips(warm, "INSERT INTO gloss_lookups") == 0
 
+    viewed = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
+    assert _trips(viewed) == 2
 
-@pytest.mark.xfail(
-    raises=IntegrityError,
-    strict=True,
-    reason=(
-        "Both requests see no tokens and tokenize; the second blocks on the "
-        "first's uncommitted (document_id, position) rows, then hits the "
-        "unique constraint once the first commits."
-    ),
-)
+
 def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeypatch):
-    # One sentence is enough to collide on token positions, and keeps the
-    # first request's real gloss pass short.
-    first_sentence = TEXT.split("。")[0] + "。"
-    document_id = create_document(DocumentCreate(title=TITLE, text=first_sentence)).id
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
 
-    # Holds the first request between inserting its tokens and committing,
-    # so the second is guaranteed to arrive while they're uncommitted.
-    tokens_inserted = threading.Event()
+    # Holds the first request after it writes its tokens but before it
+    # commits, so the second arrives while they're uncommitted.
+    tokens_written = threading.Event()
     release = threading.Event()
 
-    def attach_glosses_once_released(conn, document_id):
-        tokens_inserted.set()
+    def write_then_wait(conn, document_id, processed):
+        _write_processed_document(conn, document_id, processed)
+        tokens_written.set()
         release.wait(timeout=30)
-        attach_glosses(conn, document_id)
 
-    monkeypatch.setattr("app.main.attach_glosses", attach_glosses_once_released)
+    monkeypatch.setattr("app.main._write_processed_document", write_then_wait)
 
     try:
         first = BackgroundCall(get_document_tokens, document_id)
-        assert tokens_inserted.wait(timeout=30)
+        assert tokens_written.wait(timeout=30)
         second = BackgroundCall(get_document_tokens, document_id)
         wait_for_lock_wait()
     finally:
@@ -100,4 +94,42 @@ def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeyp
 
     first_tokens = first.outcome()
     second_tokens = second.outcome()
+    assert first_tokens
     assert [t.id for t in second_tokens] == [t.id for t in first_tokens]
+
+
+def test_text_edited_mid_processing_gets_tokens_for_the_new_text(committed_engine, monkeypatch):
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    texts_processed = []
+
+    def process_then_edit(document_text):
+        processed = _process_document(document_text)
+        if not texts_processed:
+            # Would block forever if the request held a lock while processing.
+            update_document_text(document_id, DocumentTextUpdate(text=SECOND_SENTENCE))
+        texts_processed.append(document_text)
+        return processed
+
+    monkeypatch.setattr("app.main._process_document", process_then_edit)
+
+    tokens = get_document_tokens(document_id)
+
+    assert texts_processed == [FIRST_SENTENCE, SECOND_SENTENCE]
+    assert [t.surface for t in tokens] == [r.surface for r in tokenize_document(SECOND_SENTENCE)]
+
+
+def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_engine):
+    """Tokens with no gloss link (tokenized before gloss support existed) get
+    one on the next fetch, and a token whose reading was picked from its
+    conflicts keeps that reading's gloss rather than Sudachi's default."""
+    document_id = create_document(DocumentCreate(title="test", text="今日は良い天気です。")).id
+    today = next(t for t in get_document_tokens(document_id) if t.surface == "今日")
+    alternative = next(c for c in today.conflicts if c.value["reading"] == "こんにち")
+    resolve_token_conflict(document_id, today.id, ConflictResolution(conflict_id=alternative.id))
+    with committed_engine.begin() as conn:
+        conn.execute(text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :id"), {"id": document_id})
+
+    tokens = get_document_tokens(document_id)
+
+    assert all(t.gloss is not None for t in tokens if is_glossable(t.part_of_speech, bool(t.conflicts)))
+    assert next(t for t in tokens if t.surface == "今日").gloss.reading == "こんにち"
