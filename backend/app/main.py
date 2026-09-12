@@ -20,8 +20,18 @@ from app.conflicts import (
     resolve_conflict,
 )
 from app.db import engine
-from app.glosses import attach_glosses, is_probably_english, needs_gloss_pass, rank_senses, search_jmdict
-from app.tokenization import dictionary_form_note, mixed_reading, tokenize_document
+from app.glosses import (
+    GlossPlan,
+    attach_glosses,
+    gloss_key,
+    is_glossable,
+    is_probably_english,
+    plan_glosses,
+    rank_senses,
+    search_jmdict,
+    store_glosses,
+)
+from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, tokenize_document
 
 app = FastAPI()
 
@@ -302,6 +312,8 @@ def _fetch_tokens(conn, document_id: int, token_id: Optional[int] = None) -> lis
         ),
         {"document_id": document_id, "token_id": token_id},
     ).all()
+    if not rows:
+        return []
 
     conflict_rows = conn.execute(
         text(
@@ -363,64 +375,119 @@ def _fetch_token(conn, document_id: int, token_id: int) -> Token:
     return _fetch_tokens(conn, document_id, token_id=token_id)[0]
 
 
+@dataclasses.dataclass
+class _ProcessedDocument:
+    records: list[TokenRecord]
+    gloss_plan: GlossPlan
+
+
+def _process_document(document_text: str) -> _ProcessedDocument:
+    """Tokenize a document and resolve its glosses against the cache — the
+    slow part of first processing — without writing anything."""
+    records = tokenize_document(document_text)
+    # A token's dictionary_form is the alternate spelling for its key.
+    requests = ((key, record.dictionary_form) for record in records if (key := gloss_key(record)) is not None)
+    # Autocommit, so no transaction is held open through the dictionary
+    # lookups.
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        return _ProcessedDocument(records, plan_glosses(conn, requests))
+
+
+def _write_processed_document(conn, document_id: int, processed: _ProcessedDocument) -> None:
+    """Insert a processed document's new gloss rows, its tokens (already
+    linked to their glosses), and its conflicts, one statement each."""
+    gloss_ids = store_glosses(conn, processed.gloss_plan)
+    rows = []
+    for record in processed.records:
+        key = gloss_key(record)
+        rows.append(
+            {
+                # Not dataclasses.asdict, which would deep-copy every field,
+                # conflict_options included, only to discard it.
+                **{f.name: getattr(record, f.name) for f in dataclasses.fields(record) if f.name != "conflict_options"},
+                "gloss_lookup_id": gloss_ids[key] if key is not None else None,
+            }
+        )
+    conn.execute(
+        text(
+            """
+            INSERT INTO tokens (
+                document_id, position, char_begin, char_end, surface,
+                dictionary_form, normalized_form, reading_katakana,
+                part_of_speech, is_oov, furigana_spans, needs_review,
+                review_reason, gloss_lookup_id
+            )
+            SELECT :document_id, position, char_begin, char_end, surface,
+                   dictionary_form, normalized_form, reading_katakana,
+                   part_of_speech, is_oov, furigana_spans, needs_review,
+                   review_reason, gloss_lookup_id
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS r(
+                position int, char_begin int, char_end int, surface text,
+                dictionary_form text, normalized_form text, reading_katakana text,
+                part_of_speech jsonb, is_oov boolean, furigana_spans jsonb,
+                needs_review boolean, review_reason text, gloss_lookup_id int
+            )
+            ORDER BY position
+            """
+        ),
+        {"document_id": document_id, "rows": json.dumps(rows)},
+    )
+    create_conflicts(conn, document_id, processed.records)
+
+
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
 def get_document_tokens(document_id: int) -> list[Token]:
-    with engine.begin() as conn:
-        doc_row = conn.execute(
-            text("SELECT text FROM documents WHERE id = :id"),
-            {"id": document_id},
-        ).one_or_none()
+    while True:
+        with engine.connect() as conn:
+            existing = _fetch_tokens(conn, document_id)
+            if not existing:
+                # Tokens only exist for a document that does, so the document
+                # is only read (and checked for) when there are none.
+                document_text = conn.execute(
+                    text("SELECT text FROM documents WHERE id = :id"),
+                    {"id": document_id},
+                ).scalar_one_or_none()
 
-        if doc_row is None:
-            raise HTTPException(status_code=404, detail="Document not found.")
-
-        existing = _fetch_tokens(conn, document_id)
         if existing:
-            if needs_gloss_pass(conn, document_id):
+            if all(t.gloss is not None or not is_glossable(t.part_of_speech, bool(t.conflicts)) for t in existing):
+                return existing
+            # Tokens missing their gloss link: tokenized before gloss support
+            # existed, or unlinked by a migration that reset the gloss cache
+            # (as 0005 did).
+            with engine.begin() as conn:
                 attach_glosses(conn, document_id)
                 return _fetch_tokens(conn, document_id)
-            return existing
 
-        records = tokenize_document(doc_row.text)
-        if not records:
+        if document_text is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
+        processed = _process_document(document_text)
+        if not processed.records:
             return []
 
-        conn.execute(
-            text(
-                """
-                INSERT INTO tokens (
-                    document_id, position, char_begin, char_end, surface,
-                    dictionary_form, normalized_form, reading_katakana,
-                    part_of_speech, is_oov, furigana_spans, needs_review,
-                    review_reason
-                ) VALUES (
-                    :document_id, :position, :char_begin, :char_end, :surface,
-                    :dictionary_form, :normalized_form, :reading_katakana,
-                    CAST(:part_of_speech AS JSONB), :is_oov,
-                    CAST(:furigana_spans AS JSONB), :needs_review, :review_reason
-                )
-                """
-            ),
-            [
-                {
-                    "document_id": document_id,
-                    **{
-                        k: json.dumps(v) if k in ("part_of_speech", "furigana_spans") else v
-                        for k, v in dataclasses.asdict(r).items()
-                    },
-                }
-                for r in records
-            ],
-        )
+        with engine.begin() as conn:
+            # Locks the document, so a concurrent first request or text edit
+            # waits for this write instead of racing it.
+            current_text = conn.execute(
+                text("SELECT text FROM documents WHERE id = :id FOR UPDATE"),
+                {"id": document_id},
+            ).scalar_one_or_none()
 
-        create_conflicts(conn, document_id, records)
-
-        # Gloss lookups run as a second pass, after furigana tokens are
-        # committed, since they're keyed off the finished (normalized_form,
-        # reading) pairs and are far more expensive per unique word.
-        attach_glosses(conn, document_id)
-
-        return _fetch_tokens(conn, document_id)
+            if current_text is None:
+                raise HTTPException(status_code=404, detail="Document not found.")
+            # Its own statement, not part of the locking one: under READ
+            # COMMITTED, only a statement started after the lock was granted
+            # sees tokens that the lock's previous holder committed.
+            already_processed = conn.execute(
+                text("SELECT EXISTS (SELECT 1 FROM tokens WHERE document_id = :id)"),
+                {"id": document_id},
+            ).scalar_one()
+            if already_processed:
+                return _fetch_tokens(conn, document_id)
+            if current_text == document_text:
+                _write_processed_document(conn, document_id, processed)
+                return _fetch_tokens(conn, document_id)
+        # The text was edited while this was processing: start over on the
+        # new text.
 
 
 class ConflictResolution(BaseModel):

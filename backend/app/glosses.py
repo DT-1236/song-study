@@ -23,12 +23,14 @@ from __future__ import annotations
 import json
 import re
 import threading
+from collections.abc import Iterable
+from dataclasses import dataclass
 from typing import Optional
 
 from jamdict import Jamdict
 from sqlalchemy import text
 
-from app.tokenization import a_split_decomposition, heteronym_readings, mixed_reading, to_hiragana
+from app.tokenization import TokenRecord, a_split_decomposition, heteronym_readings, mixed_reading, to_hiragana
 
 _SKIP_POS_MAJOR = {"補助記号", "空白"}
 
@@ -90,7 +92,9 @@ def _serialize_senses(entry) -> list[dict]:
 
 def _lookup_entries(lookup_form: str, reading_hiragana: str) -> list[dict]:
     jam = _get_jamdict()
-    result = jam.lookup(lookup_form)
+    # Only result.entries is used, so the per-character (KanjiDic) and
+    # name (JMnedict) lookups are skipped, as in search_jmdict.
+    result = jam.lookup(lookup_form, lookup_chars=False, lookup_ne=False)
     scored_entries = []
     for e in result.entries:
         matching_kana = [
@@ -279,224 +283,241 @@ def rank_senses(entries: list[dict], sudachi_major: str) -> list[dict]:
     return [sense for _, sense in scored]
 
 
-def needs_gloss_pass(conn, document_id: int) -> bool:
-    """True if this document has lexical tokens that were never linked to a
-    gloss lookup (either newly tokenized, or tokenized before gloss support
-    existed)."""
+def is_lexical(part_of_speech) -> bool:
+    """False for punctuation and whitespace."""
+    return part_of_speech[0] not in _SKIP_POS_MAJOR
 
-    return conn.execute(
+
+def is_glossable(part_of_speech, has_conflicts: bool) -> bool:
+    """Whether a token gets a gloss: every lexical token, plus any token with
+    reading conflicts whatever its part of speech."""
+    return has_conflicts or is_lexical(part_of_speech)
+
+
+# A gloss_lookups cache key: (lookup_form, reading).
+GlossKey = tuple[str, str]
+
+
+def citation_key(normalized_form: str) -> GlossKey:
+    """The cache key a token is glossed under unless a reading was picked for
+    it: its normalized form and that form's own citation reading."""
+    # The citation form's own reading, not the token's reading_katakana —
+    # JMDict keys entries by citation reading (e.g. 揃える -> そろえる), and
+    # an inflected surface's reading (揃え -> そろえ) won't match it.
+    # mixed_reading (not a blind to_hiragana) because JMDict keeps katakana
+    # loanword portions as katakana in its own kana_forms (無理ゲー ->
+    # むりゲー, not むりげー).
+    return (normalized_form, mixed_reading(normalized_form))
+
+
+def gloss_key(record: TokenRecord) -> Optional[GlossKey]:
+    """The cache key a newly tokenized token is glossed under, or None if it
+    doesn't get a gloss."""
+    if not is_glossable(record.part_of_speech, bool(record.conflict_options)):
+        return None
+    # For a flagged token, this is also the key of the default option
+    # create_conflicts selects.
+    return citation_key(record.normalized_form)
+
+
+@dataclass
+class GlossPlan:
+    """Glosses for a set of cache keys: the ids of rows already cached, and
+    newly computed (entries, source) for the rest, not yet written."""
+
+    cached_ids: dict[GlossKey, int]
+    new_rows: dict[GlossKey, tuple[object, str]]
+
+
+def _cached_rows(conn, keys, *, with_entries: bool = False) -> dict:
+    """The cached gloss_lookups rows for these keys, by key. Entries are only
+    fetched when asked for — they're the bulk of each row."""
+    if not keys:
+        return {}
+    forms, readings = zip(*keys)
+    columns = "id, lookup_form, reading, entries, source" if with_entries else "id, lookup_form, reading"
+    rows = conn.execute(
         text(
-            """
-            SELECT EXISTS (
-                SELECT 1 FROM tokens
-                WHERE document_id = :document_id
-                  AND gloss_lookup_id IS NULL
-                  AND NOT (part_of_speech ->> 0 = ANY(:skip_pos))
-            )
+            f"""
+            SELECT {columns}
+            FROM gloss_lookups
+            JOIN unnest(CAST(:forms AS text[]), CAST(:readings AS text[])) AS k(lookup_form, reading)
+                USING (lookup_form, reading)
             """
         ),
-        {"document_id": document_id, "skip_pos": list(_SKIP_POS_MAJOR)},
-    ).scalar_one()
+        {"forms": list(forms), "readings": list(readings)},
+    )
+    return {(row.lookup_form, row.reading): row for row in rows}
 
 
-def _lookup_composite(conn, word: str) -> Optional[dict]:
-    """Fallback for a word with no JMDict entry of its own: decompose it
-    with SplitMode.A and gloss each piece independently (勝利の女神, which
-    Sudachi's C-split merges into one token with no JMDict headword, decomposes
-    into 勝利/の/女神 — each of which does have one). Returns None if the word
-    doesn't decompose, or decomposes but not a single piece resolves to real
-    content (in which case this fallback is no better than the direct miss).
-    """
-    pieces = a_split_decomposition(word)
-    if not pieces:
-        return None
-
-    result_pieces = []
-    for surface, _reading_katakana, pos in pieces:
-        if pos[0] in _SKIP_POS_MAJOR:
-            continue
-
-        reading = mixed_reading(surface)
-        # allow_composite=False: a piece is deliberately not allowed to
-        # recurse into its own composite fallback, keeping this a single
-        # level of decomposition rather than arbitrarily deep.
-        piece_id = get_or_create_gloss_lookup(conn, surface, reading, allow_composite=False)
-        piece_entries, piece_source = conn.execute(
-            text("SELECT entries, source FROM gloss_lookups WHERE id = :id"),
-            {"id": piece_id},
-        ).one()
-
-        senses = rank_senses(piece_entries, pos[0]) if piece_source in ("jmdict", "english_stub") else []
-        alt_readings = sorted({to_hiragana(r) for r in heteronym_readings(surface, pos)} - {reading})
-
-        result_pieces.append(
-            {
-                "surface": surface,
-                "reading": reading,
-                "senses": senses,
-                "ambiguous_readings": alt_readings,
-            }
-        )
-
-    if not any(p["senses"] for p in result_pieces):
-        return None
-
-    return {"pieces": result_pieces}
-
-
-def get_or_create_gloss_lookup(
-    conn,
-    lookup_form: str,
-    reading: str,
-    *,
-    allow_composite: bool = True,
-    alt_lookup_form: Optional[str] = None,
-) -> int:
-    """The gloss_lookups row id for (lookup_form, reading), fetching from
-    JMDict (or routing to the English stub, or the composite fallback) and
-    caching it if this exact pair hasn't been looked up before. Shared by
-    the bulk per-document pass, a one-off re-lookup after a user corrects a
-    token's reading, and (with allow_composite=False) composite piece
-    lookups themselves.
-
-    alt_lookup_form is a second spelling to try (same reading) when the
-    primary one comes back empty — normalized_form and dictionary_form can
-    each be the one JMDict actually has registered, depending on the word:
-    挟める has no JMDict headword of its own (normalized_form 挟む does);
-    さり気ない's normalized_form さり気無い isn't JMDict's registered kanji
-    spelling even though dictionary_form さり気ない (identical to the
-    surface here) is exactly the one JMDict lists. Neither form is reliably
-    "more correct" in general, so both get tried rather than committing to
-    one and silently missing the other's cases.
-    """
-
-    existing = conn.execute(
-        text(
-            """
-            SELECT id FROM gloss_lookups
-            WHERE lookup_form = :lookup_form AND reading = :reading
-            """
-        ),
-        {"lookup_form": lookup_form, "reading": reading},
-    ).one_or_none()
-
-    if existing is not None:
-        return existing.id
-
+def _lookup(lookup_form: str, reading: str, alt_lookup_form: Optional[str] = None) -> tuple[object, str]:
+    """(entries, source) for one key, from the English stub or JMDict, trying
+    alt_lookup_form too when lookup_form has no entry."""
     if is_probably_english(lookup_form):
-        entries: object = _lookup_english_entries(lookup_form)
-        source = "english_stub"
-    else:
-        found = _lookup_entries(lookup_form, reading)
-        if not found and alt_lookup_form and alt_lookup_form != lookup_form:
-            found = _lookup_entries(alt_lookup_form, reading)
-        composite = _lookup_composite(conn, lookup_form) if not found and allow_composite else None
-        if composite is not None:
-            entries, source = composite, "composite"
-        else:
-            entries, source = found, "jmdict"
+        return _lookup_english_entries(lookup_form), "english_stub"
+    found = _lookup_entries(lookup_form, reading)
+    # normalized_form and dictionary_form can each be the one JMDict actually
+    # has registered, depending on the word: 挟める has no JMDict headword of
+    # its own (normalized_form 挟む does); さり気ない's normalized_form
+    # さり気無い isn't JMDict's registered kanji spelling, though its
+    # dictionary_form さり気ない is. Neither form is reliably "more correct",
+    # so both get tried.
+    if not found and alt_lookup_form and alt_lookup_form != lookup_form:
+        found = _lookup_entries(alt_lookup_form, reading)
+    return found, "jmdict"
 
-    return conn.execute(
+
+def _add_composites(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[object, str]]) -> None:
+    """For each key — a word with no JMDict entry of its own — replace its
+    empty result in new_rows with a gloss built from its SplitMode.A pieces,
+    if any piece has real content: 勝利の女神, which Sudachi's C-split merges
+    into one token with no JMDict headword, decomposes into 勝利/の/女神,
+    each of which does have one. Uncached pieces are added to new_rows too,
+    so they're cached like any other lookup."""
+    decompositions = {
+        key: [
+            (surface, mixed_reading(surface), pos)
+            for surface, _reading_katakana, pos in a_split_decomposition(key[0])
+            if is_lexical(pos)
+        ]
+        for key in keys
+    }
+    piece_keys = {(surface, reading) for pieces in decompositions.values() for surface, reading, _ in pieces}
+    cached = {
+        key: (row.entries, row.source)
+        for key, row in _cached_rows(conn, piece_keys - new_rows.keys(), with_entries=True).items()
+    }
+    for piece_key in piece_keys - new_rows.keys() - cached.keys():
+        # No alternate spelling or compound fallback for a piece, keeping
+        # this to a single level of decomposition.
+        new_rows[piece_key] = _lookup(*piece_key)
+
+    for key, pieces in decompositions.items():
+        result_pieces = []
+        for surface, reading, pos in pieces:
+            entries, source = cached.get((surface, reading)) or new_rows[(surface, reading)]
+            result_pieces.append(
+                {
+                    "surface": surface,
+                    "reading": reading,
+                    "senses": rank_senses(entries, pos[0]) if source in ("jmdict", "english_stub") else [],
+                    "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, pos)} - {reading}),
+                }
+            )
+        if any(p["senses"] for p in result_pieces):
+            new_rows[key] = ({"pieces": result_pieces}, "composite")
+
+
+def plan_glosses(conn, requests: Iterable[tuple[GlossKey, Optional[str]]]) -> GlossPlan:
+    """Resolve each requested key against the gloss cache and compute every
+    miss (from JMDict, the English stub, or the compound fallback), without
+    writing anything. Each request pairs a key with an alternate spelling to
+    try when the key's own lookup_form has no JMDict entry; the first one
+    given for a key is used."""
+    alternates: dict[GlossKey, Optional[str]] = {}
+    for key, alt in requests:
+        alternates.setdefault(key, alt)
+    cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates).items()}
+    new_rows = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in cached_ids}
+    _add_composites(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
+    return GlossPlan(cached_ids, new_rows)
+
+
+def store_glosses(conn, plan: GlossPlan) -> dict[GlossKey, int]:
+    """Insert the plan's newly computed rows, and return every planned key's
+    gloss_lookups id."""
+    ids = dict(plan.cached_ids)
+    if not plan.new_rows:
+        return ids
+    # Sorted, so two transactions inserting overlapping keys lock them in the
+    # same order and can't deadlock.
+    rows = [
+        {"lookup_form": form, "reading": reading, "entries": entries, "source": source}
+        for (form, reading), (entries, source) in sorted(plan.new_rows.items())
+    ]
+    # A no-op update rather than DO NOTHING, so a row another transaction
+    # inserted first still comes back from RETURNING.
+    inserted = conn.execute(
         text(
             """
             INSERT INTO gloss_lookups (lookup_form, reading, entries, source)
-            VALUES (:lookup_form, :reading, CAST(:entries AS JSONB), :source)
+            SELECT lookup_form, reading, entries, source
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB))
+                AS r(lookup_form text, reading text, entries jsonb, source text)
             ON CONFLICT (lookup_form, reading) DO UPDATE
                 SET lookup_form = EXCLUDED.lookup_form
-            RETURNING id
+            RETURNING id, lookup_form, reading
             """
         ),
-        {
-            "lookup_form": lookup_form,
-            "reading": reading,
-            "entries": json.dumps(entries),
-            "source": source,
-        },
-    ).scalar_one()
+        {"rows": json.dumps(rows)},
+    )
+    ids.update({(row.lookup_form, row.reading): row.id for row in inserted})
+    return ids
+
+
+def get_or_create_gloss_lookup(conn, lookup_form: str, reading: str, *, alt_lookup_form: Optional[str] = None) -> int:
+    """The gloss_lookups row id for (lookup_form, reading), computing and
+    caching it first if it isn't cached yet. alt_lookup_form is a second
+    spelling to try when lookup_form has no JMDict entry."""
+    key = (lookup_form, reading)
+    return store_glosses(conn, plan_glosses(conn, [(key, alt_lookup_form)]))[key]
 
 
 def attach_glosses(conn, document_id: int) -> None:
-    """Look up (or reuse cached) JMDict glosses for every lexical token in a
-    document that doesn't have one linked yet, and link it to its
-    gloss_lookups row.
+    """Look up (or reuse cached) JMDict glosses for every token in a document
+    that should have one but has no gloss_lookups row linked yet, and link it.
 
     Deliberately only ever touches tokens with gloss_lookup_id IS NULL —
     this has to be a pure gap-filler, never a reassignment pass. A token
     can have a resolved reading that's not Sudachi's own default (a
     heteronym pick, or a user's own correction via `conflicts`), and this
-    runs again any time needs_gloss_pass finds even one other token still
-    missing a link — if it touched already-linked tokens too, it would
-    silently overwrite a resolved reading's gloss with the generic default
-    every time that happens, discarding a correction that's still sitting
-    right there in `conflicts`.
+    runs again any time a fetch finds even one other token still missing a
+    link — if it touched already-linked tokens too, it would silently
+    overwrite a resolved reading's gloss with the generic default every
+    time that happens, discarding a correction that's still sitting right
+    there in `conflicts`.
     """
-
-    # Tokens that already have a selected reading recorded (a resolved
-    # heteronym/no_kana_anchor pick, or a user's own correction) but lost
-    # their gloss link some other way should get glossed under THAT
-    # reading, not Sudachi's own default — otherwise a real correction
-    # silently reverts the moment this function runs again for any reason.
-    selected_readings = conn.execute(
+    unlinked = conn.execute(
         text(
             """
-            SELECT t.id AS token_id, t.normalized_form, t.dictionary_form,
-                   COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS reading
+            SELECT t.id, t.normalized_form, t.dictionary_form, t.part_of_speech,
+                   COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS selected_reading
             FROM tokens t
-            JOIN conflicts c ON c.token_id = t.id AND c.selected
+            LEFT JOIN conflicts c ON c.token_id = t.id AND c.selected
             WHERE t.document_id = :document_id AND t.gloss_lookup_id IS NULL
+            ORDER BY t.position
             """
         ),
         {"document_id": document_id},
     ).all()
 
-    for token_id, normalized_form, dictionary_form, reading in selected_readings:
-        gloss_lookup_id = get_or_create_gloss_lookup(
-            conn, normalized_form, reading, alt_lookup_form=dictionary_form
-        )
-        conn.execute(
-            text("UPDATE tokens SET gloss_lookup_id = :gloss_lookup_id WHERE id = :token_id"),
-            {"gloss_lookup_id": gloss_lookup_id, "token_id": token_id},
-        )
+    keys: dict[int, GlossKey] = {}
+    requests = []
+    for row in unlinked:
+        if row.selected_reading is not None:
+            # A token with a selected reading recorded (a resolved pick, or a
+            # user's own correction) is glossed under THAT reading, not
+            # Sudachi's default — otherwise a real correction silently
+            # reverts the moment this runs again for any reason.
+            key = (row.normalized_form, row.selected_reading)
+        elif is_lexical(row.part_of_speech):
+            key = citation_key(row.normalized_form)
+        else:
+            continue
+        keys[row.id] = key
+        requests.append((key, row.dictionary_form))
+    if not keys:
+        return
 
-    normalized_forms = conn.execute(
+    ids = store_glosses(conn, plan_glosses(conn, requests))
+    conn.execute(
         text(
             """
-            SELECT normalized_form, (array_agg(dictionary_form))[1] AS dictionary_form
-            FROM tokens
-            WHERE document_id = :document_id
-              AND gloss_lookup_id IS NULL
-              AND NOT (part_of_speech ->> 0 = ANY(:skip_pos))
-            GROUP BY normalized_form
+            UPDATE tokens t
+            SET gloss_lookup_id = v.gloss_lookup_id
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS v(id int, gloss_lookup_id int)
+            WHERE t.id = v.id AND t.gloss_lookup_id IS NULL
             """
         ),
-        {"document_id": document_id, "skip_pos": list(_SKIP_POS_MAJOR)},
-    ).all()
-
-    for normalized_form, dictionary_form in normalized_forms:
-        # The citation form's own reading, not any inflected token's
-        # reading_katakana — JMDict keys entries by citation reading (e.g.
-        # 揃える -> そろえる), and an inflected surface's reading (揃え ->
-        # そろえ) won't match it. mixed_reading (not a blind to_hiragana)
-        # because JMDict keeps katakana loanword portions as katakana in
-        # its own kana_forms (無理ゲー -> むりゲー, not むりげー).
-        reading = mixed_reading(normalized_form)
-        gloss_lookup_id = get_or_create_gloss_lookup(
-            conn, normalized_form, reading, alt_lookup_form=dictionary_form
-        )
-
-        conn.execute(
-            text(
-                """
-                UPDATE tokens
-                SET gloss_lookup_id = :gloss_lookup_id
-                WHERE document_id = :document_id
-                  AND normalized_form = :normalized_form
-                  AND gloss_lookup_id IS NULL
-                """
-            ),
-            {
-                "gloss_lookup_id": gloss_lookup_id,
-                "document_id": document_id,
-                "normalized_form": normalized_form,
-            },
-        )
+        {"rows": json.dumps([{"id": token_id, "gloss_lookup_id": ids[key]} for token_id, key in keys.items()])},
+    )
