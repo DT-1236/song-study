@@ -10,15 +10,10 @@ which is dropped and re-created from the migrations once per session.
 
 from __future__ import annotations
 
-import os
-import sys
-
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import pytest
 from sqlalchemy import text
 
-# Must be imported before anything from `app`.
+# Must be imported before anything that imports app.db.
 from tests.support import engine, recreate_test_database
 
 
@@ -41,4 +36,9 @@ def db_conn(test_database):
 def committed_engine(test_database):
     yield engine
     with engine.begin() as conn:
-        conn.execute(text("TRUNCATE conflicts, tokens, gloss_lookups, documents RESTART IDENTITY"))
+        # Read from the catalog so a table added by a later migration is
+        # emptied too.
+        tables = conn.execute(
+            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'alembic_version'")
+        ).scalars().all()
+        conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY"))

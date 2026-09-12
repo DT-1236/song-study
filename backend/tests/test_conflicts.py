@@ -1,7 +1,7 @@
 """Regression tests for app.conflicts.
 
-All DB-integration (via db_conn/make_token, see conftest.py) — every case
-here reproduces a real bug found this session:
+All DB-integration (`db_conn` from conftest.py, `make_token` from
+support.py) — every case here reproduces a real bug found this session:
 
 - resolve_conflict originally only updated furigana_override on a switch,
   leaving a stale gloss paired with the newly-selected reading.

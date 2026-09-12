@@ -3,8 +3,8 @@
 Database tests run against a dedicated test database named by
 TEST_DATABASE_URL (see .env.example). Importing this module overrides
 DATABASE_URL with it before anything imports app.db, so no test can reach
-the app's own database — import it (conftest.py does) before any `app`
-module.
+the app's own database — import it (conftest.py does) before anything that
+imports app.db.
 """
 
 from __future__ import annotations
@@ -15,12 +15,16 @@ import threading
 import time
 from pathlib import Path
 
-from dotenv import load_dotenv
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+
+from app.env import load_env
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 
-load_dotenv(BACKEND_DIR.parent / ".env")
+load_env()
 
 
 def _test_database_url() -> str:
@@ -41,30 +45,27 @@ def _test_database_url() -> str:
     return url
 
 
-TEST_DATABASE_URL = _test_database_url()
-# app.db builds its engine from DATABASE_URL at import time, and load_dotenv
+# app.db builds its engine from DATABASE_URL at import time, and load_env
 # never overrides a variable that's already set.
-os.environ["DATABASE_URL"] = TEST_DATABASE_URL
-
-from sqlalchemy import create_engine, text  # noqa: E402
+os.environ["DATABASE_URL"] = _test_database_url()
 
 from app.db import engine  # noqa: E402
 
+
 def recreate_test_database() -> None:
     """Drop and re-create the test database, then migrate it to head."""
-    from alembic import command
-    from alembic.config import Config
-
-    name = make_url(TEST_DATABASE_URL).database
-    admin = create_engine(make_url(TEST_DATABASE_URL).set(database="postgres"), isolation_level="AUTOCOMMIT")
+    url = engine.url
+    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
     with admin.connect() as conn:
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{name}" WITH (FORCE)'))
-        conn.execute(text(f'CREATE DATABASE "{name}"'))
+        conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)'))
+        conn.execute(text(f'CREATE DATABASE "{url.database}"'))
     admin.dispose()
     # Pooled connections still point at the database that was just dropped.
     engine.dispose()
-    # migrations/env.py reads DATABASE_URL, already overridden above.
-    command.upgrade(Config(str(BACKEND_DIR / "alembic.ini")), "head")
+    config = Config(str(BACKEND_DIR / "alembic.ini"))
+    # Config values go through configparser interpolation, so % is escaped.
+    config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%"))
+    command.upgrade(config, "head")
 
 
 def wait_for_lock_wait(timeout: float = 10.0) -> None:
@@ -95,6 +96,8 @@ class BackgroundCall(threading.Thread):
     returns its result or re-raises its exception."""
 
     def __init__(self, fn, *args):
+        # A daemon thread, unlike a ThreadPoolExecutor's (joined at exit),
+        # can't keep pytest from exiting if it's stuck on a database lock.
         super().__init__(daemon=True)
         self._fn, self._args = fn, args
         self._result = self._error = None
