@@ -25,6 +25,12 @@ export type Document = {
 
 export class ApiError extends Error {}
 
+// The message to show for a failed request: the server's own, from an
+// ApiError, or `fallback` for anything else (a network failure, say).
+export function errorMessage(err: unknown, fallback: string): string {
+  return err instanceof ApiError ? err.message : fallback
+}
+
 async function assertOk(response: Response, statusMessages: Record<number, string> = {}): Promise<void> {
   if (response.ok) return
 

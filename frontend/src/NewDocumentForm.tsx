@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ApiError, LRCLIB_URI_PLACEHOLDER, createDocument } from './api'
+import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
 
 export function NewDocumentForm() {
   const [title, setTitle] = useState('')
@@ -28,7 +28,7 @@ export function NewDocumentForm() {
       setLrclibUri('')
       setYoutubeVideoId('')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Something went wrong.')
+      setError(errorMessage(err, 'Something went wrong.'))
     } finally {
       setSubmitting(false)
     }

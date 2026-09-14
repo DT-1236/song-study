@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { toKana } from 'wanakana'
-import { ApiError, searchJmdict } from './api'
+import { errorMessage, searchJmdict } from './api'
 import type { JmdictEntry } from './api'
 
 const DEBOUNCE_MS = 300
@@ -42,7 +42,7 @@ export function JmdictSearch() {
         })
         .catch((err) => {
           if (cancelled) return
-          setError(err instanceof ApiError ? err.message : 'Lookup failed.')
+          setError(errorMessage(err, 'Lookup failed.'))
         })
         .finally(() => {
           if (!cancelled) setLoading(false)

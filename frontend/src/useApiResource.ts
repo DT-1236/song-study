@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { ApiError } from './api'
+import { errorMessage } from './api'
 
 export function useApiResource<T>(
   fetchFn: () => Promise<T>,
@@ -22,7 +22,7 @@ export function useApiResource<T>(
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof ApiError ? err.message : fallbackErrorMessage)
+        setError(errorMessage(err, fallbackErrorMessage))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
