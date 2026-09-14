@@ -14,6 +14,7 @@ export type YouTubePlayerHandle = {
   getVideoData: () => YT.VideoData | null
   togglePlay: () => void
   seekBy: (deltaSeconds: number) => void
+  playFrom: (seconds: number) => void
 }
 
 type Props = {
@@ -72,6 +73,12 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
       const target = player.getCurrentTime() + deltaSeconds
       const clamped = Math.min(Math.max(target, 0), player.getDuration())
       player.seekTo(clamped, true)
+    },
+    playFrom: (seconds) => {
+      const player = playerRef.current
+      if (!player) return
+      player.seekTo(seconds, true)
+      player.playVideo()
     },
   }), [])
 

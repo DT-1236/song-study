@@ -437,7 +437,8 @@
 }
 
 .lyrics-box {
-  line-height: 2.6;
+  --lyrics-line-height: 2.6;
+  line-height: var(--lyrics-line-height);
   padding: 0.75rem;
   border: 1px solid var(--border);
   border-radius: 4px;
@@ -445,6 +446,40 @@
   white-space: pre-wrap;
   font-size: var(--lyrics-font-size, 18px);
   margin: 0;
+}
+
+/* A line's play button hangs in the lyrics box's left padding and takes no
+   room on the line itself, so lines stay aligned whether or not they have
+   one. */
+.lyrics-box.has-line-play {
+  padding-left: 2.25rem;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.lyrics-box .line-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* As tall as the line and aligned to its top, so the icon sits on the
+     line's middle whatever the font. */
+  vertical-align: top;
+  width: 1.25rem;
+  height: calc(1em * var(--lyrics-line-height));
+  margin: 0 0.25rem 0 -1.5rem;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+}
+
+.lyrics-box .line-play svg {
+  width: 0.6rem;
+  height: 0.6rem;
+  fill: currentColor;
+}
+
+.lyrics-box .line-play:hover {
+  color: var(--accent);
 }
 
 .lyrics-box ruby rt {

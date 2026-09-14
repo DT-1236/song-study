@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
@@ -627,6 +627,33 @@ function SelectionPanel({
   )
 }
 
+// Plays the song from `start`, the start of the line it's placed before.
+// Memoized like TokenSpan, so the playing line moving doesn't re-render it.
+const LinePlayButton = memo(function LinePlayButton({
+  start,
+  onPlayLine,
+}: {
+  start: number
+  onPlayLine: (start: number) => void
+}) {
+  return (
+    <button
+      type="button"
+      className="line-play"
+      aria-label="Play from this line"
+      title="Play from this line"
+      // Leaves focus where it was, so Space keeps playing and pausing rather
+      // than pressing this again.
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={() => onPlayLine(start)}
+    >
+      <svg viewBox="0 0 10 10" aria-hidden="true">
+        <path d="M2 1 9 5 2 9Z" />
+      </svg>
+    </button>
+  )
+})
+
 // One token of the lyrics. Memoized, with every prop either a primitive or
 // stable across renders, so a change that doesn't touch this token (the
 // playing line moving elsewhere, another token hovered) doesn't re-render it.
@@ -691,11 +718,17 @@ const TokenizedText = memo(function TokenizedText({
   documentId,
   onTokensUpdated,
   playingLine,
+  lineTimings,
+  onPlayLine,
 }: {
   tokens: Token[]
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
   playingLine: number | null
+  // Each line's timing, when lines can be played from; null hides the
+  // play buttons.
+  lineTimings: LineTiming[] | null
+  onPlayLine: (start: number) => void
 }) {
   const [hoveredId, setHoveredId] = useState<number | null>(null)
   const [pinnedId, setPinnedId] = useState<number | null>(null)
@@ -763,15 +796,23 @@ const TokenizedText = memo(function TokenizedText({
   }
 
   // Each token's line, by the line breaks before it: the index of its
-  // timing in the document's lrclib_lines.
-  const lineOf = useMemo(() => {
-    const lines: number[] = []
+  // timing in the document's lrclib_lines. And the first token with text on
+  // each line, which that line's play button goes before — blank lines get
+  // none.
+  const { lineOf, firstWithText } = useMemo(() => {
+    const lineOf: number[] = []
+    const firstWithText = new Set<number>()
     let line = 0
-    for (const token of tokens) {
-      lines.push(line)
+    let lastLineWithText = -1
+    tokens.forEach((token, index) => {
+      lineOf.push(line)
+      if (line !== lastLineWithText && token.surface.trim()) {
+        firstWithText.add(index)
+        lastLineWithText = line
+      }
       line += token.surface.split('\n').length - 1
-    }
-    return lines
+    })
+    return { lineOf, firstWithText }
   }, [tokens])
 
   // The popup sits below the token with a small margin gap (see .gloss-popup
@@ -877,8 +918,10 @@ const TokenizedText = memo(function TokenizedText({
           />
         </div>
       )}
-      <p className="lyrics-box">
+      <p className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}>
         {tokens.map((token, index) => {
+          // Lines past the last timing (blank ones at the end) have none.
+          const lineStart = firstWithText.has(index) ? lineTimings?.[lineOf[index]]?.start : undefined
           const interactive = hasPopup(token)
           const isPinned = pinnedId === token.id
           const isActive = isPinned || (pinnedId === null && hoveredId === token.id)
@@ -911,20 +954,22 @@ const TokenizedText = memo(function TokenizedText({
           if (isEligible(index)) classNames.push('eligible')
 
           return (
-            <TokenSpan
-              key={token.id}
-              token={token}
-              index={index}
-              className={classNames.join(' ')}
-              // While selecting, the selection panel shows the gloss instead.
-              showPopup={isActive && interactive && selected.length === 0}
-              instances={instancesByKey.get(keys[index]) ?? NO_TOKENS}
-              documentId={documentId}
-              onTokensUpdated={onTokensUpdated}
-              onClick={onTokenClick}
-              onHoverEnter={handleHoverEnter}
-              onHoverLeave={handleHoverLeave}
-            />
+            <Fragment key={token.id}>
+              {lineStart !== undefined && <LinePlayButton start={lineStart} onPlayLine={onPlayLine} />}
+              <TokenSpan
+                token={token}
+                index={index}
+                className={classNames.join(' ')}
+                // While selecting, the selection panel shows the gloss instead.
+                showPopup={isActive && interactive && selected.length === 0}
+                instances={instancesByKey.get(keys[index]) ?? NO_TOKENS}
+                documentId={documentId}
+                onTokensUpdated={onTokensUpdated}
+                onClick={onTokenClick}
+                onHoverEnter={handleHoverEnter}
+                onHoverLeave={handleHoverLeave}
+              />
+            </Fragment>
           )
         })}
       </p>
@@ -1209,6 +1254,8 @@ export function DocumentViewPage() {
     setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
   }, [])
 
+  const handlePlayLine = useCallback((start: number) => youtubePlayerRef.current?.playFrom(start), [])
+
   const lrclibLines = doc?.lrclib_lines ?? null
   const hasVideo = Boolean(doc?.youtube_video_id)
 
@@ -1380,6 +1427,9 @@ export function DocumentViewPage() {
               documentId={documentId}
               onTokensUpdated={handleTokensUpdated}
               playingLine={playingLine}
+              // Without a video there's nothing to play them from.
+              lineTimings={hasVideo ? lrclibLines : null}
+              onPlayLine={handlePlayLine}
             />
           )}
           {tokensError && (
