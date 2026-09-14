@@ -8,6 +8,10 @@ definitions, with playback synced alongside the text.
 
 ### Documents
 - Create a document from a title, lyrics, and an optional YouTube video ID.
+- Lyrics are cleaned up before they're saved, whether pasted or loaded from
+  LRCLIB: look-alikes of Latin letters (a Roman numeral ⅿ, a ligature ﬁ)
+  become plain letters, invisible characters are removed, and spacing within
+  each line is normalized. Line breaks are kept as they are.
 - Browse existing documents in a paginated, sortable list.
 - Edit a document's lyrics in place; saving re-runs furigana and gloss
   processing from scratch (any reading corrections or resolved conflicts for
@@ -24,6 +28,18 @@ definitions, with playback synced alongside the text.
   correct one.
 - Tokens with no automatic candidate, or where none of the candidates match
   a real dictionary entry, can have their reading corrected manually.
+- A token with no dictionary entry that doesn't need one (a name, say) can
+  be marked as ignored, which clears its flag.
+- A picked or corrected reading, or an ignore, can apply at once to every
+  instance of the word in the document that's read and parsed the same way
+  (same reading, part of speech, and offered reading options).
+  Hovering or selecting a token outlines its other such instances.
+  Shift-clicking starts a selection, shown with the gloss of the token last
+  added in a panel pinned to the top of the screen and no taller than the
+  page content above the lyrics, so at the top of the page it covers that
+  content rather than the lyrics. Meanwhile, clicking outlined instances
+  adds them, and clicking anywhere else ends it. Shift-clicking neighboring tokens only marks them as a run, ahead
+  of joining them into one gloss (not supported yet).
 
 ### Dictionary glosses
 - Hovering or clicking a token shows its [JMDict](https://www.edrdg.org/jmdict/j_jmdict.html)
@@ -33,11 +49,29 @@ definitions, with playback synced alongside the text.
 - A standalone JMDict search in the sidebar looks up any word directly,
   independent of the loaded document.
 
+### LRCLIB lyrics
+- A document can be linked to an [LRCLIB](https://lrclib.net) track (its ID,
+  or its `https://lrclib.net/api/get/{id}` address), at creation or later.
+- Linking an existing document either keeps its own lyrics and readings,
+  saving just the track ID, or replaces its lyrics with LRCLIB's. Kept lyrics
+  stay editable, and use LRCLIB's line timings only while LRCLIB's lyrics
+  match them line for line. Replaced lyrics can't be edited in place;
+  unlinking keeps them and makes them editable again.
+- Linked documents are refreshed from LRCLIB each time they're opened. For
+  replaced lyrics, a change to the text there re-processes the document from
+  scratch, resetting any manually selected readings; a timing-only change
+  keeps them. If LRCLIB can't be reached, the last lyrics loaded from it are
+  shown.
+- LRCLIB's synced lyrics are timed per line, so as the video plays, the line
+  being sung is highlighted.
+
 ### YouTube playback
 - An embedded player syncs alongside the lyrics for a linked video.
 - Keyboard shortcuts mirror YouTube's own: Space to play/pause, `,`/`.` to
   seek backward/forward by an adjustable step.
-- Text and furigana size are independently adjustable.
+- Text and furigana size are independently adjustable, as are the color and
+  opacity of the line highlight. These and the seek step are remembered in
+  the browser, the same for every document.
 
 ## Tech stack
 

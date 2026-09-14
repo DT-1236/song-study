@@ -8,7 +8,8 @@ import { loadYouTubeIframeApi } from './loadYouTubeIframeApi'
 const YT_PLAYING_STATE = 1
 
 export type YouTubePlayerHandle = {
-  getCurrentTime: () => number
+  // Null until the player is ready.
+  getCurrentTime: () => number | null
   getDuration: () => number
   getVideoData: () => YT.VideoData | null
   togglePlay: () => void
@@ -24,29 +25,36 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function You
   ref,
 ) {
   const containerRef = useRef<HTMLDivElement>(null)
+  // Set only once the player is ready, since its methods don't exist before.
   const playerRef = useRef<YT.Player | null>(null)
 
   useEffect(() => {
     let cancelled = false
+    let player: YT.Player | null = null
 
     loadYouTubeIframeApi().then((YT) => {
       if (cancelled || !containerRef.current) return
-      playerRef.current = new YT.Player(containerRef.current, {
+      player = new YT.Player(containerRef.current, {
         videoId,
         width: '100%',
         height: '100%',
+        events: {
+          onReady: (event) => {
+            if (!cancelled) playerRef.current = event.target
+          },
+        },
       })
     })
 
     return () => {
       cancelled = true
-      playerRef.current?.destroy()
+      player?.destroy()
       playerRef.current = null
     }
   }, [videoId])
 
   useImperativeHandle(ref, () => ({
-    getCurrentTime: () => playerRef.current?.getCurrentTime() ?? 0,
+    getCurrentTime: () => playerRef.current?.getCurrentTime() ?? null,
     getDuration: () => playerRef.current?.getDuration() ?? 0,
     getVideoData: () => playerRef.current?.getVideoData() ?? null,
     togglePlay: () => {

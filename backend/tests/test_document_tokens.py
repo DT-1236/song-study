@@ -7,45 +7,21 @@ from __future__ import annotations
 
 import threading
 
-from sqlalchemy import event, text
+from sqlalchemy import text
 
 from app.glosses import is_glossable
 from app.main import (
-    ConflictResolution,
     DocumentCreate,
     DocumentTextUpdate,
     _process_document,
     _write_processed_document,
     create_document,
     get_document_tokens,
-    resolve_token_conflict,
     update_document_text,
 )
 from app.tokenization import tokenize_document
-from tests.fixtures.kumo_no_ito import TEXT, TITLE
-from tests.support import BackgroundCall, wait_for_lock_wait
-
-FIRST_SENTENCE, SECOND_SENTENCE = (sentence + "。" for sentence in TEXT.split("。")[:2])
-
-
-def _statements_sent(engine, fn) -> list[tuple[str, int]]:
-    """Run fn and return (statement, round trips) for each statement it sent."""
-    statements = []
-
-    def record(conn, cursor, statement, params, context, executemany):
-        # psycopg2 runs each row of an executemany as its own round trip.
-        statements.append((statement.lstrip(), len(params) if executemany else 1))
-
-    event.listen(engine, "before_cursor_execute", record)
-    try:
-        fn()
-    finally:
-        event.remove(engine, "before_cursor_execute", record)
-    return statements
-
-
-def _trips(statements, prefix: str = "") -> int:
-    return sum(n for s, n in statements if s.startswith(prefix))
+from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
+from tests.support import BackgroundCall, pick_reading, round_trips, statements_sent, wait_for_lock_wait
 
 
 def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
@@ -54,19 +30,19 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     are already cached."""
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
-    cold = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert _trips(cold) == 10
-    assert _trips(cold, "INSERT INTO gloss_lookups") == 1
+    cold = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
+    assert round_trips(cold) == 10
+    assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Saving the text deletes the tokens but keeps the gloss cache, so the
     # next request is a first processing where every gloss is already cached.
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
-    warm = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert _trips(warm) == 9
-    assert _trips(warm, "INSERT INTO gloss_lookups") == 0
+    warm = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
+    assert round_trips(warm) == 9
+    assert round_trips(warm, "INSERT INTO gloss_lookups") == 0
 
-    viewed = _statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert _trips(viewed) == 2
+    viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
+    assert round_trips(viewed) == 2
 
 
 def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeypatch):
@@ -123,9 +99,7 @@ def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_e
     one on the next fetch, and a token whose reading was picked from its
     conflicts keeps that reading's gloss rather than Sudachi's default."""
     document_id = create_document(DocumentCreate(title="test", text="今日は良い天気です。")).id
-    today = next(t for t in get_document_tokens(document_id) if t.surface == "今日")
-    alternative = next(c for c in today.conflicts if c.value["reading"] == "こんにち")
-    resolve_token_conflict(document_id, today.id, ConflictResolution(conflict_id=alternative.id))
+    pick_reading(document_id, "今日", "こんにち")
     with committed_engine.begin() as conn:
         conn.execute(text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :id"), {"id": document_id})
 
