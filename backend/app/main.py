@@ -92,7 +92,11 @@ class DocumentCreate(BaseModel):
         return self
 
 
-_DOCUMENT_COLUMNS = "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, created_at"
+_DOCUMENT_COLUMNS = (
+    "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, "
+    # Edits only apply to the text they were made for.
+    "CASE WHEN edited_lines_text = text THEN edited_lines END AS edited_lines, created_at"
+)
 
 
 class LineTiming(BaseModel):
@@ -112,6 +116,10 @@ class Document(BaseModel):
     # When each line of `text` is sung, in seconds into the track, from
     # LRCLIB's synced lyrics; None without them.
     lrclib_lines: Optional[list[LineTiming]]
+    # The line timings as edited on the document's page, used in place of
+    # lrclib_lines: one per line, None for a line whose timing was deleted.
+    # None without edits, or once `text` isn't what they were made for.
+    edited_lines: Optional[list[Optional[LineTiming]]] = None
     created_at: datetime
     # Why a linked document's lyrics couldn't be refreshed from LRCLIB on
     # this load, in which case the stored ones are returned instead.
@@ -371,6 +379,58 @@ def unlink_lrclib(document_id: int) -> Document:
 
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found.")
+    return Document(**row._mapping)
+
+
+class LineTimingsUpdate(BaseModel):
+    # The lyrics the timings were edited for, so edits the lyrics changed
+    # underneath are refused.
+    text: str
+    # One per line of `text`, None for a blank line left untimed.
+    lines: list[Optional[LineTiming]]
+
+    @field_validator("lines")
+    @classmethod
+    def in_order(cls, lines: list[Optional[LineTiming]]) -> list[Optional[LineTiming]]:
+        timed = [line for line in lines if line is not None]
+        if any(line.start < 0 or line.end < line.start for line in timed):
+            raise ValueError("A line can't start before the song does, or end before it starts.")
+        if any(later.start < earlier.start for earlier, later in zip(timed, timed[1:])):
+            raise ValueError("A line can't start before the line before it.")
+        return lines
+
+
+@app.put("/documents/{document_id}/timings", response_model=Document)
+def save_line_timings(document_id: int, body: LineTimingsUpdate) -> Document:
+    """Save `body.lines` as the document's line timings, used in place of
+    LRCLIB's for as long as its lyrics stay `body.text`."""
+    with engine.begin() as conn:
+        current = _lock_document(conn, document_id)
+        if current.text != body.text:
+            raise HTTPException(
+                status_code=409,
+                detail="These lyrics changed while their timings were being edited — reload to edit them again.",
+            )
+        text_lines = current.text.split("\n")
+        if len(body.lines) > len(text_lines):
+            raise HTTPException(status_code=422, detail="There are more timings than lines.")
+        # Blank lines, between stanzas, are the only ones that may go untimed.
+        if any(line.strip() and (i >= len(body.lines) or body.lines[i] is None) for i, line in enumerate(text_lines)):
+            raise HTTPException(status_code=422, detail="Every line with lyrics needs a timing.")
+        row = conn.execute(
+            text(
+                f"""
+                UPDATE documents SET edited_lines = CAST(:lines AS JSONB), edited_lines_text = :text
+                WHERE id = :id
+                RETURNING {_DOCUMENT_COLUMNS}
+                """
+            ),
+            {
+                "id": document_id,
+                "lines": json_param([line.model_dump() if line else None for line in body.lines]),
+                "text": current.text,
+            },
+        ).one()
     return Document(**row._mapping)
 
 

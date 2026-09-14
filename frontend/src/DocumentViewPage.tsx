@@ -1,16 +1,18 @@
 import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useBlocker, useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
   applyReading,
   errorMessage,
   fetchDocument,
   linkLrclib,
+  saveLineTimings,
   setTokensIgnored,
   unlinkLrclib,
   updateDocumentText,
 } from './api'
 import type { Document, FuriganaSpan, GlossSense, LineTiming, Token } from './api'
+import { ConfirmDialog } from './ConfirmDialog'
 import { getPosInfo } from './PosLegend'
 import { useTabs } from './TabsContext'
 import { usePersistentState } from './usePersistentState'
@@ -51,18 +53,45 @@ const LRCLIB_SYNC_NOTE =
   'keeps them.'
 
 // The index of the line being sung at `time`, given each line's timing in
-// order.
-function linePlayingAt(lines: LineTiming[], time: number): number | null {
-  // Binary search for the first line starting after `time`. Of lines that
-  // start together, only the last has any length.
-  let lo = 0
-  let hi = lines.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (lines[mid].start <= time) lo = mid + 1
-    else hi = mid
+// order, null for an untimed line.
+function linePlayingAt(lines: (LineTiming | null)[], time: number): number | null {
+  // The last timed line to start by `time`: of lines that start together,
+  // only the last has any length.
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i]
+    if (line && line.start <= time) return time < line.end ? i : null
   }
-  return lo > 0 && time < lines[lo - 1].end ? lo - 1 : null
+  return null
+}
+
+// Each line's timing, given its start (null for an untimed line): until the
+// next timed line starts, as in LRC, and for the last timed line, until
+// `songEnd`.
+function timingsFromStarts(starts: (number | null)[], songEnd: number): (LineTiming | null)[] {
+  let end = songEnd
+  const result: (LineTiming | null)[] = starts.map(() => null)
+  for (let i = starts.length - 1; i >= 0; i--) {
+    const start = starts[i]
+    if (start === null) continue
+    result[i] = { start, end: Math.max(end, start) }
+    end = start
+  }
+  return result
+}
+
+// `seconds` as m:ss.cc, the precision LRC timestamps have.
+function formatTimestamp(seconds: number): string {
+  const centiseconds = Math.round(seconds * 100)
+  const minutes = Math.floor(centiseconds / 6000)
+  return `${minutes}:${((centiseconds % 6000) / 100).toFixed(2).padStart(5, '0')}`
+}
+
+// Whether keys pressed while `element` has focus type into it.
+function isTypingTarget(element: Element | null): boolean {
+  return (
+    element instanceof HTMLElement &&
+    (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable)
+  )
 }
 
 // True when a composite gloss (a compound with no JMDict entry of its own,
@@ -725,9 +754,9 @@ const TokenizedText = memo(function TokenizedText({
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
   playingLine: number | null
-  // Each line's timing, when lines can be played from; null hides the
-  // play buttons.
-  lineTimings: LineTiming[] | null
+  // Each line's timing (null for an untimed line), when lines can be played
+  // from; null hides the play buttons.
+  lineTimings: (LineTiming | null)[] | null
   onPlayLine: (start: number) => void
 }) {
   const [hoveredId, setHoveredId] = useState<number | null>(null)
@@ -977,7 +1006,17 @@ const TokenizedText = memo(function TokenizedText({
   )
 })
 
-function LrclibSource({ doc, onDocumentUpdated }: { doc: Document; onDocumentUpdated: (doc: Document) => void }) {
+function LrclibSource({
+  doc,
+  onDocumentUpdated,
+  locked,
+}: {
+  doc: Document
+  onDocumentUpdated: (doc: Document) => void
+  // Hides linking and unlinking, while timings are being edited that either
+  // could change the lyrics under.
+  locked: boolean
+}) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [replaceText, setReplaceText] = useState(false)
@@ -994,7 +1033,7 @@ function LrclibSource({ doc, onDocumentUpdated }: { doc: Document; onDocumentUpd
     <>
       <div className="lyrics-header">
         <label htmlFor="lrclib-uri">LRCLIB</label>
-        {!editing && (
+        {!editing && !locked && (
           <div className="lyrics-editor-actions">
             <button
               type="button"
@@ -1087,6 +1126,303 @@ function LrclibSource({ doc, onDocumentUpdated }: { doc: Document; onDocumentUpd
   )
 }
 
+const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
+const TOAST_MS = 2500
+
+// A token on a line, or `text` alone: what follows the last line break in
+// a token spanning one (such as the space a line starts with).
+type LinePiece = { token: Token; text?: string }
+
+// A line of the lyrics: its pieces, and whether they have any text (blank
+// lines, between stanzas, may go untimed).
+type LyricsLine = { pieces: LinePiece[]; hasText: boolean }
+
+// Each line of `tokens`, without the line breaks between lines.
+function linesOf(tokens: Token[]): LyricsLine[] {
+  const lines: LinePiece[][] = [[]]
+  for (const token of tokens) {
+    const parts = token.surface.split('\n')
+    if (parts.length === 1) {
+      lines[lines.length - 1].push({ token })
+      continue
+    }
+    for (let k = 1; k < parts.length; k++) lines.push([])
+    const rest = parts[parts.length - 1]
+    if (rest) lines[lines.length - 1].push({ token, text: rest })
+  }
+  return lines.map((pieces) => ({
+    pieces,
+    hasText: pieces.some(({ token, text }) => (text ?? token.surface).trim() !== ''),
+  }))
+}
+
+// A change to a line's timing that's confirmed first.
+type TimingAction = { kind: 'delete'; line: number } | { kind: 'overwrite'; line: number; start: number }
+
+// The lyrics as one row per line while their timings are edited, `starts`
+// holding each line's start (null once its timing is deleted). The picked
+// line follows playback; ↑/↓ or a click pick another and play from it; ←/→
+// move the picked line's start by `nudgeMs` and play from there; / starts
+// the line after the one being sung at the current playback time (the first
+// line, before any is). Memoized, so page updates that don't touch it (a
+// toast, say) don't re-render every row.
+const TimingEditor = memo(function TimingEditor({
+  lines,
+  starts,
+  onStartsChange,
+  playingLine,
+  onPlayLine,
+  getTime,
+  nudgeMs,
+  onToast,
+}: {
+  lines: LyricsLine[]
+  starts: (number | null)[]
+  onStartsChange: (starts: (number | null)[]) => void
+  playingLine: number | null
+  onPlayLine: (start: number) => void
+  // The current playback time, or null until the player is ready.
+  getTime: () => number | null
+  nudgeMs: number
+  // Shows why a key did nothing.
+  onToast: (message: string) => void
+}) {
+  const [selected, setSelected] = useState(() => playingLine ?? 0)
+  // The picked line follows the one being sung. Picking a line plays from
+  // it, so the two only part when an untimed line is picked. Followed while
+  // rendering rather than in an effect, so a line change renders the rows
+  // once.
+  const [followedLine, setFollowedLine] = useState(playingLine)
+  if (playingLine !== followedLine) {
+    setFollowedLine(playingLine)
+    if (playingLine !== null) setSelected(playingLine)
+  }
+  // A change waiting on its confirmation.
+  const [pending, setPending] = useState<TimingAction | null>(null)
+  // The open confirmation's "don't ask again".
+  const [dontAskAgain, setDontAskAgain] = useState(false)
+  // Set by "don't ask again": that kind of change skips its confirmation
+  // until editing ends, which unmounts this.
+  const [skipConfirm, setSkipConfirm] = useState({ delete: false, overwrite: false })
+  const selectedRowRef = useRef<HTMLDivElement>(null)
+
+  // Each line's text, built once: the rows re-render as playback moves, but
+  // their furigana never changes.
+  const lineTexts = useMemo(
+    () =>
+      lines.map(({ pieces }) => (
+        <div className="timing-text">
+          {pieces.map(({ token, text }) => (
+            <span key={token.id}>{text ?? renderFuriganaSpans(token.furigana_override ?? token.furigana_spans)}</span>
+          ))}
+        </div>
+      )),
+    [lines],
+  )
+
+  // Brings the picked line to the middle of the screen when it moves off it.
+  useEffect(() => {
+    const row = selectedRowRef.current
+    if (!row) return
+    const { top, bottom } = row.getBoundingClientRect()
+    if (top < 0 || bottom > window.innerHeight) row.scrollIntoView({ block: 'center' })
+  }, [selected])
+
+  // Picks `line` and plays from its start, if it has one.
+  function pick(line: number) {
+    setSelected(line)
+    const start = starts[line] ?? null
+    if (start !== null) onPlayLine(start)
+  }
+
+  function replaceStart(line: number, start: number | null) {
+    onStartsChange(starts.map((s, i) => (i === line ? start : s)))
+  }
+
+  // Sets `line`'s start and picks it.
+  function setStart(line: number, start: number) {
+    replaceStart(line, start)
+    setSelected(line)
+  }
+
+  function apply(action: TimingAction) {
+    if (action.kind === 'delete') replaceStart(action.line, null)
+    else setStart(action.line, action.start)
+  }
+
+  // Applies `action`, asking first unless "don't ask again" was checked for
+  // its kind.
+  function confirmThen(action: TimingAction) {
+    if (skipConfirm[action.kind]) return apply(action)
+    setDontAskAgain(false)
+    setPending(action)
+  }
+
+  // The start of the nearest timed line in `direction` (-1 or 1) from `line`.
+  function startFrom(line: number, direction: number): number | null {
+    for (let i = line + direction; i >= 0 && i < starts.length; i += direction) {
+      const start = starts[i]
+      if (start !== null) return start
+    }
+    return null
+  }
+
+  // Why `line` can't start at `start`, or null if it can: a line may start
+  // with a neighbor, but not past it.
+  function overlapFor(line: number, start: number): string | null {
+    const before = startFrom(line, -1)
+    const after = startFrom(line, 1)
+    if (start < (before ?? 0)) {
+      return before === null ? "A line can't start before the song does." : "Can't overlap with the previous line."
+    }
+    return after !== null && start > after ? "Can't overlap with the next line." : null
+  }
+
+  function nudge(direction: number) {
+    const start = starts[selected] ?? null
+    if (start === null) return onToast('This line has no timing to nudge.')
+    const moved = Math.round((start + (direction * nudgeMs) / 1000) * 1000) / 1000
+    const overlap = overlapFor(selected, moved)
+    if (overlap) return onToast(overlap)
+    setStart(selected, moved)
+    onPlayLine(moved)
+  }
+
+  // Starts the line after the one being sung at the current playback time
+  // then, or the first line before any is, asking first if that replaces a
+  // time it already has.
+  function timeNextLine() {
+    const time = getTime()
+    if (time === null) return onToast("The video isn't ready yet.")
+    const start = Math.round(time * 1000) / 1000
+    // The last timed line to start by then: the one being sung or, between
+    // lines, the nearest before. -1 before any, which makes the first line
+    // the one after it.
+    let sung = -1
+    starts.forEach((s, i) => {
+      if (s !== null && s <= start) sung = i
+    })
+    const line = sung + 1
+    if (line >= lines.length) return onToast('There are no more lines to time.')
+    const overlap = overlapFor(line, start)
+    if (overlap) return onToast(overlap)
+    if ((starts[line] ?? null) === null) return setStart(line, start)
+    confirmThen({ kind: 'overwrite', line, start })
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    // / is typed with Shift on some layouts, so only the arrows rule it out.
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key !== '/' && (!ARROW_KEYS.has(event.key) || event.shiftKey)) return
+    const active = document.activeElement
+    // A slider doesn't count as typing here, so the keys still work once
+    // one's been dragged; an open dialog's controls do. (A closed one's
+    // button keeps focus for a moment after it closes.)
+    if (active?.closest('dialog[open]')) return
+    if (isTypingTarget(active) && !(active instanceof HTMLInputElement && active.type === 'range')) return
+    event.preventDefault()
+    if (event.key === '/') {
+      // Held down, it would time line after line at almost the same moment.
+      if (!event.repeat) timeNextLine()
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      nudge(event.key === 'ArrowLeft' ? -1 : 1)
+    } else {
+      const line = selected + (event.key === 'ArrowUp' ? -1 : 1)
+      if (line >= 0 && line < lines.length) pick(line)
+    }
+  }
+
+  // Kept current by an effect, so the listener can be added once and still
+  // see the latest state.
+  const handleKeyDownRef = useRef(handleKeyDown)
+  useLayoutEffect(() => {
+    handleKeyDownRef.current = handleKeyDown
+  })
+  useEffect(() => {
+    const listener = (event: KeyboardEvent) => handleKeyDownRef.current(event)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [])
+
+  return (
+    <>
+      <p className="lyrics-editor-note">
+        The picked line follows playback. ↑/↓ or a click pick another and play from it, ←/→ nudge the picked
+        line's start and play from there, and / starts the next line at the current playback time (the first
+        line, if none has started yet). Outlined lines have no time yet, and need one before saving. A blank
+        line between stanzas can be timed too, to end the line before it there (for an instrumental break), but
+        needn't be.
+      </p>
+      <div className="lyrics-box">
+        {lines.map(({ hasText }, line) => {
+          const start = starts[line] ?? null
+          const classNames = ['timing-row']
+          if (!hasText) classNames.push('blank')
+          if (line === selected) classNames.push('selected')
+          if (line === playingLine) classNames.push('playing')
+          if (start === null && hasText) classNames.push('untimed')
+          return (
+            <div
+              key={line}
+              ref={line === selected ? selectedRowRef : undefined}
+              className={classNames.join(' ')}
+              onClick={() => pick(line)}
+            >
+              <div className="timing-gutter">
+                {start !== null && (
+                  <button
+                    type="button"
+                    className="timing-delete"
+                    aria-label="Delete this line's timing"
+                    title="Delete this line's timing"
+                    // Leaves focus where it was, so Space keeps playing and
+                    // pausing rather than pressing this again.
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      confirmThen({ kind: 'delete', line })
+                    }}
+                  >
+                    <svg viewBox="0 0 10 10" aria-hidden="true">
+                      <path d="M2 2 8 8M8 2 2 8" stroke="currentColor" strokeWidth="1.5" />
+                    </svg>
+                  </button>
+                )}
+                <span>{start === null ? 'untimed' : formatTimestamp(start)}</span>
+              </div>
+              {lineTexts[line]}
+            </div>
+          )
+        })}
+      </div>
+      <ConfirmDialog
+        open={pending !== null}
+        message={
+          pending?.kind === 'overwrite'
+            ? `${pending.line === 0 ? 'The first line' : 'The next line'} already starts at ` +
+              `${formatTimestamp(starts[pending.line] ?? 0)}. Overwrite it with ${formatTimestamp(pending.start)}?`
+            : "Delete this line's timing?"
+        }
+        confirmLabel={pending?.kind === 'overwrite' ? 'Overwrite' : 'Delete'}
+        onConfirm={() => {
+          if (!pending) return
+          if (dontAskAgain) setSkipConfirm({ ...skipConfirm, [pending.kind]: true })
+          apply(pending)
+          setPending(null)
+        }}
+        onCancel={() => setPending(null)}
+      >
+        <label className="checkbox-option">
+          <input type="checkbox" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
+          {pending?.kind === 'overwrite' ? 'Overwrite without asking' : "Don't ask again"} until I stop editing
+          timings
+        </label>
+      </ConfirmDialog>
+    </>
+  )
+})
+
 function RangeControl({
   id,
   label,
@@ -1095,6 +1431,8 @@ function RangeControl({
   onChange,
   min,
   max,
+  step,
+  hint,
 }: {
   id: string
   label: string
@@ -1103,18 +1441,23 @@ function RangeControl({
   onChange: (value: number) => void
   min: number
   max: number
+  step?: number
+  // Shown after the value, e.g. the keys that use the setting.
+  hint?: React.ReactNode
 }) {
   return (
     <div className="control">
       <label htmlFor={id}>
         {label} {value}
         {unit}
+        {hint && <> {hint}</>}
       </label>
       <input
         id={id}
         type="range"
         min={min}
         max={max}
+        step={step}
         value={value}
         onChange={(e) => onChange(Number(e.target.value))}
       />
@@ -1136,6 +1479,10 @@ export function DocumentViewPage() {
   const [tokensLoading, setTokensLoading] = useState(true)
   const [tokensError, setTokensError] = useState<string | null>(null)
   const [playingLine, setPlayingLine] = useState<number | null>(null)
+  // Counts the player's seeks, each of which moves the playing line at once
+  // rather than at the next poll.
+  const [seeks, setSeeks] = useState(0)
+  const handleSeek = useCallback(() => setSeeks((count) => count + 1), [])
 
   // Viewing settings: the same for every document, and kept across reloads.
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
@@ -1146,6 +1493,7 @@ export function DocumentViewPage() {
     getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
   )
   const [highlightOpacity, setHighlightOpacity] = usePersistentState('highlightOpacity', 25)
+  const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
   const [editingLyrics, setEditingLyrics] = useState(false)
   const [lyricsDraft, setLyricsDraft] = useState('')
@@ -1155,6 +1503,30 @@ export function DocumentViewPage() {
     setError: setLyricsSaveError,
     save: saveLyrics,
   } = useSave()
+  // Counts lyrics saves, each of which deletes the tokens even when the text
+  // comes back unchanged, so they're loaded again.
+  const [lyricsSaves, setLyricsSaves] = useState(0)
+
+  // While timings are being edited, each line's start as edited, null once
+  // its timing is deleted; null the rest of the time.
+  const [timingDraft, setTimingDraft] = useState<(number | null)[] | null>(null)
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false)
+  const {
+    saving: savingTimings,
+    error: timingsSaveError,
+    setError: setTimingsSaveError,
+    save: saveTimings,
+  } = useSave()
+
+  // A short notice at the bottom of the screen: an object, so showing the
+  // same message again restarts its timer.
+  const [toast, setToast] = useState<{ message: string } | null>(null)
+  const showToast = useCallback((message: string) => setToast({ message }), [])
+  useEffect(() => {
+    if (!toast) return
+    const timeout = window.setTimeout(() => setToast(null), TOAST_MS)
+    return () => window.clearTimeout(timeout)
+  }, [toast])
 
   const youtubePlayerRef = useRef<YouTubePlayerHandle>(null)
   // The page content above the lyrics, and its height: the most the pinned
@@ -1168,10 +1540,6 @@ export function DocumentViewPage() {
   // input) for all three, or activating a focused button/link for Space
   // specifically, which would otherwise get silently overridden.
   useEffect(() => {
-    function isTypingTarget(active: Element | null): boolean {
-      return active instanceof HTMLElement && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)
-    }
-
     function handleKeyDown(event: KeyboardEvent) {
       const active = document.activeElement
 
@@ -1199,6 +1567,9 @@ export function DocumentViewPage() {
     let cancelled = false
     setDoc(null)
     setLoading(true)
+    // Another document's timings, if they were being edited when it was
+    // left: this page stays mounted from one document to the next.
+    setTimingDraft(null)
     setError(null)
 
     fetchDocument(documentId)
@@ -1219,8 +1590,14 @@ export function DocumentViewPage() {
     }
   }, [documentId])
 
+  // The tokens follow the document's text, not the whole document, so
+  // saving anything else (its timings, say) doesn't reload them.
+  const docId = doc?.id
+  const docTitle = doc?.title
+  const docText = doc?.text
+
   useEffect(() => {
-    if (!doc) return
+    if (docId === undefined || docTitle === undefined) return
 
     let cancelled = false
     setTokens(null)
@@ -1231,7 +1608,7 @@ export function DocumentViewPage() {
     // documents list kicks off on click, so arriving here directly (a
     // pasted URL, a refresh, a sidebar tab) still processes and registers
     // a tab the same way.
-    ensureProcessed(doc.id, doc.title)
+    ensureProcessed(docId, docTitle)
       .then((result) => {
         if (cancelled) return
         setTokens(result)
@@ -1247,7 +1624,7 @@ export function DocumentViewPage() {
     return () => {
       cancelled = true
     }
-  }, [doc, ensureProcessed])
+  }, [docId, docTitle, docText, lyricsSaves, ensureProcessed])
 
   const handleTokensUpdated = useCallback((updated: Token[]) => {
     const byId = new Map(updated.map((t) => [t.id, t]))
@@ -1255,23 +1632,42 @@ export function DocumentViewPage() {
   }, [])
 
   const handlePlayLine = useCallback((start: number) => youtubePlayerRef.current?.playFrom(start), [])
+  const getPlaybackTime = useCallback(() => youtubePlayerRef.current?.getCurrentTime() ?? null, [])
 
-  const lrclibLines = doc?.lrclib_lines ?? null
+  // The lyrics' lines, as the timing editor shows them.
+  const lyricsLines = useMemo(() => (tokens ? linesOf(tokens) : null), [tokens])
+
+  // The document's line timings: as edited here, or else LRCLIB's.
+  const lineTimings = doc?.edited_lines ?? doc?.lrclib_lines ?? null
   const hasVideo = Boolean(doc?.youtube_video_id)
+  // What's highlighted: the timings as edited so far, while editing them.
+  const shownTimings = useMemo(() => {
+    if (!timingDraft) return lineTimings
+    // The last timed line lasts until the song ends: where the timings being
+    // edited ended, or without any, where the video does. The video's length
+    // is read whenever a time is set, which takes the video playing.
+    let songEnd = 0
+    for (const timing of lineTimings ?? []) if (timing) songEnd = timing.end
+    return timingsFromStarts(timingDraft, songEnd || (youtubePlayerRef.current?.getDuration() ?? 0))
+  }, [timingDraft, lineTimings])
 
   useEffect(() => {
-    if (!lrclibLines || !hasVideo) return
-    const interval = window.setInterval(() => {
+    if (!shownTimings || !hasVideo) return
+    const update = () => {
       const time = youtubePlayerRef.current?.getCurrentTime() ?? null
       // An index, so React skips the re-render while the line is unchanged.
-      setPlayingLine(time === null ? null : linePlayingAt(lrclibLines, time))
-    }, PLAYBACK_POLL_MS)
+      setPlayingLine(time === null ? null : linePlayingAt(shownTimings, time))
+    }
+    // Right away as well, so a seek or a nudge moves the highlight at once
+    // rather than at the next poll.
+    update()
+    const interval = window.setInterval(update, PLAYBACK_POLL_MS)
     return () => {
       window.clearInterval(interval)
       // Whatever lines come next, this index isn't into them.
       setPlayingLine(null)
     }
-  }, [lrclibLines, hasVideo])
+  }, [shownTimings, hasVideo, seeks])
 
   useEffect(() => {
     if (!headerEl) return
@@ -1279,6 +1675,28 @@ export function DocumentViewPage() {
     observer.observe(headerEl)
     return () => observer.disconnect()
   }, [headerEl])
+
+  // Whether the timings being edited differ from those saved, which leaving
+  // them would lose.
+  const timingsChanged = timingDraft?.some((start, i) => start !== (lineTimings?.[i]?.start ?? null)) ?? false
+
+  // Asks before leaving them for another page or document of the app...
+  const leaveBlocker = useBlocker(
+    ({ currentLocation, nextLocation }) => timingsChanged && nextLocation.pathname !== currentLocation.pathname,
+  )
+
+  // ...and has the browser ask before leaving the app: closing the tab,
+  // reloading, or going to another site.
+  useEffect(() => {
+    if (!timingsChanged) return
+    function warn(event: BeforeUnloadEvent) {
+      event.preventDefault()
+      // What older browsers need to ask.
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [timingsChanged])
 
   if (loading) return <p>Loading…</p>
   if (error) return <p className="form-error">{error}</p>
@@ -1290,11 +1708,11 @@ export function DocumentViewPage() {
     saveLyrics(
       () => updateDocumentText(documentId, trimmed),
       (updated) => {
-        // A new object reference so the token-processing effect re-runs —
-        // the backend already deleted the old tokens/conflicts/gloss links
-        // on save, so this regenerates everything from scratch, same as a
-        // never-before-processed document.
         setDoc(updated)
+        // The backend already deleted the old tokens/conflicts/gloss links
+        // on save, so loading them again regenerates everything from
+        // scratch, same as a never-before-processed document.
+        setLyricsSaves((count) => count + 1)
         setEditingLyrics(false)
       },
     )
@@ -1306,6 +1724,43 @@ export function DocumentViewPage() {
     if (updated.lrclib_replaces_text) setEditingLyrics(false)
   }
 
+  const editingTimings = timingDraft !== null
+  // Timings need the lyrics to show them against, and a video to play them
+  // in.
+  const canEditTimings = hasVideo && tokens !== null
+
+  function startEditingTimings() {
+    if (!lyricsLines) return
+    setTimingsSaveError(null)
+    // From the document's timings, or without any, every line untimed.
+    setTimingDraft(
+      lineTimings ? lineTimings.map((timing) => timing?.start ?? null) : lyricsLines.map(() => null),
+    )
+  }
+
+  function handleSaveTimings() {
+    if (!doc || !timingDraft || !shownTimings || !lyricsLines) return
+    // Only blank lines, between stanzas, may go untimed.
+    const untimed = lyricsLines.filter((line, i) => line.hasText && (timingDraft[i] ?? null) === null).length
+    if (untimed > 0) {
+      return showToast(
+        untimed === 1 ? 'A line still needs a time (outlined).' : `${untimed} lines still need times (outlined).`,
+      )
+    }
+    saveTimings(
+      () => saveLineTimings(doc.id, doc.text, shownTimings),
+      (updated) => {
+        setDoc(updated)
+        setTimingDraft(null)
+      },
+    )
+  }
+
+  function handleCancelTimings() {
+    if (timingsChanged) setConfirmingDiscard(true)
+    else setTimingDraft(null)
+  }
+
   return (
     <div className="new-document-form">
       <div className="document-header" ref={setHeaderEl}>
@@ -1314,11 +1769,11 @@ export function DocumentViewPage() {
         <label htmlFor="title">Title</label>
         <p id="title" className="readonly-text">{doc.title}</p>
 
-        <LrclibSource doc={doc} onDocumentUpdated={handleDocumentLinked} />
+        <LrclibSource doc={doc} onDocumentUpdated={handleDocumentLinked} locked={editingTimings} />
 
         <div className="lyrics-header">
           <label htmlFor="lyrics">Lyrics</label>
-          {!editingLyrics && !doc.lrclib_replaces_text && (
+          {!editingLyrics && !doc.lrclib_replaces_text && !editingTimings && (
             <button
               type="button"
               className="lyrics-edit-toggle"
@@ -1335,24 +1790,28 @@ export function DocumentViewPage() {
 
         {!editingLyrics && (
           <div className="text-size-controls">
-            <RangeControl
-              id="font-size"
-              label="Text size"
-              unit="px"
-              value={fontSize}
-              onChange={setFontSize}
-              min={14}
-              max={32}
-            />
-            <RangeControl
-              id="furigana-size"
-              label="Furigana size"
-              unit="px"
-              value={furiganaSize}
-              onChange={setFuriganaSize}
-              min={6}
-              max={20}
-            />
+            {!editingTimings && (
+              <>
+                <RangeControl
+                  id="font-size"
+                  label="Text size"
+                  unit="px"
+                  value={fontSize}
+                  onChange={setFontSize}
+                  min={14}
+                  max={32}
+                />
+                <RangeControl
+                  id="furigana-size"
+                  label="Furigana size"
+                  unit="px"
+                  value={furiganaSize}
+                  onChange={setFuriganaSize}
+                  min={6}
+                  max={20}
+                />
+              </>
+            )}
             <RangeControl
               id="seek-seconds"
               label="Seek step"
@@ -1361,27 +1820,75 @@ export function DocumentViewPage() {
               onChange={setSeekSeconds}
               min={1}
               max={30}
+              hint={
+                <>
+                  (<kbd>,</kbd> / <kbd>.</kbd>)
+                </>
+              }
             />
-            <div className="control">
-              <label htmlFor="highlight-color">Highlight color</label>
-              <input
-                id="highlight-color"
-                type="color"
-                value={highlightColor}
-                onChange={(e) => setHighlightColor(e.target.value)}
-              />
-            </div>
-            <RangeControl
-              id="highlight-opacity"
-              label="Highlight opacity"
-              unit="%"
-              value={highlightOpacity}
-              onChange={setHighlightOpacity}
-              min={5}
-              max={100}
-            />
+            {editingTimings ? (
+              <>
+                <RangeControl
+                  id="nudge-ms"
+                  // Not "Nudge step": with its keys, that won't fit the label
+                  // column.
+                  label="Nudge"
+                  unit="ms"
+                  value={nudgeMs}
+                  onChange={setNudgeMs}
+                  min={10}
+                  max={500}
+                  step={10}
+                  hint={
+                    <>
+                      (<kbd>←</kbd><kbd>→</kbd>)
+                    </>
+                  }
+                />
+                <div className="control-actions">
+                  <button type="button" disabled={savingTimings} onClick={handleSaveTimings}>
+                    {savingTimings ? 'Saving…' : 'Save timings'}
+                  </button>
+                  <button type="button" disabled={savingTimings} onClick={handleCancelTimings}>
+                    Cancel
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="control">
+                  <label htmlFor="highlight-color">Highlight color</label>
+                  <input
+                    id="highlight-color"
+                    type="color"
+                    value={highlightColor}
+                    onChange={(e) => setHighlightColor(e.target.value)}
+                  />
+                </div>
+                <RangeControl
+                  id="highlight-opacity"
+                  label="Highlight opacity"
+                  unit="%"
+                  value={highlightOpacity}
+                  onChange={setHighlightOpacity}
+                  min={5}
+                  max={100}
+                />
+                <div className="control-actions">
+                  <button
+                    type="button"
+                    disabled={!canEditTimings}
+                    title={canEditTimings ? undefined : 'Needs a video'}
+                    onClick={startEditingTimings}
+                  >
+                    Edit timings
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
+        {timingsSaveError && <p className="form-error">{timingsSaveError}</p>}
       </div>
 
       {editingLyrics ? (
@@ -1421,17 +1928,29 @@ export function DocumentViewPage() {
           }
         >
           {tokensLoading && <p>Processing…</p>}
-          {tokens && (
-            <TokenizedText
-              tokens={tokens}
-              documentId={documentId}
-              onTokensUpdated={handleTokensUpdated}
-              playingLine={playingLine}
-              // Without a video there's nothing to play them from.
-              lineTimings={hasVideo ? lrclibLines : null}
-              onPlayLine={handlePlayLine}
-            />
-          )}
+          {tokens &&
+            (timingDraft && lyricsLines ? (
+              <TimingEditor
+                lines={lyricsLines}
+                starts={timingDraft}
+                onStartsChange={setTimingDraft}
+                playingLine={playingLine}
+                onPlayLine={handlePlayLine}
+                getTime={getPlaybackTime}
+                nudgeMs={nudgeMs}
+                onToast={showToast}
+              />
+            ) : (
+              <TokenizedText
+                tokens={tokens}
+                documentId={documentId}
+                onTokensUpdated={handleTokensUpdated}
+                playingLine={playingLine}
+                // Without a video there's nothing to play them from.
+                lineTimings={hasVideo ? lineTimings : null}
+                onPlayLine={handlePlayLine}
+              />
+            ))}
           {tokensError && (
             <>
               <p className="form-error">{tokensError} Showing plain lyrics instead.</p>
@@ -1443,9 +1962,32 @@ export function DocumentViewPage() {
 
       <label htmlFor="youtube-video-id">YouTube video ID</label>
       {doc.youtube_video_id ? (
-        <YouTubePlayer ref={youtubePlayerRef} videoId={doc.youtube_video_id} />
+        <YouTubePlayer ref={youtubePlayerRef} videoId={doc.youtube_video_id} onSeek={handleSeek} />
       ) : (
         <input type="text" value="—" readOnly />
+      )}
+
+      <ConfirmDialog
+        open={confirmingDiscard}
+        message="Discard your timing changes?"
+        confirmLabel="Discard"
+        onConfirm={() => {
+          setConfirmingDiscard(false)
+          setTimingDraft(null)
+        }}
+        onCancel={() => setConfirmingDiscard(false)}
+      />
+      <ConfirmDialog
+        open={leaveBlocker.state === 'blocked'}
+        message="Leave without saving your timing changes?"
+        confirmLabel="Leave"
+        onConfirm={() => leaveBlocker.proceed?.()}
+        onCancel={() => leaveBlocker.reset?.()}
+      />
+      {toast && (
+        <div className="toast" role="status">
+          {toast.message}
+        </div>
       )}
     </div>
   )

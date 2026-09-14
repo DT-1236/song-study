@@ -17,6 +17,10 @@ export type Document = {
   // When each line of `text` is sung, in seconds into the track, from
   // LRCLIB's synced lyrics; null without them.
   lrclib_lines: LineTiming[] | null
+  // The line timings as edited on this page, used in place of
+  // lrclib_lines: one per line, null for a line whose timing was deleted.
+  // Null without edits, or once the text isn't what they were made for.
+  edited_lines: (LineTiming | null)[] | null
   created_at: string
   // Set when a linked document's lyrics couldn't be refreshed from LRCLIB
   // on this load, in which case the stored ones were returned.
@@ -108,6 +112,20 @@ export async function linkLrclib(id: number, uri: string, replaceText: boolean):
 
 export async function unlinkLrclib(id: number): Promise<Document> {
   const response = await fetch(`${API_URL}/documents/${id}/lrclib`, { method: 'DELETE' })
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
+
+// Saves `lines` as the document's edited line timings, made for its lyrics
+// as they were when editing started (`text`).
+export async function saveLineTimings(id: number, text: string, lines: (LineTiming | null)[]): Promise<Document> {
+  const response = await fetch(`${API_URL}/documents/${id}/timings`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, lines }),
+  })
 
   await assertOk(response, { 404: 'Document not found.' })
 
