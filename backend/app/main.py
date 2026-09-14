@@ -1,3 +1,4 @@
+import contextlib
 import dataclasses
 import json
 import os
@@ -8,18 +9,21 @@ from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.conflicts import (
     ConflictNotFound,
     TokenNotFound,
+    TokensNotGroupable,
     correct_reading,
     create_conflicts,
+    lock_token_group,
     resolve_conflict,
+    select_reading,
 )
-from app.db import engine
+from app.db import engine, json_param
 from app.glosses import (
     GlossPlan,
     attach_glosses,
@@ -31,6 +35,14 @@ from app.glosses import (
     search_jmdict,
     store_glosses,
 )
+from app.lrclib import (
+    LrclibError,
+    LrclibLyrics,
+    LrclibUnavailable,
+    fetch_lyrics,
+    normalize_lrclib_uri,
+)
+from app.sanitize import sanitize_text
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, tokenize_document
 
 app = FastAPI()
@@ -49,17 +61,43 @@ app.add_middleware(
 )
 
 
+def _sanitize_lyrics(value: str) -> Optional[str]:
+    """`value` sanitized, or None if only whitespace is left."""
+    value = sanitize_text(value)
+    return value if value.strip() else None
+
+
 class DocumentCreate(BaseModel):
     title: str = Field(min_length=1)
-    text: str = Field(min_length=1)
+    text: Optional[str] = None
     youtube_video_id: Optional[str] = None
+    lrclib_uri: Optional[str] = None
 
-    @field_validator("youtube_video_id")
+    @field_validator("youtube_video_id", "lrclib_uri")
     @classmethod
     def blank_to_none(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         return value.strip() or None
+
+    @field_validator("text")
+    @classmethod
+    def sanitize_text_or_none(cls, value: Optional[str]) -> Optional[str]:
+        return None if value is None else _sanitize_lyrics(value)
+
+    @model_validator(mode="after")
+    def has_lyrics_source(self) -> "DocumentCreate":
+        if self.text is None and self.lrclib_uri is None:
+            raise ValueError("Enter the lyrics, or an LRCLIB track to load them from.")
+        return self
+
+
+_DOCUMENT_COLUMNS = "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, created_at"
+
+
+class LineTiming(BaseModel):
+    start: float
+    end: float
 
 
 class Document(BaseModel):
@@ -67,25 +105,61 @@ class Document(BaseModel):
     title: str
     text: str
     youtube_video_id: Optional[str]
+    lrclib_uri: Optional[str]
+    # Whether LRCLIB's lyrics replace the document's own, rather than the
+    # document keeping them; None while it isn't linked.
+    lrclib_replaces_text: Optional[bool]
+    # When each line of `text` is sung, in seconds into the track, from
+    # LRCLIB's synced lyrics; None without them.
+    lrclib_lines: Optional[list[LineTiming]]
     created_at: datetime
+    # Why a linked document's lyrics couldn't be refreshed from LRCLIB on
+    # this load, in which case the stored ones are returned instead.
+    lrclib_sync_error: Optional[str] = None
+
+
+def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
+    """The canonical address of the LRCLIB track `value` names, and its
+    lyrics — or the HTTP error a request to link it should fail with."""
+    try:
+        uri = normalize_lrclib_uri(value)
+        return uri, fetch_lyrics(uri)
+    except LrclibUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    except LrclibError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @app.post("/documents", response_model=Document, status_code=201)
 def create_document(document: DocumentCreate) -> Document:
+    """Create a document; given an LRCLIB track, its lyrics are used in
+    place of `text`."""
+    lrclib_uri = lyrics = None
+    if document.lrclib_uri is not None:
+        lrclib_uri, lyrics = _fetch_lrclib_for_link(document.lrclib_uri)
+
     with engine.begin() as conn:
         try:
             row = conn.execute(
                 text(
-                    """
-                    INSERT INTO documents (title, text, youtube_video_id)
-                    VALUES (:title, :text, :youtube_video_id)
-                    RETURNING id, title, text, youtube_video_id, created_at
+                    f"""
+                    INSERT INTO documents (
+                        title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines
+                    )
+                    VALUES (
+                        :title, :text, :youtube_video_id, :lrclib_uri, :lrclib_replaces_text,
+                        CAST(:lrclib_lines AS JSONB)
+                    )
+                    RETURNING {_DOCUMENT_COLUMNS}
                     """
                 ),
                 {
                     "title": document.title,
-                    "text": document.text,
+                    "text": lyrics.text if lyrics else document.text,
                     "youtube_video_id": document.youtube_video_id,
+                    "lrclib_uri": lrclib_uri,
+                    "lrclib_replaces_text": True if lyrics else None,
+                    "lrclib_lines": json_param(lyrics.lines if lyrics else None),
                 },
             ).one()
         except IntegrityError as exc:
@@ -107,26 +181,118 @@ def create_document(document: DocumentCreate) -> Document:
 
 @app.get("/documents/{document_id}", response_model=Document)
 def get_document(document_id: int) -> Document:
+    """The document, its lyrics first refreshed from LRCLIB if it's linked
+    to a track there."""
     with engine.connect() as conn:
         row = conn.execute(
-            text(
-                """
-                SELECT id, title, text, youtube_video_id, created_at
-                FROM documents
-                WHERE id = :id
-                """
-            ),
+            text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id"),
             {"id": document_id},
         ).one_or_none()
 
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found.")
 
+    document = Document(**row._mapping)
+    if document.lrclib_uri is None:
+        return document
+
+    # Fetched with no transaction open, since LRCLIB can take seconds to
+    # answer.
+    try:
+        lyrics = fetch_lyrics(document.lrclib_uri)
+    except LrclibError as exc:
+        return document.model_copy(update={"lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."})
+    if _linked_lyrics(row.text, row.lrclib_replaces_text, lyrics) == (row.text, row.lrclib_lines):
+        return document
+
+    with engine.begin() as conn:
+        current = _lock_document(conn, document_id)
+        # Left alone if it was unlinked, or linked elsewhere, since `lyrics`
+        # was fetched.
+        if current.lrclib_uri != document.lrclib_uri:
+            return Document(**current._mapping)
+        return _store_lrclib_lyrics(conn, current, document.lrclib_uri, lyrics, current.lrclib_replaces_text)
+
+
+def _delete_tokens(conn, document_id: int) -> None:
+    """Delete the document's tokens and their conflicts, for the next
+    tokens request to regenerate from its current text."""
+    conn.execute(
+        text(
+            """
+            DELETE FROM conflicts
+            WHERE token_id IN (SELECT id FROM tokens WHERE document_id = :id)
+            """
+        ),
+        {"id": document_id},
+    )
+    conn.execute(text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id})
+
+
+def _linked_lyrics(document_text: str, replaces_text: bool, lyrics: LrclibLyrics) -> tuple[str, Optional[list[dict]]]:
+    """The text and line timings a document linked to LRCLIB takes from
+    `lyrics`: LRCLIB's, if they replace its own; otherwise its own text,
+    timed by LRCLIB only while LRCLIB's lyrics match it line for line."""
+    if replaces_text:
+        return lyrics.text, lyrics.lines
+    # Blank lines at the end of the document, which synced lyrics can't
+    # carry, just go untimed.
+    return document_text, lyrics.lines if document_text.rstrip("\n") == lyrics.text else None
+
+
+def _lock_document(conn, document_id: int):
+    """The document's row, locked for the rest of the transaction; a 404 if
+    there's no such document."""
+    # The same lock a first tokens request takes to write, so writes to the
+    # document can't interleave with one.
+    current = conn.execute(
+        text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id FOR UPDATE"),
+        {"id": document_id},
+    ).one_or_none()
+    if current is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return current
+
+
+def _store_lrclib_lyrics(conn, current, uri: str, lyrics: LrclibLyrics, replace_text: bool) -> Document:
+    """Link the document whose locked row is `current` to `uri`, taking
+    `lyrics`, just fetched from there, in place of its own if
+    `replace_text` or else keeping its own, and return it. Tokens are only
+    regenerated if the text changes, so readings picked for them survive an
+    update to just the line timings."""
+    new_text, lines = _linked_lyrics(current.text, replace_text, lyrics)
+    if new_text != current.text:
+        _delete_tokens(conn, current.id)
+    row = conn.execute(
+        text(
+            f"""
+            UPDATE documents
+            SET text = :text, lrclib_uri = :uri, lrclib_replaces_text = :replace_text,
+                lrclib_lines = CAST(:lines AS JSONB)
+            WHERE id = :id
+            RETURNING {_DOCUMENT_COLUMNS}
+            """
+        ),
+        {
+            "id": current.id,
+            "text": new_text,
+            "uri": uri,
+            "replace_text": replace_text,
+            "lines": json_param(lines),
+        },
+    ).one()
     return Document(**row._mapping)
 
 
 class DocumentTextUpdate(BaseModel):
-    text: str = Field(min_length=1)
+    text: str
+
+    @field_validator("text")
+    @classmethod
+    def sanitize(cls, value: str) -> str:
+        if (sanitized := _sanitize_lyrics(value)) is None:
+            raise ValueError("Enter the lyrics.")
+        return sanitized
 
 
 @app.patch("/documents/{document_id}", response_model=Document)
@@ -138,32 +304,73 @@ def update_document_text(document_id: int, body: DocumentTextUpdate) -> Document
     never-before-processed document) the next time tokens are requested.
     The shared gloss_lookups cache is untouched — it's keyed by word, not
     by document, so other documents' (and this one's next processing
-    pass's) cached lookups stay valid."""
+    pass's) cached lookups stay valid.
+
+    A document whose lyrics LRCLIB replaces takes them from there, so its
+    text can't be edited until it's unlinked."""
     with engine.begin() as conn:
+        # Its line timings were for the old text.
         row = conn.execute(
             text(
-                """
-                UPDATE documents SET text = :text WHERE id = :id
-                RETURNING id, title, text, youtube_video_id, created_at
+                f"""
+                UPDATE documents SET text = :text, lrclib_lines = NULL
+                WHERE id = :id AND lrclib_replaces_text IS NOT TRUE
+                RETURNING {_DOCUMENT_COLUMNS}
                 """
             ),
             {"id": document_id, "text": body.text},
         ).one_or_none()
 
         if row is None:
-            raise HTTPException(status_code=404, detail="Document not found.")
+            exists = conn.execute(
+                text("SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id)"), {"id": document_id}
+            ).scalar_one()
+            if not exists:
+                raise HTTPException(status_code=404, detail="Document not found.")
+            raise HTTPException(
+                status_code=409, detail="This document's lyrics come from LRCLIB — unlink it to edit them."
+            )
+        _delete_tokens(conn, document_id)
 
-        conn.execute(
+    return Document(**row._mapping)
+
+
+class LrclibLink(BaseModel):
+    uri: str = Field(min_length=1)
+    # False to keep the document's own lyrics and readings, taking only
+    # LRCLIB's line timings while its lyrics match them.
+    replace_text: bool = True
+
+
+@app.put("/documents/{document_id}/lrclib", response_model=Document)
+def link_lrclib(document_id: int, body: LrclibLink) -> Document:
+    """Link the document to an LRCLIB track, either replacing its lyrics
+    with the track's (readings picked for it are reset unless the text is
+    the same) or keeping its lyrics and readings as they are."""
+    uri, lyrics = _fetch_lrclib_for_link(body.uri)
+    with engine.begin() as conn:
+        return _store_lrclib_lyrics(conn, _lock_document(conn, document_id), uri, lyrics, body.replace_text)
+
+
+@app.delete("/documents/{document_id}/lrclib", response_model=Document)
+def unlink_lrclib(document_id: int) -> Document:
+    """Stop loading the document's lyrics from LRCLIB, keeping the ones it
+    has, which become editable."""
+    # Its line timings are kept, since they still match its unchanged text.
+    with engine.begin() as conn:
+        row = conn.execute(
             text(
-                """
-                DELETE FROM conflicts
-                WHERE token_id IN (SELECT id FROM tokens WHERE document_id = :id)
+                f"""
+                UPDATE documents SET lrclib_uri = NULL, lrclib_replaces_text = NULL
+                WHERE id = :id
+                RETURNING {_DOCUMENT_COLUMNS}
                 """
             ),
             {"id": document_id},
-        )
-        conn.execute(text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id})
+        ).one_or_none()
 
+    if row is None:
+        raise HTTPException(status_code=404, detail="Document not found.")
     return Document(**row._mapping)
 
 
@@ -287,6 +494,8 @@ class Token(BaseModel):
     needs_review: bool
     review_reason: Optional[str]
     furigana_override: Optional[list[dict]]
+    # Marked by the user as needing no gloss, like a name no dictionary has.
+    gloss_ignored: bool
     is_english: bool
     gloss: Optional[Gloss]
     conflicts: list[Conflict]
@@ -294,15 +503,15 @@ class Token(BaseModel):
     end_time: Optional[Decimal]
 
 
-def _fetch_tokens(conn, document_id: int, token_id: Optional[int] = None) -> list[Token]:
-    token_filter = "AND t.id = :token_id" if token_id is not None else ""
+def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None) -> list[Token]:
+    token_filter = "AND t.id = ANY(:token_ids)" if token_ids is not None else ""
     rows = conn.execute(
         text(
             f"""
             SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end, t.surface,
                    t.dictionary_form, t.normalized_form, t.reading_katakana,
                    t.part_of_speech, t.is_oov, t.furigana_spans, t.needs_review,
-                   t.review_reason, t.furigana_override, t.start_time, t.end_time,
+                   t.review_reason, t.furigana_override, t.gloss_ignored, t.start_time, t.end_time,
                    gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
@@ -310,7 +519,7 @@ def _fetch_tokens(conn, document_id: int, token_id: Optional[int] = None) -> lis
             ORDER BY t.position
             """
         ),
-        {"document_id": document_id, "token_id": token_id},
+        {"document_id": document_id, "token_ids": token_ids},
     ).all()
     if not rows:
         return []
@@ -325,7 +534,7 @@ def _fetch_tokens(conn, document_id: int, token_id: Optional[int] = None) -> lis
             ORDER BY c.id
             """
         ),
-        {"document_id": document_id, "token_id": token_id},
+        {"document_id": document_id, "token_ids": token_ids},
     ).all()
     conflicts_by_token: dict[int, list[Conflict]] = {}
     for c in conflict_rows:
@@ -372,7 +581,7 @@ def _fetch_token(conn, document_id: int, token_id: int) -> Token:
     which only ever need to return the one token they just mutated. Avoids
     re-fetching and re-ranking every other token in the document just to
     pick one row back out."""
-    return _fetch_tokens(conn, document_id, token_id=token_id)[0]
+    return _fetch_tokens(conn, document_id, token_ids=[token_id])[0]
 
 
 @dataclasses.dataclass
@@ -465,8 +674,8 @@ def get_document_tokens(document_id: int) -> list[Token]:
             return []
 
         with engine.begin() as conn:
-            # Locks the document, so a concurrent first request or text edit
-            # waits for this write instead of racing it.
+            # Locks the document, so a concurrent first request, text edit,
+            # or LRCLIB refresh waits for this write instead of racing it.
             current_text = conn.execute(
                 text("SELECT text FROM documents WHERE id = :id FOR UPDATE"),
                 {"id": document_id},
@@ -528,3 +737,61 @@ def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrecti
             raise HTTPException(status_code=404, detail="Token not found for this document.")
 
         return _fetch_token(conn, document_id, token_id)
+
+
+class TokenIds(BaseModel):
+    token_ids: list[int] = Field(min_length=1)
+
+    @field_validator("token_ids")
+    @classmethod
+    def distinct(cls, value: list[int]) -> list[int]:
+        # A group is checked by counting how many of these were found.
+        return sorted(set(value))
+
+
+@contextlib.contextmanager
+def _token_group_errors():
+    """Raise the HTTP errors lock_token_group's refusals stand for."""
+    try:
+        yield
+    except TokenNotFound:
+        raise HTTPException(status_code=404, detail="Token not found for this document.")
+    except TokensNotGroupable:
+        raise HTTPException(
+            status_code=422,
+            detail="Those tokens aren't one word read and parsed the same way, so they can't be decided for together.",
+        )
+
+
+class TokensReading(ReadingCorrection, TokenIds):
+    # The furigana split to prefer among the tokens' options with `reading`.
+    furigana_spans: Optional[list[dict]] = None
+
+
+@app.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
+def apply_tokens_reading(document_id: int, body: TokensReading) -> list[Token]:
+    """Select `reading` for each of the document's tokens in `token_ids`,
+    which must be one word read and parsed the same way, as select_reading
+    does."""
+    with engine.begin() as conn:
+        with _token_group_errors():
+            select_reading(conn, document_id, body.token_ids, body.reading, body.furigana_spans)
+        return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
+
+
+class TokensIgnored(TokenIds):
+    ignored: bool
+
+
+@app.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
+def set_tokens_ignored(document_id: int, body: TokensIgnored) -> list[Token]:
+    """Mark each of the document's tokens in `token_ids`, which must be one
+    word read and parsed the same way, as needing no gloss, or not."""
+    with engine.begin() as conn:
+        with _token_group_errors():
+            lock_token_group(conn, document_id, body.token_ids)
+        conn.execute(
+            text("UPDATE tokens SET gloss_ignored = :ignored WHERE id = ANY(:token_ids)"),
+            {"token_ids": body.token_ids, "ignored": body.ignored},
+        )
+        return _fetch_tokens(conn, document_id, token_ids=body.token_ids)

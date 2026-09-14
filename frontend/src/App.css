@@ -362,17 +362,35 @@
 }
 
 .text-size-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem 1rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  gap: 0.5rem 1.5rem;
   color: var(--text-muted);
   font-size: 0.9em;
+}
+
+/* One option: its label (with the current value) and its input side by
+   side, in a fixed-width label column so the options line up and a
+   changing value doesn't shift its input. */
+.text-size-controls .control {
+  display: grid;
+  grid-template-columns: 10rem 1fr;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .text-size-controls label {
   margin-top: 0;
   font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-size-controls input[type='color'] {
+  justify-self: start;
+  width: 3rem;
+  height: 1.75rem;
+  padding: 0.1rem;
+  cursor: pointer;
 }
 
 .lyrics-header {
@@ -447,6 +465,110 @@
 .token.has-gloss:hover,
 .token.has-gloss.pinned {
   background-color: var(--border);
+}
+
+/* Highlighted, not just outlined, to stand apart from the dashed outlines
+   of the tokens eligible to join it. Qualified to outrank the playing
+   line's highlight, and placed after the hover and pinned ones. */
+.token.has-gloss.selected {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+/* Tokens a decision for the highlighted or selected one could also apply
+   to (see groupKey in DocumentViewPage). */
+.token.eligible {
+  outline: 1px dashed var(--accent);
+  outline-offset: 1px;
+  border-radius: 2px;
+}
+
+/* The document page's content above the lyrics, laid out as the page is: a
+   container only so its height can be measured, as --header-height. */
+.document-header {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+/* The selection panel hangs from an anchor at the top of the lyrics. The
+   anchor takes no space, so opening the panel never shifts them, and the
+   panel reaches no further than --header-height above it: over the page
+   content above the lyrics, not the lyrics themselves. Once scrolled that
+   far, the anchor sticks --header-height from the top of the screen, which
+   pins the panel to the top of the screen. */
+.selection-anchor {
+  position: sticky;
+  top: var(--header-height);
+  z-index: 20;
+  height: 0;
+}
+
+.selection-panel {
+  position: absolute;
+  top: calc(-1 * var(--header-height));
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  max-height: var(--header-height);
+  box-sizing: border-box;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  line-height: 1.4;
+  font-size: 0.9rem;
+}
+
+.selection-gloss {
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.selection-panel-title {
+  font-weight: 600;
+}
+
+/* A checkbox beside its label. Qualified by element to outrank the form's
+   own label and input rules. */
+label.checkbox-option {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0;
+  font-weight: 400;
+}
+
+label.checkbox-option input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+}
+
+label.apply-to-all {
+  margin-top: 0.4rem;
+  font-size: 0.85em;
+}
+
+.ignore-gloss {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+
+/* The line being sung, per LRCLIB's line timings, in the color and opacity
+   chosen on the document page. */
+.token.playing {
+  background-color: color-mix(in srgb, var(--highlight-color) var(--highlight-opacity), transparent);
 }
 
 .gloss-popup {
@@ -654,7 +776,8 @@
   opacity: 0.7;
 }
 
-.gloss-popup .conflict-option.selected rt {
+.gloss-popup .conflict-option.selected rt,
+.selection-panel .conflict-option.selected rt {
   color: var(--accent-text);
   opacity: 0.8;
 }

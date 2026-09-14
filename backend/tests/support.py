@@ -17,7 +17,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 
 from app.env import load_env
@@ -66,6 +66,28 @@ def recreate_test_database() -> None:
     # Config values go through configparser interpolation, so % is escaped.
     config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%"))
     command.upgrade(config, "head")
+
+
+def statements_sent(engine, fn) -> list[tuple[str, int]]:
+    """Run fn and return (statement, round trips) for each statement it sent."""
+    statements = []
+
+    def record(conn, cursor, statement, params, context, executemany):
+        # psycopg2 runs each row of an executemany as its own round trip.
+        statements.append((statement.lstrip(), len(params) if executemany else 1))
+
+    event.listen(engine, "before_cursor_execute", record)
+    try:
+        fn()
+    finally:
+        event.remove(engine, "before_cursor_execute", record)
+    return statements
+
+
+def round_trips(statements, prefix: str = "") -> int:
+    """The round trips statements_sent recorded, for statements starting
+    with `prefix`."""
+    return sum(n for s, n in statements if s.startswith(prefix))
 
 
 def wait_for_lock_wait(timeout: float = 10.0) -> None:
@@ -166,3 +188,26 @@ def make_token(conn, **overrides) -> int:
         ),
         {**defaults, "part_of_speech": json.dumps(defaults["part_of_speech"]), "furigana_spans": json.dumps(defaults["furigana_spans"])},
     ).scalar_one()
+
+
+def document_tokens(document_id: int, surface: str) -> list:
+    """The document's tokens with `surface`, in order, processing it first
+    if it hasn't been."""
+    from app.main import get_document_tokens
+
+    return [t for t in get_document_tokens(document_id) if t.surface == surface]
+
+
+def pick_reading(document_id: int, surface: str, reading: str) -> None:
+    """Select `reading` among the options of the document's first token with
+    `surface`."""
+    from app.main import ConflictResolution, resolve_token_conflict
+
+    token = document_tokens(document_id, surface)[0]
+    option = next(c for c in token.conflicts if c.value["reading"] == reading)
+    resolve_token_conflict(document_id, token.id, ConflictResolution(conflict_id=option.id))
+
+
+def selected_reading(token) -> str:
+    """The reading selected among a token's options."""
+    return next(c for c in token.conflicts if c.selected).value["reading"]

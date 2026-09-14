@@ -1,11 +1,26 @@
 const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
 
+export type LineTiming = {
+  start: number
+  end: number
+}
+
 export type Document = {
   id: number
   title: string
   text: string
   youtube_video_id: string | null
+  lrclib_uri: string | null
+  // Whether LRCLIB's lyrics replace the document's own, rather than the
+  // document keeping them; null while it isn't linked.
+  lrclib_replaces_text: boolean | null
+  // When each line of `text` is sung, in seconds into the track, from
+  // LRCLIB's synced lyrics; null without them.
+  lrclib_lines: LineTiming[] | null
   created_at: string
+  // Set when a linked document's lyrics couldn't be refreshed from LRCLIB
+  // on this load, in which case the stored ones were returned.
+  lrclib_sync_error: string | null
 }
 
 export class ApiError extends Error {}
@@ -32,6 +47,7 @@ export async function createDocument(input: {
   title: string
   text: string
   youtubeVideoId: string
+  lrclibUri: string
 }): Promise<Document> {
   const response = await fetch(`${API_URL}/documents`, {
     method: 'POST',
@@ -40,6 +56,7 @@ export async function createDocument(input: {
       title: input.title,
       text: input.text,
       youtube_video_id: input.youtubeVideoId || null,
+      lrclib_uri: input.lrclibUri || null,
     }),
   })
 
@@ -62,6 +79,29 @@ export async function updateDocumentText(id: number, text: string): Promise<Docu
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
   })
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
+
+// The forms of LRCLIB track reference linkLrclib and createDocument accept.
+export const LRCLIB_URI_PLACEHOLDER = 'e.g. https://lrclib.net/api/get/12345, or just 12345'
+
+export async function linkLrclib(id: number, uri: string, replaceText: boolean): Promise<Document> {
+  const response = await fetch(`${API_URL}/documents/${id}/lrclib`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ uri, replace_text: replaceText }),
+  })
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
+
+export async function unlinkLrclib(id: number): Promise<Document> {
+  const response = await fetch(`${API_URL}/documents/${id}/lrclib`, { method: 'DELETE' })
 
   await assertOk(response, { 404: 'Document not found.' })
 
@@ -141,6 +181,8 @@ export type Token = {
   needs_review: boolean
   review_reason: string | null
   furigana_override: FuriganaSpan[] | null
+  // Marked by the user as needing no gloss, like a name no dictionary has.
+  gloss_ignored: boolean
   is_english: boolean
   gloss: Gloss | null
   conflicts: Conflict[]
@@ -156,27 +198,30 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
   return response.json()
 }
 
-export async function resolveConflict(
+// Selects `reading` for each of the tokens: the option each has with that
+// reading (preferring `furiganaSpans` as its split), or else a correction.
+export async function applyReading(
   documentId: number,
-  tokenId: number,
-  conflictId: number,
-): Promise<Token> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/resolve`, {
+  tokenIds: number[],
+  reading: string,
+  furiganaSpans?: FuriganaSpan[],
+): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/reading`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conflict_id: conflictId }),
+    body: JSON.stringify({ token_ids: tokenIds, reading, furigana_spans: furiganaSpans ?? null }),
   })
 
-  await assertOk(response, { 404: 'Conflict option not found.' })
+  await assertOk(response, { 404: 'Token not found.' })
 
   return response.json()
 }
 
-export async function correctReading(documentId: number, tokenId: number, reading: string): Promise<Token> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/correct`, {
+export async function setTokensIgnored(documentId: number, tokenIds: number[], ignored: boolean): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/ignored`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ reading }),
+    body: JSON.stringify({ token_ids: tokenIds, ignored }),
   })
 
   await assertOk(response, { 404: 'Token not found.' })
