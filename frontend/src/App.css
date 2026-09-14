@@ -153,6 +153,16 @@
   box-sizing: border-box;
 }
 
+.jmdict-search-romaji {
+  margin-top: 0.5rem;
+}
+
+.jmdict-search-hint {
+  margin-top: 0.3rem;
+  color: var(--text-muted);
+  font-size: 0.8em;
+}
+
 .jmdict-search-tier-limit {
   display: flex;
   align-items: center;
