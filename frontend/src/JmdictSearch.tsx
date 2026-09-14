@@ -1,14 +1,20 @@
 import { useEffect, useState } from 'react'
+import { toKana } from 'wanakana'
 import { ApiError, searchJmdict } from './api'
 import type { JmdictEntry } from './api'
 
 const DEBOUNCE_MS = 300
 
 // A standalone, ad-hoc JMDict lookup — not tied to any document or token.
-// Paste in a word (kanji or kana) and see every entry JMDict has for it,
-// same as the per-token gloss popups but without needing a reading match or
-// any surrounding sentence context.
+// Paste in a word (kanji or kana), or type it in romaji in the second box,
+// and see every entry JMDict has for it, same as the per-token gloss popups
+// but without needing a reading match or any surrounding sentence context.
 export function JmdictSearch() {
+  // What each box shows. Typing in one clears the other, so the results are
+  // always for the box in use.
+  const [pasted, setPasted] = useState('')
+  const [romaji, setRomaji] = useState('')
+  // What's looked up: the pasted text, or the romaji box's kana.
   const [query, setQuery] = useState('')
   const [maxResultsPerTier, setMaxResultsPerTier] = useState(3)
   const [results, setResults] = useState<JmdictEntry[] | null>(null)
@@ -56,9 +62,31 @@ export function JmdictSearch() {
         type="text"
         className="jmdict-search-input"
         placeholder="Paste a word…"
-        value={query}
-        onChange={(e) => setQuery(e.target.value)}
+        value={pasted}
+        onChange={(e) => {
+          setPasted(e.target.value)
+          setRomaji('')
+          setQuery(e.target.value)
+        }}
       />
+      <input
+        type="text"
+        className="jmdict-search-input jmdict-search-romaji"
+        placeholder="Romaji lookup…"
+        autoComplete="off"
+        spellCheck={false}
+        value={romaji}
+        onChange={(e) => {
+          // Converted as typed, the way an input method does it: a trailing
+          // n waits for the next letter, since it could start な or にゃ.
+          const kana = toKana(e.target.value, { IMEMode: true })
+          setRomaji(kana)
+          setPasted('')
+          // Looked up with that n as ん, as it is once typing stops.
+          setQuery(toKana(kana))
+        }}
+      />
+      <div className="jmdict-search-hint">Capitals for katakana: TEREBI → テレビ</div>
       <label className="jmdict-search-tier-limit">
         Prefix/suffix/substring matches per group
         <input

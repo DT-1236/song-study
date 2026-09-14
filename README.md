@@ -47,7 +47,9 @@ definitions, with playback synced alongside the text.
 - Compounds with no single JMDict entry are broken down and glossed piece by
   piece instead.
 - A standalone JMDict search in the sidebar looks up any word directly,
-  independent of the loaded document.
+  independent of the loaded document. A second box takes romaji and
+  converts it to kana as you type ([WanaKana](https://wanakana.com)):
+  lowercase for hiragana, capitals for katakana.
 
 ### LRCLIB lyrics
 - A document can be linked to an [LRCLIB](https://lrclib.net) track (its ID,
