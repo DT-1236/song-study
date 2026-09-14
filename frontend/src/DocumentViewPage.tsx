@@ -1,9 +1,9 @@
 import { memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import {
-  ApiError,
   LRCLIB_URI_PLACEHOLDER,
   applyReading,
+  errorMessage,
   fetchDocument,
   linkLrclib,
   setTokensIgnored,
@@ -138,7 +138,7 @@ function useSave() {
     try {
       onSaved(await request())
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save — try again.')
+      setError(errorMessage(err, 'Failed to save — try again.'))
     } finally {
       setSaving(false)
     }
@@ -240,7 +240,7 @@ function ReadingOptions({
                   await applyReading(documentId, ids, conflict.value.reading, conflict.value.furigana_spans),
                 )
               } catch (err) {
-                setError(err instanceof ApiError ? err.message : 'Failed to save — try again.')
+                setError(errorMessage(err, 'Failed to save — try again.'))
               } finally {
                 setApplyingId(null)
               }
@@ -1163,7 +1163,7 @@ export function DocumentViewPage() {
       })
       .catch((err) => {
         if (cancelled) return
-        setError(err instanceof ApiError ? err.message : 'Failed to load document.')
+        setError(errorMessage(err, 'Failed to load document.'))
       })
       .finally(() => {
         if (!cancelled) setLoading(false)
@@ -1193,7 +1193,7 @@ export function DocumentViewPage() {
       })
       .catch((err) => {
         if (cancelled) return
-        setTokensError(err instanceof ApiError ? err.message : 'Failed to load furigana.')
+        setTokensError(errorMessage(err, 'Failed to load furigana.'))
       })
       .finally(() => {
         if (!cancelled) setTokensLoading(false)
