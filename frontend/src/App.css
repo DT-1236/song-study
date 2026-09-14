@@ -625,6 +625,12 @@
   position: relative;
 }
 
+/* Scrolling a token into view from below stops at the top of its line, not
+   of its text, so the furigana above the text shows too. */
+.lyrics-box .token {
+  scroll-margin-top: calc((var(--lyrics-line-height) - 1) / 2 * 1em);
+}
+
 .token.needs-review {
   border-bottom: 2px dotted var(--accent);
   cursor: help;

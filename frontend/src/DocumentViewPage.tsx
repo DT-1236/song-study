@@ -783,6 +783,14 @@ const TokenizedText = memo(function TokenizedText({
   }, [tokens])
 
   const panelRef = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<HTMLParagraphElement>(null)
+
+  // Scrolls the line being sung onto the screen when it moves off it, as
+  // little as possible: its first highlighted token, where it starts even
+  // when it wraps.
+  useEffect(() => {
+    boxRef.current?.querySelector('.token.playing')?.scrollIntoView({ block: 'nearest' })
+  }, [playingLine])
 
   // Scrolls `element` out from under the selection panel, which is pinned to
   // the top of the screen, if it's there once the panel has rendered.
@@ -947,7 +955,7 @@ const TokenizedText = memo(function TokenizedText({
           />
         </div>
       )}
-      <p className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}>
+      <p ref={boxRef} className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}>
         {tokens.map((token, index) => {
           // Lines past the last timing (blank ones at the end) have none.
           const lineStart = firstWithText.has(index) ? lineTimings?.[lineOf[index]]?.start : undefined
@@ -1221,12 +1229,10 @@ const TimingEditor = memo(function TimingEditor({
     [lines],
   )
 
-  // Brings the picked line to the middle of the screen when it moves off it.
+  // Scrolls the picked line onto the screen when it moves off it, as little
+  // as possible.
   useEffect(() => {
-    const row = selectedRowRef.current
-    if (!row) return
-    const { top, bottom } = row.getBoundingClientRect()
-    if (top < 0 || bottom > window.innerHeight) row.scrollIntoView({ block: 'center' })
+    selectedRowRef.current?.scrollIntoView({ block: 'nearest' })
   }, [selected])
 
   // Picks `line` and plays from its start, if it has one.
