@@ -52,16 +52,23 @@ const LRCLIB_SYNC_NOTE =
   "version), they replace these and any readings you've manually selected are reset — a timing-only update " +
   'keeps them.'
 
-// The index of the line being sung at `time`, given each line's timing in
-// order, null for an untimed line.
-function linePlayingAt(lines: (LineTiming | null)[], time: number): number | null {
-  // The last timed line to start by `time`: of lines that start together,
-  // only the last has any length.
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i]
-    if (line && line.start <= time) return time < line.end ? i : null
+// The last line to start by `time`, given each line's timing in order (null
+// for an untimed line), or -1 before any: the line being sung, or in a gap
+// after one, that line. Of lines that start together, it's the last, the
+// only one with any length. Searches from `from`, the line last found, since
+// playback mostly moves on a line at a time; -1 searches from the top.
+function lastStartedBy(lines: (LineTiming | null)[], time: number, from: number): number {
+  let i = Math.min(from, lines.length - 1)
+  // Back past lines that haven't started (after a seek back)...
+  while (i >= 0 && (lines[i]?.start ?? Infinity) > time) i--
+  // ...then on through lines that have started since.
+  for (let j = i + 1; j < lines.length; j++) {
+    const start = lines[j]?.start
+    if (start === undefined) continue
+    if (start > time) break
+    i = j
   }
-  return null
+  return i
 }
 
 // Each line's timing, given its start (null for an untimed line): until the
@@ -73,6 +80,11 @@ function timingsFromStarts(starts: (number | null)[], songEnd: number): (LineTim
   for (let i = starts.length - 1; i >= 0; i--) {
     const start = starts[i]
     if (start === null) continue
+    // Every other line ends where the next timed one starts, but the last
+    // can start after `songEnd`: past LRCLIB's end (its track can be shorter
+    // than the video), or while the video's length isn't known yet (0). It
+    // then gets no length, rather than ending before it starts, which the
+    // backend refuses.
     result[i] = { start, end: Math.max(end, start) }
     end = start
   }
@@ -1178,7 +1190,7 @@ type TimingAction = { kind: 'delete'; line: number } | { kind: 'overwrite'; line
 const TimingEditor = memo(function TimingEditor({
   lines,
   starts,
-  onStartsChange,
+  onStartChange,
   playingLine,
   onPlayLine,
   getTime,
@@ -1187,7 +1199,8 @@ const TimingEditor = memo(function TimingEditor({
 }: {
   lines: LyricsLine[]
   starts: (number | null)[]
-  onStartsChange: (starts: (number | null)[]) => void
+  // Sets `line`'s start, null to leave it untimed.
+  onStartChange: (line: number, start: number | null) => void
   playingLine: number | null
   onPlayLine: (start: number) => void
   // The current playback time, or null until the player is ready.
@@ -1197,15 +1210,6 @@ const TimingEditor = memo(function TimingEditor({
   onToast: (message: string) => void
 }) {
   const [selected, setSelected] = useState(() => playingLine ?? 0)
-  // The picked line follows the one being sung. Picking a line plays from
-  // it, so the two only part when an untimed line is picked. Followed while
-  // rendering rather than in an effect, so a line change renders the rows
-  // once.
-  const [followedLine, setFollowedLine] = useState(playingLine)
-  if (playingLine !== followedLine) {
-    setFollowedLine(playingLine)
-    if (playingLine !== null) setSelected(playingLine)
-  }
   // A change waiting on its confirmation.
   const [pending, setPending] = useState<TimingAction | null>(null)
   // The open confirmation's "don't ask again".
@@ -1231,6 +1235,12 @@ const TimingEditor = memo(function TimingEditor({
     [lines],
   )
 
+  // The picked line follows the one being sung. Picking a line plays from
+  // it, so the two only part when an untimed line is picked.
+  useEffect(() => {
+    if (playingLine !== null) setSelected(playingLine)
+  }, [playingLine])
+
   // Scrolls the picked line onto the screen when it moves off it, as little
   // as possible.
   useEffect(() => {
@@ -1244,13 +1254,9 @@ const TimingEditor = memo(function TimingEditor({
     if (start !== null) onPlayLine(start)
   }
 
-  function replaceStart(line: number, start: number | null) {
-    onStartsChange(starts.map((s, i) => (i === line ? start : s)))
-  }
-
   // Sets `line`'s start and picks it.
   function setStart(line: number, start: number) {
-    replaceStart(line, start)
+    onStartChange(line, start)
     setSelected(line)
   }
 
@@ -1270,7 +1276,7 @@ const TimingEditor = memo(function TimingEditor({
   }
 
   function apply(action: TimingAction) {
-    if (action.kind === 'delete') replaceStart(action.line, null)
+    if (action.kind === 'delete') onStartChange(action.line, null)
     // Only / overwrites a start.
     else stamp(action.line, action.start)
   }
@@ -1306,7 +1312,9 @@ const TimingEditor = memo(function TimingEditor({
   function nudge(direction: number) {
     const start = starts[selected] ?? null
     if (start === null) return onToast('This line has no timing to nudge.')
-    const moved = Math.round((start + (direction * nudgeMs) / 1000) * 1000) / 1000
+    // In whole milliseconds, the precision starts are kept to, so nudges
+    // don't pile up floating-point error.
+    const moved = (Math.round(start * 1000) + direction * nudgeMs) / 1000
     const overlap = overlapFor(selected, moved)
     if (overlap) return onToast(overlap)
     setStart(selected, moved)
@@ -1504,8 +1512,9 @@ export function DocumentViewPage() {
   const [tokensLoading, setTokensLoading] = useState(true)
   const [tokensError, setTokensError] = useState<string | null>(null)
   const [playingLine, setPlayingLine] = useState<number | null>(null)
-  // Counts the player's seeks, each of which moves the playing line at once
-  // rather than at the next poll.
+  // Counts the player's seeks. The playing-line effect depends on it, so a
+  // seek re-runs it at once rather than waiting for the next poll, and after
+  // any other state the same keypress changed (a nudge's new timings).
   const [seeks, setSeeks] = useState(0)
   const handleSeek = useCallback(() => setSeeks((count) => count + 1), [])
 
@@ -1658,6 +1667,13 @@ export function DocumentViewPage() {
 
   const handlePlayLine = useCallback((start: number) => youtubePlayerRef.current?.playFrom(start), [])
   const getPlaybackTime = useCallback(() => youtubePlayerRef.current?.getCurrentTime() ?? null, [])
+  // Sets `line`'s start in the timings being edited, null to leave it
+  // untimed.
+  const handleStartChange = useCallback(
+    (line: number, start: number | null) =>
+      setTimingDraft((draft) => draft && draft.map((s, i) => (i === line ? start : s))),
+    [],
+  )
 
   // The lyrics' lines, as the timing editor shows them.
   const lyricsLines = useMemo(() => (tokens ? linesOf(tokens) : null), [tokens])
@@ -1678,10 +1694,16 @@ export function DocumentViewPage() {
 
   useEffect(() => {
     if (!shownTimings || !hasVideo) return
+    // The line last found, which the next search starts from. A seek or new
+    // timings re-run this effect, which starts the search over.
+    let found = -1
     const update = () => {
       const time = youtubePlayerRef.current?.getCurrentTime() ?? null
+      if (time === null) return setPlayingLine(null)
+      found = lastStartedBy(shownTimings, time, found)
+      const line = shownTimings[found]
       // An index, so React skips the re-render while the line is unchanged.
-      setPlayingLine(time === null ? null : linePlayingAt(shownTimings, time))
+      setPlayingLine(line && time < line.end ? found : null)
     }
     // Right away as well, so a seek or a nudge moves the highlight at once
     // rather than at the next poll.
@@ -1958,7 +1980,7 @@ export function DocumentViewPage() {
               <TimingEditor
                 lines={lyricsLines}
                 starts={timingDraft}
-                onStartsChange={setTimingDraft}
+                onStartChange={handleStartChange}
                 playingLine={playingLine}
                 onPlayLine={handlePlayLine}
                 getTime={getPlaybackTime}
