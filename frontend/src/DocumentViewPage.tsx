@@ -1173,8 +1173,8 @@ type TimingAction = { kind: 'delete'; line: number } | { kind: 'overwrite'; line
 // line follows playback; ↑/↓ or a click pick another and play from it; ←/→
 // move the picked line's start by `nudgeMs` and play from there; / starts
 // the line after the one being sung at the current playback time (the first
-// line, before any is). Memoized, so page updates that don't touch it (a
-// toast, say) don't re-render every row.
+// line, before any is) and scrolls down a line. Memoized, so page updates
+// that don't touch it (a toast, say) don't re-render every row.
 const TimingEditor = memo(function TimingEditor({
   lines,
   starts,
@@ -1214,6 +1214,8 @@ const TimingEditor = memo(function TimingEditor({
   // until editing ends, which unmounts this.
   const [skipConfirm, setSkipConfirm] = useState({ delete: false, overwrite: false })
   const selectedRowRef = useRef<HTMLDivElement>(null)
+  // The rows' container: row i is its child i.
+  const rowsRef = useRef<HTMLDivElement>(null)
 
   // Each line's text, built once: the rows re-render as playback moves, but
   // their furigana never changes.
@@ -1252,9 +1254,25 @@ const TimingEditor = memo(function TimingEditor({
     setSelected(line)
   }
 
+  // Sets `line`'s start from /, and scrolls the page down by the line and
+  // the space after it, so the next line to time sits where this one was
+  // and timing along needs no scrolling by hand.
+  function stamp(line: number, start: number) {
+    setStart(line, start)
+    const rows = rowsRef.current?.children
+    const row = rows?.[line]
+    if (!rows || !row) return
+    const next = rows[line + 1]
+    const { top, height } = row.getBoundingClientRect()
+    window.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
+    // Timing that began with the next line off screen brings it on.
+    next?.scrollIntoView({ block: 'nearest' })
+  }
+
   function apply(action: TimingAction) {
     if (action.kind === 'delete') replaceStart(action.line, null)
-    else setStart(action.line, action.start)
+    // Only / overwrites a start.
+    else stamp(action.line, action.start)
   }
 
   // Applies `action`, asking first unless "don't ask again" was checked for
@@ -1313,7 +1331,7 @@ const TimingEditor = memo(function TimingEditor({
     if (line >= lines.length) return onToast('There are no more lines to time.')
     const overlap = overlapFor(line, start)
     if (overlap) return onToast(overlap)
-    if ((starts[line] ?? null) === null) return setStart(line, start)
+    if ((starts[line] ?? null) === null) return stamp(line, start)
     confirmThen({ kind: 'overwrite', line, start })
   }
 
@@ -1356,11 +1374,12 @@ const TimingEditor = memo(function TimingEditor({
       <p className="lyrics-editor-note">
         The picked line follows playback. ↑/↓ or a click pick another and play from it, ←/→ nudge the picked
         line's start and play from there, and / starts the next line at the current playback time (the first
-        line, if none has started yet). Outlined lines have no time yet, and need one before saving. A blank
+        line, if none has started yet) and moves the page down a line. Outlined lines have no time yet, and
+        need one before saving. A blank
         line between stanzas can be timed too, to end the line before it there (for an instrumental break), but
         needn't be.
       </p>
-      <div className="lyrics-box">
+      <div ref={rowsRef} className="lyrics-box">
         {lines.map(({ hasText }, line) => {
           const start = starts[line] ?? null
           const classNames = ['timing-row']
