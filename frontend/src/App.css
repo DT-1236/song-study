@@ -395,6 +395,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Keys that use a setting, drawn as keycaps so a lone , or . reads as one. */
+.text-size-controls kbd {
+  padding: 0 0.3em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: inherit;
+}
+
 .text-size-controls input[type='color'] {
   justify-self: start;
   width: 3rem;
@@ -413,6 +421,19 @@
 .lyrics-edit-toggle {
   padding: 0.2rem 0.6rem;
   font-size: 0.85em;
+}
+
+/* Buttons in a cell of the view settings, level with the sliders. */
+.control-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.text-size-controls .control-actions button {
+  margin-top: 0;
+  padding: 0.2rem 0.8rem;
 }
 
 .lyrics-editor {
@@ -463,6 +484,10 @@
   /* As tall as the line and aligned to its top, so the icon sits on the
      line's middle whatever the font. */
   vertical-align: top;
+  /* Painted over the token before it, which it overlaps when the line
+     starts with a space: tokens are positioned (for their popups), so
+     they'd otherwise take its clicks. */
+  position: relative;
   width: 1.25rem;
   height: calc(1em * var(--lyrics-line-height));
   margin: 0 0.25rem 0 -1.5rem;
@@ -482,6 +507,114 @@
   color: var(--accent);
 }
 
+/* The timing editor: one row per line, with the line's timing to its left. */
+.timing-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+/* A blank line between stanzas, kept as tall as a line of text. */
+.timing-row.blank {
+  height: calc(1em * var(--lyrics-line-height));
+}
+
+.timing-row.selected {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+/* A line with text but no time, which needs one before the timings save. */
+.timing-row.untimed {
+  outline: 1px dashed var(--danger);
+  outline-offset: -1px;
+}
+
+/* A line's delete button and time, side by side on the line's middle, and
+   right-aligned so the times line up against the lyrics. */
+.timing-gutter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.2rem;
+  flex-shrink: 0;
+  width: 5rem;
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  line-height: 1.3;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.lyrics-box .timing-delete {
+  display: flex;
+  margin: 0;
+  padding: 0.15rem;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+}
+
+.lyrics-box .timing-delete:hover {
+  color: var(--danger);
+}
+
+.timing-delete svg {
+  width: 0.6rem;
+  height: 0.6rem;
+}
+
+/* A short notice at the bottom of the screen. */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  z-index: 20;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 0.9rem;
+}
+
+.confirm-dialog {
+  max-width: 24rem;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+.confirm-dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog p {
+  margin: 0 0 0.75rem;
+}
+
+.confirm-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+/* Qualified to outrank .new-document-form button: the dialog sits inside
+   the page's form. */
+.confirm-dialog .confirm-dialog-actions button {
+  margin-top: 0;
+}
+
+.confirm-dialog .danger {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
 .lyrics-box ruby rt {
   font-size: var(--furigana-font-size, 11px);
   color: var(--text-muted);
@@ -490,6 +623,12 @@
 
 .token {
   position: relative;
+}
+
+/* Scrolling a token into view from below stops at the top of its line, not
+   of its text, so the furigana above the text shows too. */
+.lyrics-box .token {
+  scroll-margin-top: calc((var(--lyrics-line-height) - 1) / 2 * 1em);
 }
 
 .token.needs-review {
@@ -610,9 +749,11 @@ label.apply-to-all {
 }
 
 
-/* The line being sung, per LRCLIB's line timings, in the color and opacity
-   chosen on the document page. */
-.token.playing {
+/* The line being sung, in the color and opacity chosen on the document
+   page: on the text's inline pieces (tokens, or the timing editor's), so
+   the furigana above them stays clear, as the line's box wouldn't. */
+.token.playing,
+.timing-row.playing .timing-text > span {
   background-color: color-mix(in srgb, var(--highlight-color) var(--highlight-opacity), transparent);
 }
 
