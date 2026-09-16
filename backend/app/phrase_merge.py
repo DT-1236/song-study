@@ -30,20 +30,18 @@ def _can_start_phrase(part_of_speech) -> bool:
 
 
 def find_phrase_suggestions(records: list[TokenRecord]) -> None:
-    """Set phrase_suggestion on every record that starts a multi-token JMDict
-    headword: its lookup_form and reading, how many tokens the headword
-    covers (phrase_token_count), and how many the suggestion covers in all
-    (token_count), which includes the grammar attached after a headword
-    ending in a predicate (真に受け + てみて).
-
-    A match has to reach past any predicate group already found (see
-    app.grammar.find_predicate_groups) that it starts in: within one, it's
-    only that group's own words, often by coincidence, like した ("tongue")
-    or しまった ("oops")."""
+    """Set phrase_suggestion on each of `records` that starts a JMDict
+    headword spanning several tokens: the headword, its reading, how many
+    tokens it covers (phrase_token_count), and how many the suggestion
+    covers with the grammar attached after it (token_count, 真に受け +
+    てみて)."""
     n = len(records)
     for i in range(n):
         if not _can_start_phrase(records[i].part_of_speech):
             continue
+        # A match starting inside a predicate group, or not reaching past
+        # the one it starts, is only that group's own words, often by
+        # coincidence: した ("tongue"), しまった ("oops").
         group_start = records[i].phrase_start_position
         if group_start not in (None, records[i].position):
             continue

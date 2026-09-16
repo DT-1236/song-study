@@ -727,11 +727,8 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
     for record, key in zip(processed.records, processed.gloss_keys):
         rows.append(
             {
-                # Not dataclasses.asdict, which would deep-copy every field —
-                # conflict_options and phrase_suggestion included, only to
-                # discard them (neither is a DB column: conflict_options is
-                # handled by create_conflicts below, phrase_suggestion by
-                # create_phrase_conflicts).
+                # Not dataclasses.asdict, which would deep-copy every field,
+                # including the two that aren't columns, only to discard them.
                 **{
                     f.name: getattr(record, f.name)
                     for f in dataclasses.fields(record)
@@ -845,10 +842,9 @@ class PhraseAcceptance(BaseModel):
 
 @app.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
 def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance) -> list[Token]:
-    """Accept one or more phrase-kind conflict options at once (see
-    app/phrase_merge.py) — e.g. every matching instance of the same word's
-    suggestion, applied together. Unlike /resolve, this can change more
-    than one token per conflict_id, so it returns every affected token."""
+    """Apply each of `conflict_ids` — phrase suggestions, or split predicate
+    groups to merge again — as accept_phrase_suggestions does. Returns every
+    token they changed."""
     with engine.begin() as conn:
         try:
             affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
@@ -860,13 +856,8 @@ def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance)
 
 @app.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
 def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution) -> list[Token]:
-    """Apply one of a phrase's alternative furigana splits (see
-    app.conflicts._recompute_phrase_furigana) — offered when a kanji run
-    inside an accepted phrase has more than one valid per-character
-    reading split, the same ambiguity an ordinary token's no_kana_anchor
-    conflict already surfaces, just found across a merged span. No
-    token_id in the path: unlike an ordinary conflict, this one only ever
-    applies to whichever tokens its own value names."""
+    """Apply `conflict_id`, one of a phrase's alternative furigana splits.
+    Returns the tokens it changed."""
     with engine.begin() as conn:
         try:
             affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
@@ -878,8 +869,8 @@ def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution)
 
 @app.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
 def unmerge_phrase_tokens(document_id: int, token_id: int) -> list[Token]:
-    """Undo an accepted phrase suggestion covering token_id (any member, not
-    just the group's first token) — see app/phrase_merge.py."""
+    """Split the group token_id is merged into, found from any member of it.
+    Returns the tokens it changed."""
     with engine.begin() as conn:
         try:
             affected = unmerge_phrase(conn, document_id, token_id)
@@ -893,11 +884,8 @@ def unmerge_phrase_tokens(document_id: int, token_id: int) -> list[Token]:
 
 @app.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
 def get_alternate_readings(document_id: int, token_id: int) -> list[dict]:
-    """Every other reading JMDict knows for token_id's dictionary form,
-    projected onto its own surface (see app.glosses.alternate_reading_options)
-    — the frontend's "look for other readings" action, in the same shape
-    conflict_options already use, so applying one is the existing
-    applyReading/select_reading call, unchanged."""
+    """Every other reading JMDict has for token_id's dictionary form, as
+    reading options to apply through /tokens/reading."""
     with engine.connect() as conn:
         row = conn.execute(
             text(

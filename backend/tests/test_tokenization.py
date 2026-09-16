@@ -610,15 +610,11 @@ class TestFuriganaAlignment:
 
 
 class TestSliceSpansByToken:
-    """For app.conflicts._recompute_phrase_furigana: dividing a merged
-    phrase's own furigana spans back across the original tokens it was
-    built from."""
+    """Dividing a merged phrase's furigana spans back across its tokens."""
 
     def test_splits_cleanly_when_every_span_fits_one_token(self):
-        # この期に及んで: この(2)/期(1)/に(1)/及ん(2)/で(1). んで (a plain kana
-        # span, no reading) straddles the 及ん/で boundary — real behavior,
-        # not a contrived example (see app/phrase_merge.py's own docstring
-        # case).
+        # この(2)/期(1)/に(1)/及ん(2)/で(1): the kana span んで crosses the
+        # 及ん/で boundary.
         spans, _, _ = build_furigana_spans("この期に及んで", "コノゴニオヨンデ")
         sliced = slice_spans_by_token(spans, [2, 1, 1, 2, 1])
         assert sliced == [
@@ -633,17 +629,13 @@ class TestSliceSpansByToken:
         ]
 
     def test_a_kanji_span_straddling_a_boundary_is_left_unattributed(self):
-        # 今日 -> きょう has no per-character split at all (jukujikun) — if
-        # 今 and 日 started out as two separate tokens before merging, there
-        # is no way to divide きょう between them, so both come back None
-        # (leave each token's own original furigana as it was) rather than
-        # guessing.
+        # 今日 read きょう has no per-character split, so neither of 今 and 日
+        # gets a slice.
         spans, _, _ = build_furigana_spans("今日", "キョウ")
         assert slice_spans_by_token(spans, [1, 1]) == [None, None]
 
     def test_only_the_straddled_tokens_are_left_unattributed(self):
-        # A clean token elsewhere in the same phrase still gets its own
-        # slice even when a different run couldn't be attributed.
+        # 君 and の still get theirs.
         spans, _, _ = build_furigana_spans("君の今日", "キミノキョウ")
         sliced = slice_spans_by_token(spans, [1, 1, 1, 1])
         assert sliced[0] == [{"start": 0, "end": 1, "text": "君", "reading": "きみ"}]

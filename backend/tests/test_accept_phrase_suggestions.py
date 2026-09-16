@@ -1,8 +1,5 @@
-"""Regression tests for app.conflicts.accept_phrase_suggestions — accepting
-several phrase suggestions (see app/phrase_merge.py) in one call, e.g. every
-matching instance of the same word's suggestion at once (see
-DocumentViewPage.tsx's matchingPhraseSuggestions / "Apply to all").
-"""
+"""Tests for accepting several phrase suggestions in one call, as "Apply to
+all" does for every instance of the same phrase."""
 
 from __future__ import annotations
 
@@ -21,8 +18,7 @@ def _unselected_phrase_conflict_ids(document_id) -> list[int]:
 
 def test_accepts_every_matching_instance_in_one_call(committed_engine):
     document_id = create_document(DocumentCreate(title="t", text=TEXT)).id
-    # Both それでも occurrences offer the exact same suggestion (see
-    # matchingPhraseSuggestions in the frontend) — one conflict row each.
+    # One suggestion row for each それでも.
     conflict_ids = _unselected_phrase_conflict_ids(document_id)
     assert len(conflict_ids) == 2
 

@@ -106,11 +106,9 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
 
 
 def create_phrase_conflicts(conn, document_id: int, records: list[TokenRecord], groups: list[range]) -> None:
-    """Insert an unselected 'phrase' row for every record's phrase suggestion
-    (see app.phrase_merge), and a 'predicate' row on the head of each of
-    `groups` (see app.grammar), which merges the group again after a split.
-    Neither is ever selected, so they sit alongside a token's selected
-    reading."""
+    """Insert an unselected 'phrase' row for each record's phrase suggestion,
+    and a 'predicate' row on the first token of each of `groups`, which
+    merges that group again after it's split."""
     rows = [
         {"position": record.position, "kind": "phrase", "value": record.phrase_suggestion}
         for record in records
@@ -163,28 +161,11 @@ def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], glo
 
 
 def _recompute_phrase_furigana(conn, document_id: int, position: int, token_count: int, reading_hiragana: str) -> None:
-    """After accepting a phrase (see _apply_phrase_selection), recompute
-    furigana for the merged span from the phrase's own reading and split it
-    back across the member tokens (tokenization.build_furigana_spans /
-    slice_spans_by_token) — each token's existing furigana_spans was
-    computed from Sudachi's own per-token reading before the merge existed,
-    and that reading can be outright wrong for the idiom (期 alone reads き;
-    この期に及んで needs ご).
-
-    Left untouched (no override written, existing furigana kept) when the
-    phrase's reading doesn't align with the merged surface at all — a
-    dictionary-form completion (受け vs completed 受ける, see
-    app/phrase_merge.py) has real morae the on-page text doesn't spell, so
-    there's no way to divide it across characters. When only part of a
-    kanji run is genuinely ambiguous (more than one valid per-character
-    split, the same situation a single ordinary token's no_kana_anchor
-    conflict already handles), the first valid split applies immediately as
-    a default and every other one is offered as a 'phrase_furigana'
-    conflict on the phrase's own first token — never marked `selected`,
-    since these are alternate *readings of the same already-accepted
-    phrase*, not a pick between different words, and marking one selected
-    could collide with the phrase's own conflict row already selected on
-    that same head token (conflicts_one_selected_per_token)."""
+    """Set the furigana of the document's `token_count` tokens from
+    `position` from their phrase's reading, `reading_hiragana`, since a
+    phrase can read differently from its tokens (期 reads ご in この期に及んで).
+    Any other valid split of the reading is offered as a 'phrase_furigana'
+    row on the first token."""
     members = conn.execute(
         text(
             """
@@ -199,6 +180,7 @@ def _recompute_phrase_furigana(conn, document_id: int, position: int, token_coun
     token_lengths = [len(m.surface) for m in members]
 
     spans, needs_review, alternatives = build_furigana_spans(merged_surface, to_katakana(reading_hiragana))
+    # The reading doesn't line up with the text, so the tokens keep their own.
     if needs_review and not alternatives:
         return
 
@@ -232,6 +214,8 @@ def _recompute_phrase_furigana(conn, document_id: int, position: int, token_coun
         if alt_updates:
             rows.append({"token_id": head_token_id, "value": {"updates": alt_updates}})
     if rows:
+        # Unselected: selecting one would deselect the phrase itself, on the
+        # same token.
         conn.execute(
             text(
                 """
@@ -245,10 +229,9 @@ def _recompute_phrase_furigana(conn, document_id: int, position: int, token_coun
 
 
 def resolve_phrase_furigana(conn, document_id: int, conflict_id: int) -> list[int]:
-    """Apply one of a phrase's alternative furigana splits (see
-    _recompute_phrase_furigana). Returns the affected token ids, or raises
-    ConflictNotFound if conflict_id isn't a phrase_furigana conflict in this
-    document."""
+    """Apply `conflict_id`, one of a phrase's alternative furigana splits.
+    Returns the affected token ids. Raises ConflictNotFound if it isn't a
+    phrase_furigana row in `document_id`."""
     row = conn.execute(
         text(
             """
@@ -284,15 +267,9 @@ def resolve_phrase_furigana(conn, document_id: int, conflict_id: int) -> list[in
 
 
 def _project_onto_last_member(conn, document_id: int, last_position: int, citation_reading_hiragana: str) -> str:
-    """`citation_reading_hiragana` trimmed down to what the on-page text
-    through `last_position` (the last token of some span) actually spells,
-    using that token's own conjugation (tokenization.project_citation_reading)
-    — a citation-form completion (受け -> 受ける for 真に受ける) only ever
-    touches a match's last token (see app/phrase_merge.py's exact-match
-    search), so trimming against that one token's own dictionary_form vs.
-    reading_katakana is enough regardless of how many tokens precede it.
-    A no-op (returns citation_reading_hiragana unchanged) when that token
-    needed no completion at all."""
+    """`citation_reading_hiragana`, a headword's reading, as spelled on the
+    page through the token at `last_position`, which can inflect the
+    headword's last word (まにうける -> まにうけ for 真に受け)."""
     last = conn.execute(
         text(
             "SELECT reading_katakana, dictionary_form, normalized_form FROM tokens "
@@ -648,16 +625,9 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
 
 
 def accept_phrase_suggestions(conn, document_id: int, conflict_ids: list[int]) -> list[int]:
-    """Accept several phrase suggestions in one call — e.g. every matching
-    instance of the same word's suggestion (see DocumentViewPage.tsx's
-    matchingPhraseSuggestions), applied together instead of one at a time.
-    Each conflict_id's own token_id is looked up here (the caller only
-    needs the conflict ids, already at hand on each candidate token), and
-    every conflict is resolved the same way a single accept-phrase call
-    would (see resolve_conflict) — just within one transaction instead of
-    one request per instance. Returns every token id any of them affected.
-    Raises ConflictNotFound if any conflict_id doesn't belong to this
-    document's tokens."""
+    """Apply each of `conflict_ids` as resolve_conflict does, such as every
+    instance of the same phrase suggestion. Returns every token id any of
+    them changed. Raises ConflictNotFound if one isn't in `document_id`."""
     rows = conn.execute(
         text(
             """
@@ -722,9 +692,8 @@ def lock_token_group(
 
     # Its own statement, not part of the locking one: under READ COMMITTED,
     # only a statement started after the lock was granted sees options the
-    # lock's previous holder committed.
-    # Only reading options count: phrase suggestions and predicate groups
-    # depend on the tokens around each one, not on the word itself.
+    # lock's previous holder committed. Only reading options count, since
+    # the other kinds depend on the tokens around each one.
     tokens = conn.execute(
         text(
             f"""

@@ -66,10 +66,8 @@ class TestRankSenses:
 
 class TestSearchReadings:
     def test_finds_a_reading_under_a_different_part_of_speech(self):
-        # 期 read き (助数詞可能) and ご (一般) are separate JMDict entries —
-        # heteronym_readings misses ご entirely because it only matches
-        # alternates sharing the token's own exact POS tuple; this is the
-        # whole reason this function exists (see its docstring).
+        # き (助数詞可能) and ご (一般) are separate entries, so
+        # heteronym_readings misses ご.
         assert set(search_readings("期")) == {"キ", "ゴ"}
 
     def test_common_reading_ranks_first(self):
@@ -88,13 +86,8 @@ class TestAlternateReadingOptions:
         assert options[0]["furigana_spans"] == [{"start": 0, "end": 1, "text": "期", "reading": "ご"}]
 
     def test_projects_an_alternate_citation_reading_onto_an_inflected_surface(self):
-        # 開いた: Sudachi picked the ひらく (transitive-ish) reading here
-        # (surface 開い -> ひらい), but 開く is also legitimately あく
-        # (intransitive) — a real heteronym JMDict lists as a second
-        # reading of the same dictionary form, that heteronym_readings
-        # can't find (see TestSearchReadings). The projection has to turn
-        # あく's citation reading into あい, matching this occurrence's own
-        # (五段) conjugation, not hand back あく verbatim.
+        # 開い is read ひらい here; JMDict's other reading of 開く, あく, has
+        # to come back as it reads on 開い: あい.
         options = alternate_reading_options("開い", "ヒライ", "開く", "開く")
         assert {o["reading"] for o in options} == {"あい"}
         matched = next(o for o in options if o["reading"] == "あい")

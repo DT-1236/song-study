@@ -223,12 +223,10 @@ class TokenRecord:
     needs_review: bool
     review_reason: Optional[str]
     conflict_options: list
-    # The position of the first token of the group this token is merged
-    # into: a predicate group at processing (see app.grammar), or an
-    # accepted phrase later. phrase_suggestion isn't a DB column: it's the
-    # phrase app.phrase_merge found starting here, which
-    # conflicts.create_phrase_conflicts offers for review.
+    # The position of the first token of the group this token is merged into.
     phrase_start_position: Optional[int] = None
+    # A phrase found starting here (see app.phrase_merge), to offer for
+    # review. Not stored on the token.
     phrase_suggestion: Optional[dict] = None
 
 
@@ -372,22 +370,10 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
 
 
 def slice_spans_by_token(spans: list[dict], token_lengths: list[int]) -> list[Optional[list[dict]]]:
-    """Split `spans` (0-indexed against the concatenation of several
-    tokens' surfaces, in order — e.g. a merged phrase's own furigana
-    spans, see app.conflicts._recompute_phrase_furigana) into one
-    furigana_override-shaped span list per token, re-based to start at 0
-    for that token. None for a token a span couldn't be cleanly attributed
-    to: a kanji span (a real reading, not a plain kana passthrough) whose
-    character range crosses that token's boundary — a jukujikun-style run
-    with no valid per-character split (e.g. 今日 -> きょう) can legitimately
-    span what were separate tokens before merging, and there's no way to
-    divide one reading between them, so that token is left with its own
-    original furigana rather than a guess.
-
-    A plain kana span (reading None) crossing a boundary is no problem —
-    it's just literal text, split at the boundary with no reading to
-    preserve.
-    """
+    """Split `spans`, laid over several tokens' surfaces joined in order, into
+    a span list per token, starting at 0 for that token. None for a token a
+    reading crosses out of, since one reading can't be divided between
+    tokens (今日 read きょう)."""
     boundaries = []
     pos = 0
     for length in token_lengths:
@@ -405,6 +391,7 @@ def slice_spans_by_token(spans: list[dict], token_lengths: list[int]) -> list[Op
                 {"start": span["start"] - b_start, "end": span["end"] - b_start, "text": span["text"], "reading": span["reading"]}
             )
         elif span["reading"] is None:
+            # Plain kana splits at the boundary.
             for i in covered:
                 b_start, b_end = boundaries[i]
                 lo, hi = max(span["start"], b_start), min(span["end"], b_end)
@@ -568,21 +555,10 @@ def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_rea
 
 
 def project_citation_reading(alt_citation_reading: str, reading: str, dict_form_citation: str, conjugation_type: str) -> str:
-    """The inverse of _reconstruct_citation_reading: given an alternate
-    reading for the whole word found under its CITATION form — from a
-    dictionary/JMDict search across every sense, unlike
-    heteronym_readings' own-surface, own-part-of-speech alternates —
-    project it onto this occurrence's own (possibly inflected) surface.
-    `alt_citation_reading` is katakana in, katakana out, matching every
-    other reading in this module.
-
-    Needed because a search naturally finds citation-form readings (期 read
-    ご is one, but so would 受ける's alternate readings be), while furigana
-    has to align against the actual on-page surface, which might be
-    conjugated (受け, not 受ける). Same fallback as
-    _reconstruct_citation_reading for irregular verbs (サ変/カ変): returned
-    unchanged, since neither follows a fixed pattern.
-    """
+    """The inverse of _reconstruct_citation_reading: `alt_citation_reading`,
+    another katakana reading of a word's citation form, as spelled on an
+    occurrence read `reading` (アク -> アイ for 開い). Irregular (サ変/カ変)
+    verbs come back unchanged."""
     if reading == dict_form_citation:
         return alt_citation_reading
 

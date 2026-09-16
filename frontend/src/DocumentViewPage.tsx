@@ -142,12 +142,9 @@ function hasMissingGloss(token: Token): boolean {
   return token.gloss !== null && token.gloss.senses.length === 0 && token.gloss.source !== 'composite'
 }
 
-// A conflict row is a phrase suggestion, a phrase furigana alternative, or
-// a predicate group to merge again (see backend/app/phrase_merge.py,
-// app.conflicts._recompute_phrase_furigana, and app/grammar.py) rather than
-// a reading option — their values have different shapes, so every place
-// that treats token.conflicts as reading options has to filter these out
-// first.
+// Conflict rows that aren't reading options, with values of other shapes: a
+// phrase suggestion, a phrase's alternative furigana, and a split predicate
+// group.
 function isPhraseConflict(conflict: Conflict): conflict is Conflict & { kind: 'phrase'; value: PhraseConflictValue } {
   return conflict.kind === 'phrase'
 }
@@ -175,9 +172,7 @@ function phraseSuggestion(token: Token): (Conflict & { kind: 'phrase'; value: Ph
   return token.conflicts.find((c): c is Conflict & { kind: 'phrase'; value: PhraseConflictValue } => isPhraseConflict(c) && !c.selected)
 }
 
-// Every alternative furigana split offered for this token's merged phrase
-// (see app.conflicts._recompute_phrase_furigana) — only ever present on the
-// phrase's own first token.
+// The other valid furigana splits of the accepted phrase this token starts.
 function phraseFuriganaOptions(token: Token): (Conflict & { kind: 'phrase_furigana'; value: PhraseFuriganaValue })[] {
   return token.conflicts.filter(isPhraseFuriganaConflict)
 }
@@ -225,10 +220,8 @@ function hasPopup(token: Token): boolean {
 // the same reading options apart from the user's own corrections — the only
 // tokens one decision can apply to together (the server holds requests to
 // the same rule). Built once per token, so each "can these go together"
-// check is a lookup. Phrase suggestions are excluded: they can differ
-// between two occurrences of the same word purely because of what follows
-// them, which has nothing to do with whether a reading decision applies to
-// both.
+// check is a lookup. Only reading options count, since the other conflict
+// kinds depend on the tokens around a word.
 function groupKey(token: Token): string {
   return JSON.stringify([
     token.surface,
@@ -329,14 +322,8 @@ function ReadingCorrectionForm({
   )
 }
 
-// Replaces free-text reading correction for anything Sudachi actually
-// recognizes: searches JMDict for every other reading of the representative
-// target's dictionary form (see fetchAlternateReadings) and offers them as
-// picks, the same button-and-apply flow ReadingOptions already uses for
-// precomputed conflict options — the only difference is these are found on
-// demand rather than already sitting on the token (see
-// app.glosses.alternate_reading_options for why: it's a broader, human-
-// initiated search, not another automatic heteronym flag).
+// Offers every other reading JMDict has for the targets' dictionary form,
+// searched for on demand, to apply to all of them.
 function AlternateReadingSearch({
   targets,
   documentId,
@@ -484,16 +471,8 @@ function IgnoreGlossButton({
   )
 }
 
-// Every other token in `instances` (see groupKey) that offers the exact
-// same phrase suggestion as `suggestion` — not just the same word, but the
-// same combined span and reading, since two occurrences of the same word
-// can be followed by completely different tokens (this one starting この
-//期に及んで, another この alone starting nothing). Scoped to `instances`
-// rather than the whole document: instances is already computed once per
-// render for the "apply to all" reading-correction flow, so finding "does
-// this other occurrence of the word suggest the same phrase" only ever
-// costs a scan of that small, already-known set, not another document-wide
-// search.
+// Every suggestion in `instances` for the same phrase as `suggestion`: the
+// same span and reading, since one word can start different phrases.
 function matchingPhraseSuggestions(
   suggestion: Conflict & { kind: 'phrase'; value: PhraseConflictValue },
   instances: Token[],
@@ -509,13 +488,9 @@ function matchingPhraseSuggestions(
     )
 }
 
-// Offers accepting the phrase suggestion starting at `token` (see
-// backend/app/phrase_merge.py) — combining it with the following
-// suggestion.value.token_count - 1 tokens, glossed as the phrase's headword,
-// optionally applied to every other instance of this exact same phrase at
-// once (see matchingPhraseSuggestions). Suggestions are never applied
-// automatically, since a headword match can be a coincidence (今日は
-// spelling こんにちは), so this is the only way one is ever applied.
+// Offers accepting `suggestion`, optionally for every instance of the same
+// phrase. It's never applied otherwise, since a headword match can be a
+// coincidence (今日は spelling こんにちは).
 function PhraseSuggestionOption({
   suggestion,
   instances,
@@ -602,8 +577,7 @@ function UnmergePhraseOption({
   )
 }
 
-// Offers merging a split predicate group starting at `token` again (see
-// splitPredicateGroup).
+// Offers merging `group`, a split predicate group, again.
 function RegroupOption({
   group,
   documentId,
@@ -633,13 +607,8 @@ function RegroupOption({
   )
 }
 
-// Offers switching between alternative furigana splits for an accepted
-// phrase (see backend/app.conflicts._recompute_phrase_furigana) — only
-// present when a kanji run inside the merged span had more than one valid
-// per-character reading (the same ambiguity an ordinary token's
-// no_kana_anchor conflict already handles, just found across a merged
-// span). Only ever attached to the phrase's own first token, so this
-// renders nothing for any other member.
+// Offers the other valid furigana splits of the accepted phrase `token`
+// starts, if it has any.
 function PhraseFuriganaOptions({
   token,
   documentId,
@@ -696,10 +665,8 @@ function TokenDecisions({
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
 }) {
-  // A token in an accepted phrase is read as the phrase: split it first
-  // (see UnmergePhraseOption). Filtered here, not just at ConflictResolver's
-  // own call site, so a selection that includes one (SelectionPanel) can't
-  // sweep it in either.
+  // A token in an accepted phrase is read as the phrase: split it first.
+  // Filtered here too, so a selection including one can't sweep it in.
   const targets = allTargets.filter((t) => !isInAcceptedPhrase(t))
   if (targets.length === 0) return null
   const source = targets.find(hasReadingOptions)
@@ -709,11 +676,8 @@ function TokenDecisions({
   // match a different reading than the one Sudachi chose" (e.g. 三股 as
   // みまた vs さんまた).
   const missingGloss = targets.filter(hasMissingGloss)
-  // Free-text correction only remains for OOV tokens: Sudachi has no
-  // dictionary entry for one at all, so there's nothing for a reading
-  // search to find (see AlternateReadingSearch). Every target here shares
-  // one review_reason (groupKey ties surface/reading/pos/conflicts
-  // together, which determines it), so the first target stands for all.
+  // Typing a reading is only for OOV tokens, which have no dictionary entry
+  // to search. Every target shares one review_reason (see groupKey).
   const isOov = targets[0]?.review_reason === 'oov'
 
   return (
@@ -776,19 +740,12 @@ function ConflictResolver({
   const suggestion = phraseSuggestion(token)
   const regroup = splitPredicateGroup(token)
 
-  // No early return: "look for other readings" (see AlternateReadingSearch,
-  // rendered by TokenDecisions below) is offered for any non-OOV token
-  // whether or not Sudachi flagged it — the motivating case, 期 read ご, is
-  // never flagged at all (see app.glosses.search_readings's docstring), so
-  // gating this section on needing review would hide the search exactly
-  // where it matters most.
+  // No early return: the reading search is offered for every non-OOV token,
+  // flagged or not (期 read ご never is).
 
   return (
     <div className="conflict-resolver">
-      {/* Promoted above everything else: combining tokens into a longer,
-          more specific JMDict match is usually the single most useful thing
-          to do with a token, and easy to miss buried under reading options
-          most tokens don't even have. */}
+      {/* Promoted above everything else, where it's hard to miss. */}
       {suggestion && (
         <PhraseSuggestionOption
           suggestion={suggestion}
@@ -879,11 +836,8 @@ function SenseBlock({ senses }: { senses: GlossSense[] }) {
 function GlossDetails({ token }: { token: Token }) {
   const gloss = token.gloss
   const posInfo = getPosInfo(token.part_of_speech[0])
-  // A merged token's own dictionary_form/reading/POS (期, き, 名詞) are
-  // facts about that one token alone, not about the group it's actually
-  // glossed as (この期に及んで, at ご) — so a merged token shows the group's
-  // own lookup form and reading instead (see gloss.lookup_form), and skips
-  // the otherwise-redundant reading line below.
+  // A merged token shows its group's lookup form and reading, not its own
+  // dictionary form, reading, and part of speech (期, き, 名詞).
   const merged = isMerged(token)
 
   // Glosses are never shown for English tokens (see hasPopup), but are for
@@ -982,11 +936,7 @@ function GlossPopup({
       onMouseLeave={onMouseLeave}
     >
       <GlossDetails token={token} />
-      {/* Always mounted: GlossPopup only ever renders for an interactive
-          token (see hasPopup), and ConflictResolver always has at least the
-          "look for other readings" search to offer for a non-OOV one now
-          (see its own comment on why that's no longer gated on needing
-          review). */}
+      {/* Always mounted: the reading search is offered for every non-OOV token. */}
       {!token.is_english && (
         <ConflictResolver
           token={token}
@@ -1421,11 +1371,9 @@ const TokenizedText = memo(function TokenizedText({
           const needsCorrection = interactive && hasMissingGloss(token) && !token.gloss_ignored
           const needsReadingReview = (hasReadingOptions(token) && token.needs_review) || hasAmbiguousCompositePiece(token)
 
-          // An accepted phrase's tokens are underlined as one continuous run
-          // (see .phrase-merged in App.css): rounded only at the ends, so
-          // it reads as a single unit rather than one underline per token.
+          // An accepted phrase is underlined as one run (see .phrase-merged).
           // Predicate groups are too common to underline, so they're only
-          // highlighted together while one of their tokens is looked at.
+          // highlighted while one of their tokens is looked at.
           const inPhrase = isInAcceptedPhrase(token)
           const mergedWithPrev = inPhrase && index > 0 && tokens[index - 1].phrase_start_position === token.phrase_start_position
           const mergedWithNext =

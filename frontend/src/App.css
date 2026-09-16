@@ -669,10 +669,8 @@
   border-radius: 2px;
 }
 
-/* A run of tokens merged into one JMDict phrase match (see
-   phrase_start_position in api.ts): one continuous underline across the
-   whole run, not one per token — square where it continues into the next
-   token, rounded only at the run's own start and end. */
+/* An accepted phrase's tokens: one continuous underline across them,
+   rounded only at its ends. */
 .token.phrase-merged {
   border-bottom: 2px solid var(--success);
 }
@@ -695,9 +693,8 @@
   background-color: var(--border);
 }
 
-/* A token that could start an unaccepted phrase suggestion — a lighter,
-   dashed hint distinct from phrase-merged's solid underline, so an
-   already-accepted phrase and a still-open suggestion don't look alike. */
+/* A token that starts a phrase suggestion: dashed, unlike an accepted
+   phrase's solid underline. */
 .token.has-phrase-suggestion {
   border-bottom: 2px dashed var(--success);
 }
@@ -789,10 +786,7 @@ label.apply-to-all {
   margin-top: 0.4rem;
 }
 
-/* The "combine tokens" suggestion, promoted above every other decision in
-   the popup (see ConflictResolver) — a distinct tinted panel instead of
-   floating among plain conflict-option buttons, so it reads as the
-   headline action rather than one more option to notice among several. */
+/* A phrase suggestion, set apart as the popup's main action. */
 .phrase-suggestion-promoted {
   margin-top: 0;
   margin-bottom: 0.5rem;

@@ -208,13 +208,8 @@ export type PredicateGroupValue = {
   token_count: number
 }
 
-// An alternative furigana split for an accepted phrase (see
-// backend/app.conflicts._recompute_phrase_furigana) — offered when a kanji
-// run inside the merged span has more than one valid per-character
-// reading, the same ambiguity an ordinary token's no_kana_anchor conflict
-// already handles for a single token. `offset` is how many tokens after
-// the phrase's own first token this update applies to (0 = that token
-// itself); only tokens this alternative actually changes are listed.
+// An alternative furigana split for an accepted phrase: an update per token
+// it changes, `offset` tokens after the phrase's first token.
 export type PhraseFuriganaValue = {
   updates: { offset: number; furigana_spans: FuriganaSpan[] }[]
 }
@@ -287,9 +282,8 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
   return response.json()
 }
 
-// Every other reading JMDict knows for tokenId's dictionary form, projected
-// onto its own surface — the "look for other readings" action. Applying one
-// is the same applyReading call used for an existing conflict option.
+// Every other reading JMDict has for tokenId's dictionary form, as reading
+// options to apply with applyReading.
 export async function fetchAlternateReadings(documentId: number, tokenId: number): Promise<ConflictOptionValue[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`)
 
@@ -319,11 +313,8 @@ export async function applyReading(
   return response.json()
 }
 
-// Accepts one or more phrase suggestions (see PhraseConflictValue) or
-// predicate groups to merge again (see PredicateGroupValue) at once — e.g.
-// every matching instance of the same suggestion. Each can change more
-// tokens than just its own starting one, so every affected token comes
-// back, not just those in conflictIds.
+// Accepts phrase suggestions, or split predicate groups to merge again.
+// Returns every token they changed.
 export async function acceptPhraseSuggestions(documentId: number, conflictIds: number[]): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
     method: 'POST',
@@ -336,9 +327,8 @@ export async function acceptPhraseSuggestions(documentId: number, conflictIds: n
   return response.json()
 }
 
-// Splits the group tokenId is merged into (any member works, not just its
-// first token), reverting each member to its own gloss. Returns every
-// affected token, or [] if tokenId wasn't merged.
+// Splits the group tokenId is merged into, found from any member of it.
+// Returns every token it changed, or [] if tokenId isn't merged.
 export async function unmergePhrase(documentId: number, tokenId: number): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
     method: 'POST',

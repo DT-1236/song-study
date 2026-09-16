@@ -1,9 +1,5 @@
-"""Tests for GET /documents/{id}/tokens/{token_id}/alternate-readings — the
-"look for other readings" action that replaces free-text reading
-correction for anything Sudachi actually recognizes (see
-app.glosses.alternate_reading_options; free-text stays for OOV tokens,
-which have no dictionary entry for a search to find anything in).
-"""
+"""Tests for GET /documents/{id}/tokens/{token_id}/alternate-readings, the
+"look for other readings" action."""
 
 from __future__ import annotations
 
@@ -14,9 +10,8 @@ from app.main import DocumentCreate, create_document, get_alternate_readings, ge
 
 
 def test_finds_a_reading_a_heteronym_flag_would_miss(committed_engine):
-    # 期 read ご (一般) never gets flagged as a heteronym of 期 read き
-    # (助数詞可能) — see app/glosses.py's heteronym_readings docstring — so
-    # this is the only route to it.
+    # 期 read ご is a different part of speech from 期 read き, so it's never
+    # flagged as a heteronym.
     document_id = create_document(DocumentCreate(title="t", text="この期に及んで")).id
     period_token = next(t for t in get_document_tokens(document_id) if t.surface == "期")
 

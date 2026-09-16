@@ -1,13 +1,6 @@
-"""Regression test for Gloss.lookup_form (app/main.py).
-
-Before this field existed, a merged phrase's member tokens (see
-app/phrase_merge.py) all shared the phrase's gloss (senses, reading) but
-GlossDetails still showed each token's OWN dictionary_form/reading/POS line
-right above it — misleading, since those describe the individual token
-(期, き, 名詞), not the phrase it's actually glossed as (この期に及んで, ご).
-lookup_form is what lets the frontend show the phrase's own headword
-instead for a merged token; this checks the API actually returns it.
-"""
+"""Test that a merged phrase's tokens report the phrase's headword as their
+gloss's lookup_form, which the popup shows in place of each token's own
+dictionary form."""
 
 from __future__ import annotations
 

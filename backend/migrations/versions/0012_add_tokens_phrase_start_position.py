@@ -1,13 +1,9 @@
 """add phrase_start_position to tokens
 
-Marks a token as part of a multi-token JMDict match: the run of consecutive
-tokens sharing the same phrase_start_position (the `position` of the first
-token in the run) combine into one headword this app's tokenizer wouldn't
-otherwise look up as a single unit (e.g. この/期/に/及ん/で -> この期に及んで).
-NULL for a token that wasn't merged with its neighbors. See
-app/phrase_merge.py for how it's computed; every merged token also gets the
-phrase's own gloss_lookup_id, so this column is purely for the frontend to
-know which tokens to render/click as one span.
+The position of the first token of the group a token is merged into (a
+predicate with its grammar, or an accepted phrase), shared by every token in
+the group along with its gloss_lookup_id. NULL for a token that isn't
+merged.
 
 Revision ID: 0012
 Revises: 0011
