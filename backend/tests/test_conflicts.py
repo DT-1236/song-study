@@ -185,7 +185,7 @@ class TestPhraseConflicts:
                 "token_count": 5,
             },
         )
-        create_phrase_conflicts(conn, document_id, [record])
+        create_phrase_conflicts(conn, document_id, [record], [])
         return document_id, token_ids
 
     def test_create_phrase_conflicts_inserts_one_unselected_row(self, db_conn):
@@ -224,7 +224,7 @@ class TestPhraseConflicts:
             review_reason=None,
             conflict_options=[],
         )
-        create_phrase_conflicts(db_conn, document_id, [record])
+        create_phrase_conflicts(db_conn, document_id, [record], [])
 
         assert _conflicts_for(db_conn, token_id) == []
 

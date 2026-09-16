@@ -31,6 +31,7 @@ from typing import Optional
 from jamdict import Jamdict
 from sqlalchemy import text
 
+from app.grammar import grammar_note, is_helper_verb
 from app.tokenization import (
     TokenRecord,
     a_split_decomposition,
@@ -556,21 +557,15 @@ def gloss_piece(
     note: Optional[str] = None,
 ) -> dict:
     """One composite gloss piece — {surface, reading, senses,
-    ambiguous_readings, note} — the shape both _add_composites (below) and
-    app.conflicts's chain-extension gloss composition build a multi-piece
-    composite gloss out of. `part_of_speech` is the full 6-element Sudachi
-    tag (heteronym_readings needs the exact tag, not just its major
-    category, to find genuine alternates for this same surface+POS).
+    ambiguous_readings, note} — the shape a composite gloss is built out of.
+    `part_of_speech` is the full 6-element Sudachi tag (heteronym_readings
+    needs the exact tag, not just its major category).
 
-    `senses_pos_major` overrides which Sudachi major category rank_senses
-    ranks against, for when the piece's grammatical role differs from its
-    own literal part_of_speech[0] — a light verb in a te-form chain (回る's
-    非自立可能 occurrence in 受けて回る) is still tagged 動詞, but the sense
-    that's actually relevant is whichever JMDict marks 'auxiliary verb'
-    (under 助動詞 in _SUDACHI_TO_JMDICT_POS), not 回る's ordinary verb senses.
-    `note` is a short, non-JMDict explanation (see
-    app.phrase_merge.light_verb_note) for a light verb whose grammaticalized
-    meaning isn't its own distinct JMDict sense at all."""
+    `senses_pos_major` overrides which major category senses are ranked
+    against, for a piece whose role differs from its own tag: a helper verb
+    (the みる of 見てみる) is tagged 動詞, but its relevant sense is the one
+    JMDict marks 'auxiliary verb'. `note` is a short explanation of a
+    grammar word (see app.grammar.grammar_note)."""
     pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
     return {
         "surface": surface,
@@ -615,18 +610,135 @@ def _add_composites(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[o
             new_rows[key] = ({"pieces": result_pieces}, "composite")
 
 
-def plan_glosses(conn, requests: Iterable[tuple[GlossKey, Optional[str]]]) -> GlossPlan:
-    """Resolve each requested key against the gloss cache and compute every
-    miss (from JMDict, the English stub, or the compound fallback), without
-    writing anything. Each request pairs a key with an alternate spelling to
-    try when the key's own lookup_form has no JMDict entry; the first one
-    given for a key is used."""
+@dataclass(frozen=True)
+class GroupPart:
+    """A token attached to the word a group gloss is built on."""
+
+    dictionary_form: str
+    normalized_form: str
+    part_of_speech: tuple
+    # Hiragana, as read on the page.
+    reading: str
+
+    @classmethod
+    def of(cls, token, reading: str) -> "GroupPart":
+        """The part for `token`, a token or token row, read as `reading`."""
+        return cls(token.dictionary_form, token.normalized_form, tuple(token.part_of_speech), reading)
+
+
+@dataclass(frozen=True)
+class GroupGlossRequest:
+    """A composite gloss for a word plus the grammar attached to it
+    (欲し + てる/ん/だ/って): the word's own gloss as the first piece, then a
+    piece per attached token."""
+
+    # The word's own gloss key (a verb's citation key, or an idiom's
+    # headword), and an alternate spelling to try for it.
+    base_key: GlossKey
+    base_alt: Optional[str]
+    base_part_of_speech: tuple
+    attached: tuple[GroupPart, ...]
+    # The whole group's reading, as on the page.
+    reading: str
+
+    @property
+    def key(self) -> GlossKey:
+        # "＋" never appears in a JMDict headword, so this can't collide with
+        # a plain lookup's key. Dictionary forms keep apart groups spelled
+        # the same with different grammar (ん as ぬ vs as の).
+        return ("＋".join([self.base_key[0], *(part.dictionary_form for part in self.attached)]), self.reading)
+
+
+def predicate_group_request(members, readings: list[str], head_key: GlossKey) -> GroupGlossRequest:
+    """The gloss request for a predicate group (see app.grammar) of `members`
+    — tokens or token rows — read on the page as `readings`, one hiragana
+    reading per member, with its head glossed under `head_key`."""
+    head = members[0]
+    return GroupGlossRequest(
+        base_key=head_key,
+        base_alt=head.dictionary_form,
+        base_part_of_speech=tuple(head.part_of_speech),
+        attached=tuple(GroupPart.of(member, reading) for member, reading in zip(members[1:], readings[1:])),
+        reading="".join(readings),
+    )
+
+
+def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object, str]]) -> list[dict]:
+    """The composite pieces for `request`, from the (entries, source) of its
+    base and helper verbs in `found`."""
+    entries, source = found[request.base_key]
+    if source == "composite":
+        pieces = list(entries["pieces"])
+    else:
+        pieces = [gloss_piece(request.base_key[0], request.base_key[1], entries, source, request.base_part_of_speech)]
+    for part in request.attached:
+        note = grammar_note(part.normalized_form, part.part_of_speech)
+        if is_helper_verb(part):
+            entries, source = found[citation_key(part.normalized_form)]
+            pieces.append(
+                gloss_piece(
+                    part.dictionary_form,
+                    mixed_reading(part.dictionary_form),
+                    entries,
+                    source,
+                    part.part_of_speech,
+                    senses_pos_major="助動詞",
+                    note=note,
+                )
+            )
+        else:
+            pieces.append(
+                {"surface": part.dictionary_form, "reading": part.reading, "senses": [], "ambiguous_readings": [], "note": note}
+            )
+    # A group's words keep their own reading options on their tokens, so a
+    # piece doesn't flag them again.
+    return [{**piece, "ambiguous_readings": []} for piece in pieces]
+
+
+def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, new_rows: dict) -> None:
+    """Add a composite row to new_rows for each group not already cached,
+    along with any of its pieces' lookups that aren't cached either."""
+    missing = {group.key: group for group in groups if group.key not in cached_ids}
+    if not missing:
+        return
+    alternates: dict[GlossKey, Optional[str]] = {}
+    for group in missing.values():
+        alternates.setdefault(group.base_key, group.base_alt)
+        for part in group.attached:
+            if is_helper_verb(part):
+                alternates.setdefault(citation_key(part.normalized_form), part.dictionary_form)
+
+    found = {
+        key: (row.entries, row.source)
+        for key, row in _cached_rows(conn, alternates.keys() - new_rows.keys(), with_entries=True).items()
+    }
+    uncached = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in found and key not in new_rows}
+    _add_composites(conn, [key for key, (entries, source) in uncached.items() if source == "jmdict" and not entries], uncached)
+    new_rows.update(uncached)
+    found.update({key: new_rows[key] for key in alternates.keys() - found.keys()})
+
+    for key, group in missing.items():
+        new_rows[key] = ({"pieces": _group_pieces(group, found)}, "composite")
+
+
+def plan_glosses(
+    conn,
+    requests: Iterable[tuple[GlossKey, Optional[str]]],
+    groups: Iterable[GroupGlossRequest] = (),
+) -> GlossPlan:
+    """Resolve each requested key, and each group's composite key, against the
+    gloss cache and compute every miss (from JMDict, the English stub, or the
+    compound fallback), without writing anything. Each request pairs a key
+    with an alternate spelling to try when the key's own lookup_form has no
+    JMDict entry; the first one given for a key is used."""
+    groups = list(groups)
     alternates: dict[GlossKey, Optional[str]] = {}
     for key, alt in requests:
         alternates.setdefault(key, alt)
-    cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates).items()}
+    cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates.keys() | {g.key for g in groups}).items()}
     new_rows = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in cached_ids}
     _add_composites(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
+    _add_group_glosses(conn, groups, cached_ids, new_rows)
     return GlossPlan(cached_ids, new_rows)
 
 

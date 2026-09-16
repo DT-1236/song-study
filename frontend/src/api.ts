@@ -166,19 +166,17 @@ export type GlossPiece = {
   reading: string
   senses: GlossSense[]
   ambiguous_readings: string[]
-  // Set only for a te-form + light-verb chain's light-verb piece (see
-  // backend/app/phrase_merge.py's light_verb_note) — a short explanation of
-  // its grammaticalized meaning here, since that's often not its own
-  // distinct JMDict sense at all (回る's て回る use, say).
+  // What a grammar word or helper verb adds to the word before it, for a
+  // piece of a group's gloss (see backend/app/grammar.py).
   note: string | null
 }
 
 export type Gloss = {
   reading: string
-  // The JMDict headword this was looked up under — usually the token's own
-  // dictionary_form, but for a merged phrase (see phrase_start_position)
-  // it's the combined span's headword instead, which no single member
-  // token's own dictionary_form reflects.
+  // What this was looked up under — usually the token's own
+  // dictionary_form, but for a merged group (see phrase_start_position) the
+  // phrase's headword (この期に及んで) or the group's parts
+  // (欲する＋てる＋ん＋だ＋って).
   lookup_form: string
   senses: GlossSense[]
   source: 'jmdict' | 'english_stub' | 'composite'
@@ -190,25 +188,24 @@ export type ConflictOptionValue = {
   furigana_spans: FuriganaSpan[]
 }
 
-// A suggested multi-token JMDict match starting at this token (see
-// backend/app/phrase_merge.py) — surface/reading are the whole combined
-// span's, not this token's own, and token_count is how many consecutive
-// tokens starting here (this one included) it covers. lookup_form is the
-// string actually verified as a JMDict headword, which can differ from
-// surface (真に受け vs 真に受ける) when the match completed through a
-// verb/adjective's dictionary form rather than its on-page inflected
-// surface — unused by the frontend directly (the backend applies it), kept
-// here so the type matches what the API actually returns.
+// A suggested multi-token JMDict headword starting at this token (see
+// backend/app/phrase_merge.py): the headword and its reading, the on-page
+// text it covers with any grammar attached after it (真に受け + てみて),
+// and how many tokens that is, this one included.
 export type PhraseConflictValue = {
   surface: string
   lookup_form: string
   reading: string
   token_count: number
-  // Set only for a te-form + light-verb chain suggestion (see
-  // backend/app/phrase_merge.py) — how many tokens at the start are the
-  // "base" word versus the following light-verb chain. Absent for an
-  // ordinary idiom or noun+する suggestion.
-  chain_start_offset?: number
+  // How many of those tokens the headword itself covers.
+  phrase_token_count?: number
+}
+
+// A predicate group starting at this token (see backend/app/grammar.py),
+// which merges it again after it's been split.
+export type PredicateGroupValue = {
+  surface: string
+  token_count: number
 }
 
 // An alternative furigana split for an accepted phrase (see
@@ -241,6 +238,12 @@ export type Conflict =
       value: PhraseFuriganaValue
       selected: boolean
     }
+  | {
+      id: number
+      kind: 'predicate'
+      value: PredicateGroupValue
+      selected: boolean
+    }
 
 export type Token = {
   id: number
@@ -267,10 +270,13 @@ export type Token = {
   conflicts: Conflict[]
   start_time: string | null
   end_time: string | null
-  // Non-null, and equal across every token in the run, when this token is
-  // currently part of an accepted multi-token JMDict match — the run's
-  // first token's own position. See acceptPhraseSuggestion/unmergePhrase.
+  // The first token's position when this token is merged with its
+  // neighbors into one group, the same across the group; else null. See
+  // acceptPhraseSuggestions/unmergePhrase.
   phrase_start_position: number | null
+  // What that group is: an accepted phrase suggestion, or a predicate with
+  // its grammar, grouped automatically.
+  group_kind: 'phrase' | 'predicate' | null
 }
 
 export async function fetchTokens(documentId: number): Promise<Token[]> {
@@ -294,6 +300,8 @@ export async function fetchAlternateReadings(documentId: number, tokenId: number
 
 // Selects `reading` for each of the tokens: the option each has with that
 // reading (preferring `furiganaSpans` as its split), or else a correction.
+// Returns every token whose gloss changed, which includes the rest of any
+// group one of them is in.
 export async function applyReading(
   documentId: number,
   tokenIds: number[],
@@ -311,11 +319,11 @@ export async function applyReading(
   return response.json()
 }
 
-// Accepts one or more phrase-kind conflict options at once (see
-// PhraseConflictValue) — one conflictId per token the suggestion starts
-// at, e.g. every matching instance of the same word's suggestion, applied
-// together. Each can change more tokens than just its own starting one, so
-// every affected token comes back, not just those in conflictIds.
+// Accepts one or more phrase suggestions (see PhraseConflictValue) or
+// predicate groups to merge again (see PredicateGroupValue) at once — e.g.
+// every matching instance of the same suggestion. Each can change more
+// tokens than just its own starting one, so every affected token comes
+// back, not just those in conflictIds.
 export async function acceptPhraseSuggestions(documentId: number, conflictIds: number[]): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
     method: 'POST',
@@ -328,10 +336,9 @@ export async function acceptPhraseSuggestions(documentId: number, conflictIds: n
   return response.json()
 }
 
-// Undoes an accepted phrase suggestion covering tokenId (any member of the
-// group works, not just its first token), reverting each member to its own
-// individual gloss. Returns every affected token, or [] if tokenId wasn't
-// part of a merged phrase.
+// Splits the group tokenId is merged into (any member works, not just its
+// first token), reverting each member to its own gloss. Returns every
+// affected token, or [] if tokenId wasn't merged.
 export async function unmergePhrase(documentId: number, tokenId: number): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
     method: 'POST',

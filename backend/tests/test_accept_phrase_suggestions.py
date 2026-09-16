@@ -29,7 +29,7 @@ def test_accepts_every_matching_instance_in_one_call(committed_engine):
     affected = accept_phrase_suggestions_endpoint(document_id, PhraseAcceptance(conflict_ids=conflict_ids))
 
     assert len(affected) == 6  # two それでも occurrences, 3 tokens each
-    merged = [t for t in get_document_tokens(document_id) if t.phrase_start_position is not None]
+    merged = [t for t in get_document_tokens(document_id) if t.group_kind == "phrase"]
     assert len(merged) == 6
     assert all(t.gloss is not None and t.gloss.lookup_form == "それでも" for t in merged)
     # Two independent groups, not one six-token run.

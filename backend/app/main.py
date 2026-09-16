@@ -14,6 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.conflicts import (
+    IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
     TokenNotFound,
     TokensNotGroupable,
@@ -29,6 +30,7 @@ from app.conflicts import (
 )
 from app.db import engine, json_param
 from app.glosses import (
+    GlossKey,
     GlossPlan,
     alternate_reading_options,
     attach_glosses,
@@ -36,10 +38,12 @@ from app.glosses import (
     is_glossable,
     is_probably_english,
     plan_glosses,
+    predicate_group_request,
     rank_senses,
     search_jmdict,
     store_glosses,
 )
+from app.grammar import find_predicate_groups
 from app.lrclib import (
     LrclibError,
     LrclibLyrics,
@@ -49,7 +53,7 @@ from app.lrclib import (
 )
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
-from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, tokenize_document
+from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
 
 app = FastAPI()
 
@@ -526,20 +530,17 @@ class GlossPiece(BaseModel):
     reading: str
     senses: list[GlossSense]
     ambiguous_readings: list[str]
-    # Set only for a te-form + light-verb chain's light-verb piece (see
-    # app/phrase_merge.py's light_verb_note) — a short explanation of its
-    # grammaticalized meaning here, since that's often not its own distinct
-    # JMDict sense at all (回る's て回る use, say).
+    # What a grammar word or helper verb adds to the word before it, for a
+    # piece of a group's gloss (see app.grammar.grammar_note).
     note: Optional[str] = None
 
 
 class Gloss(BaseModel):
     reading: str
-    # The JMDict headword this was actually looked up under — usually the
-    # same text as the token's own dictionary_form, but for a merged phrase
-    # (phrase_start_position set) it's the combined span's headword instead
-    # (この期に及んで), which no single member token's own dictionary_form
-    # reflects.
+    # What this was looked up under — usually the token's own
+    # dictionary_form, but for a merged group (phrase_start_position set)
+    # the phrase's headword (この期に及んで) or the group's parts
+    # (欲する＋てる＋ん＋だ＋って).
     lookup_form: str
     senses: list[GlossSense]
     source: str
@@ -573,11 +574,13 @@ class Token(BaseModel):
     furigana_override: Optional[list[dict]]
     # Marked by the user as needing no gloss, like a name no dictionary has.
     gloss_ignored: bool
-    # Non-NULL, and equal across every token in the run, when this token was
-    # merged with its neighbors into one longer JMDict headword (see
-    # app/phrase_merge.py) — the value is the run's first token's own
-    # position, letting the frontend group/highlight them as one span.
+    # The first token's position when this token is merged with its
+    # neighbors into one group, the same across the group; else None.
     phrase_start_position: Optional[int]
+    # What that group is: an accepted phrase suggestion (see
+    # app/phrase_merge.py), or a predicate with its grammar (see
+    # app/grammar.py).
+    group_kind: Optional[Literal["phrase", "predicate"]]
     is_english: bool
     gloss: Optional[Gloss]
     conflicts: list[Conflict]
@@ -595,6 +598,11 @@ def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None)
                    t.part_of_speech, t.is_oov, t.furigana_spans, t.needs_review,
                    t.review_reason, t.furigana_override, t.gloss_ignored, t.start_time, t.end_time,
                    t.phrase_start_position,
+                   CASE
+                       WHEN t.phrase_start_position IS NULL THEN NULL
+                       WHEN {IS_ACCEPTED_PHRASE_SQL} THEN 'phrase'
+                       ELSE 'predicate'
+                   END AS group_kind,
                    gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source,
                    gl.lookup_form AS gloss_lookup_form
             FROM tokens t
@@ -674,6 +682,10 @@ def _fetch_token(conn, document_id: int, token_id: int) -> Token:
 @dataclasses.dataclass
 class _ProcessedDocument:
     records: list[TokenRecord]
+    # Each predicate group's index range (see app.grammar).
+    groups: list[range]
+    # The gloss key of each record, by index: its group's, if it's in one.
+    gloss_keys: list[Optional[GlossKey]]
     gloss_plan: GlossPlan
 
 
@@ -681,13 +693,30 @@ def _process_document(document_text: str) -> _ProcessedDocument:
     """Tokenize a document and resolve its glosses against the cache — the
     slow part of first processing — without writing anything."""
     records = tokenize_document(document_text)
+    groups = find_predicate_groups(records)
     find_phrase_suggestions(records)
+
+    gloss_keys = [gloss_key(record) for record in records]
+    group_requests = []
+    for group in groups:
+        members = records[group.start : group.stop]
+        request = predicate_group_request(
+            members, [to_hiragana(member.reading_katakana) for member in members], gloss_keys[group.start]
+        )
+        group_requests.append(request)
+        for i in group:
+            gloss_keys[i] = request.key
+    grouped = {i for group in groups for i in group}
     # A token's dictionary_form is the alternate spelling for its key.
-    requests = ((key, record.dictionary_form) for record in records if (key := gloss_key(record)) is not None)
+    requests = (
+        (key, record.dictionary_form)
+        for i, (record, key) in enumerate(zip(records, gloss_keys))
+        if key is not None and i not in grouped
+    )
     # Autocommit, so no transaction is held open through the dictionary
     # lookups.
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        return _ProcessedDocument(records, plan_glosses(conn, requests))
+        return _ProcessedDocument(records, groups, gloss_keys, plan_glosses(conn, requests, group_requests))
 
 
 def _write_processed_document(conn, document_id: int, processed: _ProcessedDocument) -> None:
@@ -695,8 +724,7 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
     linked to their glosses), and its conflicts, one statement each."""
     gloss_ids = store_glosses(conn, processed.gloss_plan)
     rows = []
-    for record in processed.records:
-        key = gloss_key(record)
+    for record, key in zip(processed.records, processed.gloss_keys):
         rows.append(
             {
                 # Not dataclasses.asdict, which would deep-copy every field —
@@ -738,7 +766,7 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
         {"document_id": document_id, "rows": json.dumps(rows)},
     )
     create_conflicts(conn, document_id, processed.records)
-    create_phrase_conflicts(conn, document_id, processed.records)
+    create_phrase_conflicts(conn, document_id, processed.records, processed.groups)
 
 
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
@@ -941,11 +969,12 @@ class TokensReading(ReadingCorrection, TokenIds):
 def apply_tokens_reading(document_id: int, body: TokensReading) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
-    does."""
+    does. Returns every token whose gloss changed, which includes the rest
+    of any group one of them is in."""
     with engine.begin() as conn:
         with _token_group_errors():
-            select_reading(conn, document_id, body.token_ids, body.reading, body.furigana_spans)
-        return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
+            affected = select_reading(conn, document_id, body.token_ids, body.reading, body.furigana_spans)
+        return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
 class TokensIgnored(TokenIds):

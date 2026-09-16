@@ -689,6 +689,12 @@
   border-bottom-right-radius: 2px;
 }
 
+/* Every token of the group the hovered or pinned token is merged into,
+   highlighted as that token is, so the group reads as one word. */
+.token.group-looked-at {
+  background-color: var(--border);
+}
+
 /* A token that could start an unaccepted phrase suggestion — a lighter,
    dashed hint distinct from phrase-merged's solid underline, so an
    already-accepted phrase and a still-open suggestion don't look alike. */

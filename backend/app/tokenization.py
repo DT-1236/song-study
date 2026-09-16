@@ -223,15 +223,11 @@ class TokenRecord:
     needs_review: bool
     review_reason: Optional[str]
     conflict_options: list
-    # phrase_start_position is the DB column marking this token as part of
-    # an accepted multi-token JMDict match (the group's first token's own
-    # position) — always None at initial processing; only ever set later,
-    # by conflicts.resolve_conflict, once a human accepts a phrase
-    # suggestion (see app/phrase_merge.py's module docstring for why this
-    # is never auto-applied). phrase_suggestion is transient, not a DB
-    # column: {"surface", "reading", "token_count"} when app.phrase_merge
-    # found this token could start a multi-token match, consumed by
-    # conflicts.create_phrase_conflicts to offer it for review.
+    # The position of the first token of the group this token is merged
+    # into: a predicate group at processing (see app.grammar), or an
+    # accepted phrase later. phrase_suggestion isn't a DB column: it's the
+    # phrase app.phrase_merge found starting here, which
+    # conflicts.create_phrase_conflicts offers for review.
     phrase_start_position: Optional[int] = None
     phrase_suggestion: Optional[dict] = None
 

@@ -31,10 +31,10 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    # +1 of these is create_phrase_conflicts' INSERT — this text has several
-    # multi-token JMDict matches (御釈迦様, それでも, ...), so it's never the
-    # empty-rows no-op skip.
-    assert round_trips(cold) == 11
+    # Includes create_phrase_conflicts' INSERT (this text has phrase
+    # suggestions and predicate groups) and one read of the cached glosses
+    # its uncached predicate groups are built from.
+    assert round_trips(cold) == 12
     assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Saving the text deletes the tokens but keeps the gloss cache, so the
