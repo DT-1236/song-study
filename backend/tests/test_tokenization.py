@@ -32,15 +32,16 @@ hand at the time (see the case comments), not invented examples.
 """
 
 from app.tokenization import (
-    _build_furigana_spans,
-    _conjugation_type,
     _is_regular_potential_form,
     _reconstruct_citation_reading,
     a_split_decomposition,
+    build_furigana_spans,
     citation_reading,
+    conjugation_type_of,
     dictionary_form_note,
     heteronym_readings,
     mixed_reading,
+    slice_spans_by_token,
     to_hiragana,
     to_katakana,
     tokenize_document,
@@ -568,14 +569,14 @@ class TestFuriganaAlignment:
     def test_kanji_run_with_dictionary_split(self):
         # 荒技 -> あら/わざ, a 2-kanji run resolved via the per-character
         # partition search (no kana anchor between them).
-        spans, flagged, alts = _build_furigana_spans("荒技", "アラワザ")
+        spans, flagged, alts = build_furigana_spans("荒技", "アラワザ")
         assert [(s["text"], s["reading"]) for s in spans] == [("荒", "あら"), ("技", "わざ")]
         assert not flagged
         assert alts == []
 
     def test_okurigana_anchors_the_kanji_reading(self):
         # 揃える: kana anchor "える" pins the kanji run to just 揃 -> そろ.
-        spans, flagged, _ = _build_furigana_spans("揃える", "ソロエル")
+        spans, flagged, _ = build_furigana_spans("揃える", "ソロエル")
         assert spans[0] == {"start": 0, "end": 1, "text": "揃", "reading": "そろ"}
         assert spans[1]["reading"] is None
         assert spans[1]["text"] == "える"
@@ -584,14 +585,14 @@ class TestFuriganaAlignment:
     def test_jukujikun_is_a_single_whole_word_span_not_flagged(self):
         # 今日 -> きょう has no per-character decomposition (jukujikun) —
         # that's expected and correct, not an error to flag.
-        spans, flagged, alts = _build_furigana_spans("今日", "キョウ")
+        spans, flagged, alts = build_furigana_spans("今日", "キョウ")
         assert spans == [{"start": 0, "end": 2, "text": "今日", "reading": "きょう"}]
         assert not flagged
         assert alts == []
 
     def test_no_kanji_gives_a_single_unread_span(self):
         for surface, reading in [("gifted", "gifted"), ("ライバル", "ライバル"), ("それ", "ソレ")]:
-            spans, flagged, _ = _build_furigana_spans(surface, reading)
+            spans, flagged, _ = build_furigana_spans(surface, reading)
             assert spans == [{"start": 0, "end": len(surface), "text": surface, "reading": None}]
             assert not flagged
 
@@ -599,13 +600,56 @@ class TestFuriganaAlignment:
         # No gaps, no overlaps, in order — the invariant the frontend
         # relies on to render furigana by just walking the span list.
         for surface, reading in [("荒技", "アラワザ"), ("揃える", "ソロエル"), ("今日", "キョウ")]:
-            spans, _, _ = _build_furigana_spans(surface, reading)
+            spans, _, _ = build_furigana_spans(surface, reading)
             pos = 0
             for span in spans:
                 assert span["start"] == pos
                 assert span["text"] == surface[span["start"] : span["end"]]
                 pos = span["end"]
             assert pos == len(surface)
+
+
+class TestSliceSpansByToken:
+    """For app.conflicts._recompute_phrase_furigana: dividing a merged
+    phrase's own furigana spans back across the original tokens it was
+    built from."""
+
+    def test_splits_cleanly_when_every_span_fits_one_token(self):
+        # この期に及んで: この(2)/期(1)/に(1)/及ん(2)/で(1). んで (a plain kana
+        # span, no reading) straddles the 及ん/で boundary — real behavior,
+        # not a contrived example (see app/phrase_merge.py's own docstring
+        # case).
+        spans, _, _ = build_furigana_spans("この期に及んで", "コノゴニオヨンデ")
+        sliced = slice_spans_by_token(spans, [2, 1, 1, 2, 1])
+        assert sliced == [
+            [{"start": 0, "end": 2, "text": "この", "reading": None}],
+            [{"start": 0, "end": 1, "text": "期", "reading": "ご"}],
+            [{"start": 0, "end": 1, "text": "に", "reading": None}],
+            [
+                {"start": 0, "end": 1, "text": "及", "reading": "およ"},
+                {"start": 1, "end": 2, "text": "ん", "reading": None},
+            ],
+            [{"start": 0, "end": 1, "text": "で", "reading": None}],
+        ]
+
+    def test_a_kanji_span_straddling_a_boundary_is_left_unattributed(self):
+        # 今日 -> きょう has no per-character split at all (jukujikun) — if
+        # 今 and 日 started out as two separate tokens before merging, there
+        # is no way to divide きょう between them, so both come back None
+        # (leave each token's own original furigana as it was) rather than
+        # guessing.
+        spans, _, _ = build_furigana_spans("今日", "キョウ")
+        assert slice_spans_by_token(spans, [1, 1]) == [None, None]
+
+    def test_only_the_straddled_tokens_are_left_unattributed(self):
+        # A clean token elsewhere in the same phrase still gets its own
+        # slice even when a different run couldn't be attributed.
+        spans, _, _ = build_furigana_spans("君の今日", "キミノキョウ")
+        sliced = slice_spans_by_token(spans, [1, 1, 1, 1])
+        assert sliced[0] == [{"start": 0, "end": 1, "text": "君", "reading": "きみ"}]
+        assert sliced[1] == [{"start": 0, "end": 1, "text": "の", "reading": None}]
+        assert sliced[2] is None
+        assert sliced[3] is None
 
 
 class TestMixedReading:
@@ -703,7 +747,7 @@ class TestReconstructCitationReading:
         # adds back exactly what's missing from the (shorter) stem reading,
         # almost always just る.
         citation = citation_reading("温める")
-        conjugation_type = _conjugation_type("温める")
+        conjugation_type = conjugation_type_of("温める")
         assert conjugation_type == "下一段-マ行"
         assert _reconstruct_citation_reading("アタタメ", citation, "ヌクメ", conjugation_type) == "ヌクメル"
         assert _reconstruct_citation_reading("アタタメ", citation, "ヌルメ", conjugation_type) == "ヌルメル"
@@ -716,7 +760,7 @@ class TestReconstructCitationReading:
         # A heteronym alternative sharing that exact shape needs no
         # transformation at all.
         citation = citation_reading("温める")
-        conjugation_type = _conjugation_type("温める")
+        conjugation_type = conjugation_type_of("温める")
         assert _reconstruct_citation_reading(citation, citation, "ヌクメル", conjugation_type) == "ヌクメル"
 
     def test_godan_inflected_substitution_pattern(self):
@@ -726,7 +770,7 @@ class TestReconstructCitationReading:
         # is wrong here, which is exactly the gap this function exists to
         # close.
         citation = citation_reading("開く")  # Sudachi's own default: ヒラク
-        conjugation_type = _conjugation_type("開く")
+        conjugation_type = conjugation_type_of("開く")
         assert conjugation_type == "五段-カ行"
         assert _reconstruct_citation_reading("ヒラキ", citation, "アキ", conjugation_type) == "アク"
 
@@ -734,7 +778,7 @@ class TestReconstructCitationReading:
         # Same regression as the ichidan case, for godan: a token occurring
         # in its own citation form (開く itself) needs no substitution.
         citation = citation_reading("開く")
-        conjugation_type = _conjugation_type("開く")
+        conjugation_type = conjugation_type_of("開く")
         assert _reconstruct_citation_reading(citation, citation, "アク", conjugation_type) == "アク"
 
     def test_falls_back_safely_for_irregular_verbs(self):
@@ -743,7 +787,7 @@ class TestReconstructCitationReading:
         # degrade to "leave it unchanged" rather than apply a rule that
         # doesn't hold for them.
         citation = citation_reading("する")
-        conjugation_type = _conjugation_type("する")
+        conjugation_type = conjugation_type_of("する")
         assert conjugation_type == "サ行変格"
         assert _reconstruct_citation_reading("シ", citation, "シ", conjugation_type) == "シ"
 

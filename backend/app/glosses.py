@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,7 +31,19 @@ from typing import Optional
 from jamdict import Jamdict
 from sqlalchemy import text
 
-from app.tokenization import TokenRecord, a_split_decomposition, heteronym_readings, mixed_reading, to_hiragana
+from app.tokenization import (
+    TokenRecord,
+    a_split_decomposition,
+    citation_reading,
+    conflict_option_value,
+    conjugation_type_of,
+    furigana_spans_for_reading,
+    heteronym_readings,
+    mixed_reading,
+    project_citation_reading,
+    to_hiragana,
+    to_katakana,
+)
 
 _SKIP_POS_MAJOR = {"補助記号", "空白"}
 
@@ -283,6 +296,154 @@ def rank_senses(entries: list[dict], sudachi_major: str) -> list[dict]:
     return [sense for _, sense in scored]
 
 
+def _get_raw_conn() -> sqlite3.Connection:
+    """A second, thread-local connection straight to JMDict's sqlite file,
+    bypassing Jamdict's own entry-hydrating query layer. app.phrase_merge
+    calls this a few times per token while probing whether a run of tokens
+    combines into a longer headword, and doesn't want the cost of building
+    full JMDEntry objects (senses, xrefs, ...) for every probe that misses —
+    see phrase_prefix_state, the only thing that uses this."""
+    conn = getattr(_jam_local, "raw_conn", None)
+    if conn is None:
+        conn = sqlite3.connect(_get_jamdict().db_file)
+        _jam_local.raw_conn = conn
+    return conn
+
+
+def _prefix_upper_bound(s: str) -> str:
+    """The exclusive upper bound of the range of strings prefixed by `s`:
+    every string starting with `s` sorts before this and none after, so
+    `text > s AND text < upper_bound(s)` finds "does anything longer than s
+    itself start with s" as a plain indexed range scan. (SQLite's `LIKE
+    'x%'` can't use an index for this: the LIKE-to-range-scan optimization
+    only fires for ASCII patterns, so a Japanese-text LIKE query falls back
+    to a full index scan — verified directly against jamdict's ~325MB
+    database, ~1000x slower than the range-scan form used here.)"""
+    return s[:-1] + chr(ord(s[-1]) + 1)
+
+
+def phrase_prefix_state(candidate: str) -> tuple[bool, bool]:
+    """(is_exact_headword, has_longer_headword) for `candidate` against
+    every JMDict kanji_forms/kana_forms text, as two indexed range-scan
+    queries (see _prefix_upper_bound) — no entry hydration, just existence.
+    """
+    conn = _get_raw_conn()
+    hi = _prefix_upper_bound(candidate)
+    is_exact = (
+        conn.execute(
+            "SELECT 1 FROM Kanji WHERE text = ? UNION ALL SELECT 1 FROM Kana WHERE text = ? LIMIT 1",
+            (candidate, candidate),
+        ).fetchone()
+        is not None
+    )
+    has_longer = (
+        conn.execute(
+            "SELECT 1 FROM Kanji WHERE text > ? AND text < ? "
+            "UNION ALL SELECT 1 FROM Kana WHERE text > ? AND text < ? LIMIT 1",
+            (candidate, hi, candidate, hi),
+        ).fetchone()
+        is not None
+    )
+    return is_exact, has_longer
+
+
+def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
+    """Every kana_form (own script, not yet hiragana/katakana-normalized)
+    JMDict lists for an entry whose kanji_forms or kana_forms contain
+    `text` exactly, each scored (not_has_priority, order) for ranking —
+    JMDict-priority-tagged readings first, entry order as tiebreak.
+    Shared scan behind resolve_phrase_reading (best single reading) and
+    search_readings (every reading), which differ only in what they do
+    with this list."""
+    jam = _get_jamdict()
+    result = jam.lookup(text, lookup_chars=False, lookup_ne=False)
+    scored: list[tuple[bool, int, str]] = []
+    for order, e in enumerate(result.entries):
+        matches_kanji = any(k.text == text for k in e.kanji_forms)
+        matches_kana = any(k.text == text for k in e.kana_forms)
+        if not matches_kanji and not matches_kana:
+            continue
+        if matches_kana and not matches_kanji:
+            candidates = [k for k in e.kana_forms if k.text == text]
+        else:
+            candidates = [k for k in e.kana_forms if not k.restr or text in k.restr] or e.kana_forms
+        for k in candidates:
+            has_priority = bool(k.pri) or any(kj.pri for kj in e.kanji_forms if kj.text == text)
+            scored.append((not has_priority, order, k.text))
+    return scored
+
+
+def resolve_phrase_reading(surface: str) -> Optional[str]:
+    """The hiragana reading to gloss `surface` under, if JMDict has an entry
+    whose kanji_forms or kana_forms contain `surface` exactly — the entry's
+    own reading, not any reading Sudachi guessed for `surface`'s individual
+    tokens. This matters: Sudachi reads 期 alone as き, but JMDict's entry
+    for the idiom この期に及んで only exists under ご — a per-token reading
+    concatenation would never find it. None if `surface` isn't a headword
+    of any entry.
+
+    Only called by app.phrase_merge after phrase_prefix_state has already
+    confirmed `surface` is an exact headword text, so this always does real
+    (cheap, small-result) entry hydration rather than a speculative one.
+    """
+    scored = _scored_headword_kana(surface)
+    if not scored:
+        return None
+    _, _, kana_text = min(scored, key=lambda row: row[:2])
+    return to_hiragana(kana_text)
+
+
+def search_readings(dictionary_form: str) -> list[str]:
+    """Every distinct katakana reading JMDict lists for `dictionary_form` as
+    an exact kanji_form or kana_form match, across every entry regardless
+    of part of speech — common ones (JMDict priority tags) first.
+
+    Deliberately broader than heteronym_readings, which only offers
+    alternates sharing the token's own exact part-of-speech tag: a token's
+    chosen POS can be a perfectly reasonable guess that still lands on the
+    wrong reading (期 tagged 助数詞可能 and read き, when this occurrence is
+    really the plain-noun sense JMDict lists separately under ご) — that
+    gap is exactly why this exists as an on-demand search a human runs
+    (see app.conflicts.alternate_reading_options), not another automatic
+    heteronym flag: widening what a reviewer can find without also
+    widening what gets auto-flagged as needing review.
+    """
+    scored = sorted(_scored_headword_kana(dictionary_form), key=lambda row: row[:2])
+    readings: list[str] = []
+    for _, _, kana_text in scored:
+        reading = to_katakana(kana_text)
+        if reading not in readings:
+            readings.append(reading)
+    return readings
+
+
+def alternate_reading_options(
+    surface: str,
+    reading_katakana: str,
+    dictionary_form: str,
+    normalized_form: str,
+) -> list[dict]:
+    """Every other reading JMDict knows for `dictionary_form` (search_readings),
+    excluding the one this occurrence already has, each projected onto
+    `surface` for furigana (see tokenization.project_citation_reading) and
+    paired with the citation reading a gloss lookup needs — the shape
+    conflict_option_value builds, ready to offer as picks the same way
+    heteronym/no_kana_anchor conflicts already do."""
+    dict_form_citation = citation_reading(dictionary_form)
+    conjugation_type = conjugation_type_of(normalized_form)
+
+    options = []
+    for alt_citation in search_readings(dictionary_form):
+        if alt_citation == dict_form_citation:
+            continue
+        alt_surface_reading = project_citation_reading(alt_citation, reading_katakana, dict_form_citation, conjugation_type)
+        alt_spans = furigana_spans_for_reading(surface, alt_surface_reading)
+        options.append(
+            conflict_option_value(to_hiragana(alt_surface_reading), alt_spans, to_hiragana(alt_citation))
+        )
+    return options
+
+
 def is_lexical(part_of_speech) -> bool:
     """False for punctuation and whitespace."""
     return part_of_speech[0] not in _SKIP_POS_MAJOR
@@ -318,6 +479,23 @@ def gloss_key(record: TokenRecord) -> Optional[GlossKey]:
     # For a flagged token, this is also the key of the default option
     # create_conflicts selects.
     return citation_key(record.normalized_form)
+
+
+def own_gloss_key(normalized_form: str, part_of_speech, selected_reading: Optional[str]) -> Optional[GlossKey]:
+    """The gloss cache key an already-stored token gets from its own
+    row — its selected reading if one was recorded (a heteronym pick, or a
+    user's correction), else its citation form's default, or None if it
+    isn't glossable at all. Shared by attach_glosses (backfilling a token
+    that was never glossed) and conflicts.unmerge_phrase (reverting a token
+    out of an accepted phrase back to its own gloss) — both start from the
+    same three DB columns (normalized_form, part_of_speech, a resolved
+    selected reading from `conflicts`) and need the identical priority
+    between them."""
+    if selected_reading is not None:
+        return (normalized_form, selected_reading)
+    if is_lexical(part_of_speech):
+        return citation_key(normalized_form)
+    return None
 
 
 @dataclass
@@ -367,6 +545,42 @@ def _lookup(lookup_form: str, reading: str, alt_lookup_form: Optional[str] = Non
     return found, "jmdict"
 
 
+def gloss_piece(
+    surface: str,
+    reading: str,
+    entries,
+    source: str,
+    part_of_speech,
+    *,
+    senses_pos_major: Optional[str] = None,
+    note: Optional[str] = None,
+) -> dict:
+    """One composite gloss piece — {surface, reading, senses,
+    ambiguous_readings, note} — the shape both _add_composites (below) and
+    app.conflicts's chain-extension gloss composition build a multi-piece
+    composite gloss out of. `part_of_speech` is the full 6-element Sudachi
+    tag (heteronym_readings needs the exact tag, not just its major
+    category, to find genuine alternates for this same surface+POS).
+
+    `senses_pos_major` overrides which Sudachi major category rank_senses
+    ranks against, for when the piece's grammatical role differs from its
+    own literal part_of_speech[0] — a light verb in a te-form chain (回る's
+    非自立可能 occurrence in 受けて回る) is still tagged 動詞, but the sense
+    that's actually relevant is whichever JMDict marks 'auxiliary verb'
+    (under 助動詞 in _SUDACHI_TO_JMDICT_POS), not 回る's ordinary verb senses.
+    `note` is a short, non-JMDict explanation (see
+    app.phrase_merge.light_verb_note) for a light verb whose grammaticalized
+    meaning isn't its own distinct JMDict sense at all."""
+    pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
+    return {
+        "surface": surface,
+        "reading": reading,
+        "senses": rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else [],
+        "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))} - {reading}),
+        "note": note,
+    }
+
+
 def _add_composites(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[object, str]]) -> None:
     """For each key — a word with no JMDict entry of its own — replace its
     empty result in new_rows with a gloss built from its SplitMode.A pieces,
@@ -396,14 +610,7 @@ def _add_composites(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[o
         result_pieces = []
         for surface, reading, pos in pieces:
             entries, source = cached.get((surface, reading)) or new_rows[(surface, reading)]
-            result_pieces.append(
-                {
-                    "surface": surface,
-                    "reading": reading,
-                    "senses": rank_senses(entries, pos[0]) if source in ("jmdict", "english_stub") else [],
-                    "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, pos)} - {reading}),
-                }
-            )
+            result_pieces.append(gloss_piece(surface, reading, entries, source, pos))
         if any(p["senses"] for p in result_pieces):
             new_rows[key] = ({"pieces": result_pieces}, "composite")
 
@@ -494,15 +701,12 @@ def attach_glosses(conn, document_id: int) -> None:
     keys: dict[int, GlossKey] = {}
     requests = []
     for row in unlinked:
-        if row.selected_reading is not None:
-            # A token with a selected reading recorded (a resolved pick, or a
-            # user's own correction) is glossed under THAT reading, not
-            # Sudachi's default — otherwise a real correction silently
-            # reverts the moment this runs again for any reason.
-            key = (row.normalized_form, row.selected_reading)
-        elif is_lexical(row.part_of_speech):
-            key = citation_key(row.normalized_form)
-        else:
+        # A token with a selected reading recorded (a resolved pick, or a
+        # user's own correction) is glossed under THAT reading, not
+        # Sudachi's default — otherwise a real correction silently reverts
+        # the moment this runs again for any reason (see own_gloss_key).
+        key = own_gloss_key(row.normalized_form, row.part_of_speech, row.selected_reading)
+        if key is None:
             continue
         keys[row.id] = key
         requests.append((key, row.dictionary_form))

@@ -166,10 +166,20 @@ export type GlossPiece = {
   reading: string
   senses: GlossSense[]
   ambiguous_readings: string[]
+  // Set only for a te-form + light-verb chain's light-verb piece (see
+  // backend/app/phrase_merge.py's light_verb_note) — a short explanation of
+  // its grammaticalized meaning here, since that's often not its own
+  // distinct JMDict sense at all (回る's て回る use, say).
+  note: string | null
 }
 
 export type Gloss = {
   reading: string
+  // The JMDict headword this was looked up under — usually the token's own
+  // dictionary_form, but for a merged phrase (see phrase_start_position)
+  // it's the combined span's headword instead, which no single member
+  // token's own dictionary_form reflects.
+  lookup_form: string
   senses: GlossSense[]
   source: 'jmdict' | 'english_stub' | 'composite'
   pieces: GlossPiece[]
@@ -180,12 +190,57 @@ export type ConflictOptionValue = {
   furigana_spans: FuriganaSpan[]
 }
 
-export type Conflict = {
-  id: number
-  kind: 'heteronym' | 'no_kana_anchor' | 'custom'
-  value: ConflictOptionValue
-  selected: boolean
+// A suggested multi-token JMDict match starting at this token (see
+// backend/app/phrase_merge.py) — surface/reading are the whole combined
+// span's, not this token's own, and token_count is how many consecutive
+// tokens starting here (this one included) it covers. lookup_form is the
+// string actually verified as a JMDict headword, which can differ from
+// surface (真に受け vs 真に受ける) when the match completed through a
+// verb/adjective's dictionary form rather than its on-page inflected
+// surface — unused by the frontend directly (the backend applies it), kept
+// here so the type matches what the API actually returns.
+export type PhraseConflictValue = {
+  surface: string
+  lookup_form: string
+  reading: string
+  token_count: number
+  // Set only for a te-form + light-verb chain suggestion (see
+  // backend/app/phrase_merge.py) — how many tokens at the start are the
+  // "base" word versus the following light-verb chain. Absent for an
+  // ordinary idiom or noun+する suggestion.
+  chain_start_offset?: number
 }
+
+// An alternative furigana split for an accepted phrase (see
+// backend/app.conflicts._recompute_phrase_furigana) — offered when a kanji
+// run inside the merged span has more than one valid per-character
+// reading, the same ambiguity an ordinary token's no_kana_anchor conflict
+// already handles for a single token. `offset` is how many tokens after
+// the phrase's own first token this update applies to (0 = that token
+// itself); only tokens this alternative actually changes are listed.
+export type PhraseFuriganaValue = {
+  updates: { offset: number; furigana_spans: FuriganaSpan[] }[]
+}
+
+export type Conflict =
+  | {
+      id: number
+      kind: 'heteronym' | 'no_kana_anchor' | 'custom'
+      value: ConflictOptionValue
+      selected: boolean
+    }
+  | {
+      id: number
+      kind: 'phrase'
+      value: PhraseConflictValue
+      selected: boolean
+    }
+  | {
+      id: number
+      kind: 'phrase_furigana'
+      value: PhraseFuriganaValue
+      selected: boolean
+    }
 
 export type Token = {
   id: number
@@ -212,12 +267,27 @@ export type Token = {
   conflicts: Conflict[]
   start_time: string | null
   end_time: string | null
+  // Non-null, and equal across every token in the run, when this token is
+  // currently part of an accepted multi-token JMDict match — the run's
+  // first token's own position. See acceptPhraseSuggestion/unmergePhrase.
+  phrase_start_position: number | null
 }
 
 export async function fetchTokens(documentId: number): Promise<Token[]> {
   const response = await fetch(`${API_URL}/documents/${documentId}/tokens`)
 
   await assertOk(response)
+
+  return response.json()
+}
+
+// Every other reading JMDict knows for tokenId's dictionary form, projected
+// onto its own surface — the "look for other readings" action. Applying one
+// is the same applyReading call used for an existing conflict option.
+export async function fetchAlternateReadings(documentId: number, tokenId: number): Promise<ConflictOptionValue[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`)
+
+  await assertOk(response, { 404: 'Token not found for this document.' })
 
   return response.json()
 }
@@ -237,6 +307,51 @@ export async function applyReading(
   })
 
   await assertOk(response, { 404: 'Token not found.' })
+
+  return response.json()
+}
+
+// Accepts one or more phrase-kind conflict options at once (see
+// PhraseConflictValue) — one conflictId per token the suggestion starts
+// at, e.g. every matching instance of the same word's suggestion, applied
+// together. Each can change more tokens than just its own starting one, so
+// every affected token comes back, not just those in conflictIds.
+export async function acceptPhraseSuggestions(documentId: number, conflictIds: number[]): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conflict_ids: conflictIds }),
+  })
+
+  await assertOk(response, { 404: 'Conflict option not found for this token.' })
+
+  return response.json()
+}
+
+// Undoes an accepted phrase suggestion covering tokenId (any member of the
+// group works, not just its first token), reverting each member to its own
+// individual gloss. Returns every affected token, or [] if tokenId wasn't
+// part of a merged phrase.
+export async function unmergePhrase(documentId: number, tokenId: number): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
+    method: 'POST',
+  })
+
+  await assertOk(response, { 404: 'Token not found for this document.' })
+
+  return response.json()
+}
+
+// Applies one of a phrase's alternative furigana splits (see
+// PhraseFuriganaValue). Returns every affected token.
+export async function resolvePhraseFurigana(documentId: number, conflictId: number): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/phrase-furigana`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conflict_id: conflictId }),
+  })
+
+  await assertOk(response, { 404: 'Conflict option not found for this document.' })
 
   return response.json()
 }

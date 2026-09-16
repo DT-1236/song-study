@@ -17,15 +17,20 @@ from app.conflicts import (
     ConflictNotFound,
     TokenNotFound,
     TokensNotGroupable,
+    accept_phrase_suggestions,
     correct_reading,
     create_conflicts,
+    create_phrase_conflicts,
     lock_token_group,
     resolve_conflict,
+    resolve_phrase_furigana,
     select_reading,
+    unmerge_phrase,
 )
 from app.db import engine, json_param
 from app.glosses import (
     GlossPlan,
+    alternate_reading_options,
     attach_glosses,
     gloss_key,
     is_glossable,
@@ -42,6 +47,7 @@ from app.lrclib import (
     fetch_lyrics,
     normalize_lrclib_uri,
 )
+from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, tokenize_document
 
@@ -520,10 +526,21 @@ class GlossPiece(BaseModel):
     reading: str
     senses: list[GlossSense]
     ambiguous_readings: list[str]
+    # Set only for a te-form + light-verb chain's light-verb piece (see
+    # app/phrase_merge.py's light_verb_note) — a short explanation of its
+    # grammaticalized meaning here, since that's often not its own distinct
+    # JMDict sense at all (回る's て回る use, say).
+    note: Optional[str] = None
 
 
 class Gloss(BaseModel):
     reading: str
+    # The JMDict headword this was actually looked up under — usually the
+    # same text as the token's own dictionary_form, but for a merged phrase
+    # (phrase_start_position set) it's the combined span's headword instead
+    # (この期に及んで), which no single member token's own dictionary_form
+    # reflects.
+    lookup_form: str
     senses: list[GlossSense]
     source: str
     pieces: list[GlossPiece] = []
@@ -556,6 +573,11 @@ class Token(BaseModel):
     furigana_override: Optional[list[dict]]
     # Marked by the user as needing no gloss, like a name no dictionary has.
     gloss_ignored: bool
+    # Non-NULL, and equal across every token in the run, when this token was
+    # merged with its neighbors into one longer JMDict headword (see
+    # app/phrase_merge.py) — the value is the run's first token's own
+    # position, letting the frontend group/highlight them as one span.
+    phrase_start_position: Optional[int]
     is_english: bool
     gloss: Optional[Gloss]
     conflicts: list[Conflict]
@@ -572,7 +594,9 @@ def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None)
                    t.dictionary_form, t.normalized_form, t.reading_katakana,
                    t.part_of_speech, t.is_oov, t.furigana_spans, t.needs_review,
                    t.review_reason, t.furigana_override, t.gloss_ignored, t.start_time, t.end_time,
-                   gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source
+                   t.phrase_start_position,
+                   gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source,
+                   gl.lookup_form AS gloss_lookup_form
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
             WHERE t.document_id = :document_id {token_filter}
@@ -608,6 +632,7 @@ def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None)
         gloss_reading = data.pop("gloss_reading")
         gloss_entries = data.pop("gloss_entries")
         gloss_source = data.pop("gloss_source")
+        gloss_lookup_form = data.pop("gloss_lookup_form")
         if gloss_reading is None:
             data["gloss"] = None
         elif gloss_source == "composite":
@@ -616,6 +641,7 @@ def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None)
             # re-ranking needed here the way the flat jmdict case needs.
             data["gloss"] = Gloss(
                 reading=gloss_reading,
+                lookup_form=gloss_lookup_form,
                 senses=[],
                 source=gloss_source,
                 pieces=[GlossPiece(**piece) for piece in gloss_entries["pieces"]],
@@ -623,6 +649,7 @@ def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None)
         else:
             data["gloss"] = Gloss(
                 reading=gloss_reading,
+                lookup_form=gloss_lookup_form,
                 senses=rank_senses(gloss_entries, data["part_of_speech"][0]),
                 source=gloss_source,
             )
@@ -654,6 +681,7 @@ def _process_document(document_text: str) -> _ProcessedDocument:
     """Tokenize a document and resolve its glosses against the cache — the
     slow part of first processing — without writing anything."""
     records = tokenize_document(document_text)
+    find_phrase_suggestions(records)
     # A token's dictionary_form is the alternate spelling for its key.
     requests = ((key, record.dictionary_form) for record in records if (key := gloss_key(record)) is not None)
     # Autocommit, so no transaction is held open through the dictionary
@@ -671,9 +699,16 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
         key = gloss_key(record)
         rows.append(
             {
-                # Not dataclasses.asdict, which would deep-copy every field,
-                # conflict_options included, only to discard it.
-                **{f.name: getattr(record, f.name) for f in dataclasses.fields(record) if f.name != "conflict_options"},
+                # Not dataclasses.asdict, which would deep-copy every field —
+                # conflict_options and phrase_suggestion included, only to
+                # discard them (neither is a DB column: conflict_options is
+                # handled by create_conflicts below, phrase_suggestion by
+                # create_phrase_conflicts).
+                **{
+                    f.name: getattr(record, f.name)
+                    for f in dataclasses.fields(record)
+                    if f.name not in ("conflict_options", "phrase_suggestion")
+                },
                 "gloss_lookup_id": gloss_ids[key] if key is not None else None,
             }
         )
@@ -684,17 +719,18 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
                 document_id, position, char_begin, char_end, surface,
                 dictionary_form, normalized_form, reading_katakana,
                 part_of_speech, is_oov, furigana_spans, needs_review,
-                review_reason, gloss_lookup_id
+                review_reason, gloss_lookup_id, phrase_start_position
             )
             SELECT :document_id, position, char_begin, char_end, surface,
                    dictionary_form, normalized_form, reading_katakana,
                    part_of_speech, is_oov, furigana_spans, needs_review,
-                   review_reason, gloss_lookup_id
+                   review_reason, gloss_lookup_id, phrase_start_position
             FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS r(
                 position int, char_begin int, char_end int, surface text,
                 dictionary_form text, normalized_form text, reading_katakana text,
                 part_of_speech jsonb, is_oov boolean, furigana_spans jsonb,
-                needs_review boolean, review_reason text, gloss_lookup_id int
+                needs_review boolean, review_reason text, gloss_lookup_id int,
+                phrase_start_position int
             )
             ORDER BY position
             """
@@ -702,6 +738,7 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
         {"document_id": document_id, "rows": json.dumps(rows)},
     )
     create_conflicts(conn, document_id, processed.records)
+    create_phrase_conflicts(conn, document_id, processed.records)
 
 
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
@@ -772,6 +809,78 @@ def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolu
             raise HTTPException(status_code=404, detail="Conflict option not found for this token.")
 
         return _fetch_token(conn, document_id, token_id)
+
+
+class PhraseAcceptance(BaseModel):
+    conflict_ids: list[int] = Field(min_length=1)
+
+
+@app.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
+def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance) -> list[Token]:
+    """Accept one or more phrase-kind conflict options at once (see
+    app/phrase_merge.py) — e.g. every matching instance of the same word's
+    suggestion, applied together. Unlike /resolve, this can change more
+    than one token per conflict_id, so it returns every affected token."""
+    with engine.begin() as conn:
+        try:
+            affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
+        except ConflictNotFound:
+            raise HTTPException(status_code=404, detail="Conflict option not found for this token.")
+
+        return _fetch_tokens(conn, document_id, token_ids=affected)
+
+
+@app.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
+def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution) -> list[Token]:
+    """Apply one of a phrase's alternative furigana splits (see
+    app.conflicts._recompute_phrase_furigana) — offered when a kanji run
+    inside an accepted phrase has more than one valid per-character
+    reading split, the same ambiguity an ordinary token's no_kana_anchor
+    conflict already surfaces, just found across a merged span. No
+    token_id in the path: unlike an ordinary conflict, this one only ever
+    applies to whichever tokens its own value names."""
+    with engine.begin() as conn:
+        try:
+            affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
+        except ConflictNotFound:
+            raise HTTPException(status_code=404, detail="Conflict option not found for this document.")
+
+        return _fetch_tokens(conn, document_id, token_ids=affected)
+
+
+@app.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
+def unmerge_phrase_tokens(document_id: int, token_id: int) -> list[Token]:
+    """Undo an accepted phrase suggestion covering token_id (any member, not
+    just the group's first token) — see app/phrase_merge.py."""
+    with engine.begin() as conn:
+        try:
+            affected = unmerge_phrase(conn, document_id, token_id)
+        except TokenNotFound:
+            raise HTTPException(status_code=404, detail="Token not found for this document.")
+
+        if not affected:
+            return []
+        return _fetch_tokens(conn, document_id, token_ids=affected)
+
+
+@app.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
+def get_alternate_readings(document_id: int, token_id: int) -> list[dict]:
+    """Every other reading JMDict knows for token_id's dictionary form,
+    projected onto its own surface (see app.glosses.alternate_reading_options)
+    — the frontend's "look for other readings" action, in the same shape
+    conflict_options already use, so applying one is the existing
+    applyReading/select_reading call, unchanged."""
+    with engine.connect() as conn:
+        row = conn.execute(
+            text(
+                "SELECT surface, reading_katakana, dictionary_form, normalized_form "
+                "FROM tokens WHERE id = :token_id AND document_id = :document_id"
+            ),
+            {"token_id": token_id, "document_id": document_id},
+        ).one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="Token not found for this document.")
+        return alternate_reading_options(row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form)
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")

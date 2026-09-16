@@ -24,9 +24,13 @@ from sqlalchemy import text
 from app.conflicts import (
     ConflictNotFound,
     TokenNotFound,
+    _recompute_phrase_furigana,
     correct_reading,
     create_conflicts,
+    create_phrase_conflicts,
     resolve_conflict,
+    resolve_phrase_furigana,
+    unmerge_phrase,
 )
 from app.tokenization import TokenRecord
 from tests.support import BackgroundCall, make_token, wait_for_lock_wait
@@ -119,6 +123,370 @@ class TestCreateConflicts:
         assert selected.value["reading"] == "きょう"
         assert selected.value["citation_reading"] == "きょう"
         assert alt.value["reading"] == "こんにち"
+
+
+class TestPhraseConflicts:
+    """DB-integration coverage for app.phrase_merge's suggestions, from
+    create_phrase_conflicts through resolve_conflict accepting one — see
+    app/phrase_merge.py's docstring for why this is never auto-applied.
+    """
+
+    def _seed_phrase_tokens(self, conn):
+        # この/期/に/及ん/で, five contiguous tokens under one document, the
+        # motivating real case (app/phrase_merge.py's module docstring):
+        # this idiom's only JMDict entry is under a reading (ご for 期) that
+        # none of these tokens carries on its own.
+        document_id = conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+        # Real per-token linguistic data (not make_token's uniform "test"
+        # defaults), so unmerge_phrase's per-token recompute — keyed by
+        # (normalized_form, reading) — actually differs token to token.
+        tokens_data = [
+            ("この", "この", "この", "コノ", ["連体詞", "*", "*", "*", "*", "*"]),
+            ("期", "期", "期", "キ", ["名詞", "普通名詞", "一般", "*", "*", "*"]),
+            ("に", "に", "に", "ニ", ["助詞", "格助詞", "*", "*", "*", "*"]),
+            ("及ん", "及ぶ", "及ぶ", "オヨン", ["動詞", "一般", "*", "*", "五段-バ行", "連用形-撥音便"]),
+            ("で", "で", "で", "デ", ["助詞", "接続助詞", "*", "*", "*", "*"]),
+        ]
+        token_ids = [
+            make_token(
+                conn,
+                document_id=document_id,
+                position=position,
+                surface=surface,
+                dictionary_form=dictionary_form,
+                normalized_form=normalized_form,
+                reading_katakana=reading_katakana,
+                part_of_speech=part_of_speech,
+            )
+            for position, (surface, dictionary_form, normalized_form, reading_katakana, part_of_speech) in enumerate(
+                tokens_data
+            )
+        ]
+        record = TokenRecord(
+            position=0,
+            char_begin=0,
+            char_end=7,
+            surface="この",
+            dictionary_form="この",
+            normalized_form="この",
+            reading_katakana="コノ",
+            part_of_speech=["連体詞", "*", "*", "*", "*", "*"],
+            is_oov=False,
+            furigana_spans=[],
+            needs_review=False,
+            review_reason=None,
+            conflict_options=[],
+            phrase_suggestion={
+                "surface": "この期に及んで",
+                "lookup_form": "この期に及んで",
+                "reading": "このごにおよんで",
+                "token_count": 5,
+            },
+        )
+        create_phrase_conflicts(conn, document_id, [record])
+        return document_id, token_ids
+
+    def test_create_phrase_conflicts_inserts_one_unselected_row(self, db_conn):
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+
+        rows = _conflicts_for(db_conn, token_ids[0])
+        assert len(rows) == 1
+        assert rows[0].kind == "phrase"
+        assert rows[0].selected is False
+        assert rows[0].value == {
+            "surface": "この期に及んで",
+            "lookup_form": "この期に及んで",
+            "reading": "このごにおよんで",
+            "token_count": 5,
+        }
+        # Only the run's first token gets a row.
+        assert _conflicts_for(db_conn, token_ids[1]) == []
+
+    def test_no_rows_when_no_token_has_a_suggestion(self, db_conn):
+        document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+        token_id = make_token(db_conn, document_id=document_id, position=0)
+        record = TokenRecord(
+            position=0,
+            char_begin=0,
+            char_end=1,
+            surface="test",
+            dictionary_form="test",
+            normalized_form="test",
+            reading_katakana="テスト",
+            part_of_speech=["名詞", "*", "*", "*", "*", "*"],
+            is_oov=False,
+            furigana_spans=[],
+            needs_review=False,
+            review_reason=None,
+            conflict_options=[],
+        )
+        create_phrase_conflicts(db_conn, document_id, [record])
+
+        assert _conflicts_for(db_conn, token_id) == []
+
+    def test_accepting_a_phrase_suggestion_groups_and_reglosses_every_member(self, db_conn):
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        original_gloss_ids = [_token_row(db_conn, tid).gloss_lookup_id for tid in token_ids]
+
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+
+        rows = _conflicts_for(db_conn, token_ids[0])
+        assert rows[0].selected is True
+
+        phrase_positions = db_conn.execute(
+            text("SELECT position, gloss_lookup_id, phrase_start_position FROM tokens WHERE document_id = :d ORDER BY position"),
+            {"d": document_id},
+        ).all()
+        assert [row.phrase_start_position for row in phrase_positions] == [0, 0, 0, 0, 0]
+        gloss_ids = {row.gloss_lookup_id for row in phrase_positions}
+        assert len(gloss_ids) == 1
+        # Every member was reglossed to the shared phrase gloss, not left on
+        # its own original per-token gloss.
+        assert gloss_ids.isdisjoint(original_gloss_ids)
+
+        entry = db_conn.execute(
+            text("SELECT lookup_form, reading FROM gloss_lookups WHERE id = :id"),
+            {"id": gloss_ids.pop()},
+        ).one()
+        assert entry.lookup_form == "この期に及んで"
+        assert entry.reading == "このごにおよんで"
+
+    def test_accepting_recomputes_furigana_from_the_phrases_own_reading(self, db_conn):
+        # 期 alone reads き (its own furigana_spans, from before the merge
+        # existed) — but the accepted phrase's real reading needs ご. This
+        # is the whole point of the feature: the stale き must not survive.
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+
+        this_ = _token_row(db_conn, token_ids[0])
+        period = _token_row(db_conn, token_ids[1])
+        ni = _token_row(db_conn, token_ids[2])
+        oyon = _token_row(db_conn, token_ids[3])
+        de = _token_row(db_conn, token_ids[4])
+        assert this_.furigana_override == [{"start": 0, "end": 2, "text": "この", "reading": None}]
+        assert period.furigana_override == [{"start": 0, "end": 1, "text": "期", "reading": "ご"}]
+        assert ni.furigana_override == [{"start": 0, "end": 1, "text": "に", "reading": None}]
+        assert oyon.furigana_override == [
+            {"start": 0, "end": 1, "text": "及", "reading": "およ"},
+            {"start": 1, "end": 2, "text": "ん", "reading": None},
+        ]
+        assert de.furigana_override == [{"start": 0, "end": 1, "text": "で", "reading": None}]
+
+    def test_unmerge_reverts_every_member_to_its_own_gloss(self, db_conn):
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+
+        # Called from a middle member, not the group's first token — the
+        # group is found via phrase_start_position regardless of which
+        # member id is passed.
+        affected = unmerge_phrase(db_conn, document_id, token_ids[2])
+
+        assert sorted(affected) == sorted(token_ids)
+        rows = db_conn.execute(
+            text(
+                "SELECT position, gloss_lookup_id, phrase_start_position FROM tokens "
+                "WHERE document_id = :d ORDER BY position"
+            ),
+            {"d": document_id},
+        ).all()
+        assert all(row.phrase_start_position is None for row in rows)
+        # 5 tokens, each individually lexical (連体詞/名詞/助詞/動詞/助詞are all
+        # outside _SKIP_POS_MAJOR), so every one gets its own gloss back —
+        # not the single shared phrase gloss id from before.
+        gloss_ids = {row.gloss_lookup_id for row in rows}
+        assert len(gloss_ids) == 5
+
+    def test_unmerge_deselects_the_phrase_conflict_so_it_can_be_reaccepted(self, db_conn):
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+
+        unmerge_phrase(db_conn, document_id, token_ids[0])
+
+        # Regression: unmerge_phrase originally left the phrase conflict row
+        # selected. Two consequences, both checked here: the row's still-
+        # selected reading (このごにおよんで) leaked into the head token's own
+        # recompute below (it isn't 此の's/この's own reading, so that lookup
+        # came back empty — a real bug caught live via the browser, not
+        # inferred), and the suggestion could never be offered again.
+        rows = _conflicts_for(db_conn, token_ids[0])
+        assert rows[0].selected is False
+
+        head = db_conn.execute(
+            text("SELECT gloss_lookup_id FROM tokens WHERE id = :id"), {"id": token_ids[0]}
+        ).one()
+        entries = db_conn.execute(
+            text("SELECT reading, entries FROM gloss_lookups WHERE id = :id"), {"id": head.gloss_lookup_id}
+        ).one()
+        assert entries.reading != "このごにおよんで"
+        assert entries.entries != []
+
+        # Re-accepting now works instead of the option looking already taken.
+        second_accept = resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+        assert sorted(second_accept) == sorted(token_ids)
+        assert _conflicts_for(db_conn, token_ids[0])[0].selected is True
+
+    def test_selecting_an_ordinary_reading_on_a_merged_token_unmerges_the_whole_group(self, db_conn):
+        # Regression, found live: a heteronym pick on 真 after merging
+        # 真に受ける (真/に/受け) left 真 alone reglossed as a plain word
+        # while に/受け still showed the idiom — phrase_start_position
+        # untouched on any of them, so the group looked merged but showed
+        # two different stale glosses. resolve_conflict now unmerges the
+        # whole group first when an ordinary (non-phrase) conflict is
+        # selected on a token that's currently part of one.
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+        assert all(
+            db_conn.execute(text("SELECT phrase_start_position FROM tokens WHERE id = :id"), {"id": tid}).scalar_one()
+            is not None
+            for tid in token_ids
+        )
+
+        # An ordinary heteronym-style alternative on the (now merged) head
+        # token — この could plausibly also be read differently in some
+        # other sense; the exact reading doesn't matter, only that it's a
+        # non-phrase conflict.
+        alt_conflict_id = db_conn.execute(
+            text(
+                """
+                INSERT INTO conflicts (token_id, kind, value, selected)
+                VALUES (:token_id, 'heteronym', '{"reading": "こ", "furigana_spans": [], "citation_reading": "こ"}', FALSE)
+                RETURNING id
+                """
+            ),
+            {"token_id": token_ids[0]},
+        ).scalar_one()
+
+        affected = resolve_conflict(db_conn, document_id, token_ids[0], alt_conflict_id)
+
+        assert set(affected) == set(token_ids)
+        rows = db_conn.execute(
+            text(
+                "SELECT id, phrase_start_position, gloss_lookup_id FROM tokens "
+                "WHERE id = ANY(:ids) ORDER BY position"
+            ),
+            {"ids": token_ids},
+        ).all()
+        assert all(row.phrase_start_position is None for row in rows)
+        # Every member back on its own distinct gloss, not the phrase's
+        # shared one (or each other's).
+        gloss_ids = {row.gloss_lookup_id for row in rows}
+        assert len(gloss_ids) == len(token_ids)
+        # The phrase conflict itself is offerable again (deselected, same
+        # as a direct unmerge does).
+        assert _conflicts_for(db_conn, token_ids[0])[0].selected is False
+
+    def test_unmerge_is_a_noop_for_a_token_that_was_never_merged(self, db_conn):
+        document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+        token_id = make_token(db_conn, document_id=document_id, position=0)
+
+        assert unmerge_phrase(db_conn, document_id, token_id) == []
+
+    def test_unmerge_raises_for_a_token_outside_the_document(self, db_conn):
+        document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+        other_document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t2', 't2') RETURNING id")
+        ).scalar_one()
+        token_id = make_token(db_conn, document_id=other_document_id, position=0)
+
+        try:
+            unmerge_phrase(db_conn, document_id, token_id)
+            assert False, "expected TokenNotFound"
+        except TokenNotFound:
+            pass
+
+    def test_unmerge_clears_the_phrase_furigana_override_and_its_conflicts(self, db_conn):
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+        assert _token_row(db_conn, token_ids[1]).furigana_override is not None
+
+        unmerge_phrase(db_conn, document_id, token_ids[0])
+
+        assert all(_token_row(db_conn, tid).furigana_override is None for tid in token_ids)
+
+
+class TestPhraseFurigana:
+    """DB-integration coverage for app.conflicts._recompute_phrase_furigana
+    and resolve_phrase_furigana — recomputing furigana for a merged phrase
+    from its own reading, and offering a pick when a kanji run inside it
+    has more than one valid per-character split (the same kind of
+    ambiguity an ordinary token's no_kana_anchor conflict already handles,
+    just found across a merged span instead of one token).
+    """
+
+    def test_leaves_furigana_untouched_when_the_reading_does_not_align(self, db_conn):
+        # 真に受け read まにうける (a dictionary-form completion, see
+        # app/phrase_merge.py) has morae (ける vs 受け's own け) the on-page
+        # text doesn't spell — nothing can be attributed here at all. The
+        # kana anchors (に, け) are what actually make this fail to align;
+        # a single bare kanji token would trivially "succeed" by absorbing
+        # the whole reading, so this needs the real 3-token shape.
+        document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+        shin = make_token(db_conn, document_id=document_id, position=0, surface="真")
+        ni = make_token(db_conn, document_id=document_id, position=1, surface="に")
+        uke = make_token(db_conn, document_id=document_id, position=2, surface="受け")
+        originals = [_token_row(db_conn, tid).furigana_override for tid in (shin, ni, uke)]
+
+        _recompute_phrase_furigana(db_conn, document_id, position=0, token_count=3, reading_hiragana="まにうける")
+
+        assert [_token_row(db_conn, tid).furigana_override for tid in (shin, ni, uke)] == originals
+
+    def test_offers_a_pick_for_a_genuinely_ambiguous_run(self, db_conn):
+        # 六右 read むゆう has two valid per-character splits — ム/ユウ and
+        # ムユ/ウ — found by brute-force search over real dictionary
+        # readings (see the module docstring in app/tokenization.py for the
+        # underlying partition search).
+        document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+        roku = make_token(db_conn, document_id=document_id, position=0, surface="六")
+        u = make_token(db_conn, document_id=document_id, position=1, surface="右")
+
+        _recompute_phrase_furigana(db_conn, document_id, position=0, token_count=2, reading_hiragana="むゆう")
+
+        # The first valid split applied immediately as the default.
+        assert _token_row(db_conn, roku).furigana_override == [{"start": 0, "end": 1, "text": "六", "reading": "む"}]
+        assert _token_row(db_conn, u).furigana_override == [{"start": 0, "end": 1, "text": "右", "reading": "ゆう"}]
+
+        alt_conflicts = _conflicts_for(db_conn, roku)
+        assert len(alt_conflicts) == 1
+        assert alt_conflicts[0].kind == "phrase_furigana"
+        assert alt_conflicts[0].selected is False
+
+        resolve_phrase_furigana(db_conn, document_id, alt_conflicts[0].id)
+
+        assert _token_row(db_conn, roku).furigana_override == [{"start": 0, "end": 1, "text": "六", "reading": "むゆ"}]
+        assert _token_row(db_conn, u).furigana_override == [{"start": 0, "end": 1, "text": "右", "reading": "う"}]
+        # Applying an alternative never touches `selected` (see the
+        # function's own docstring on why).
+        assert _conflicts_for(db_conn, roku)[0].selected is False
+
+    def test_raises_for_a_nonexistent_conflict_id(self, db_conn):
+        document_id = db_conn.execute(
+            text("INSERT INTO documents (title, text) VALUES ('t', 't') RETURNING id")
+        ).scalar_one()
+
+        try:
+            resolve_phrase_furigana(db_conn, document_id, -1)
+            assert False, "expected ConflictNotFound"
+        except ConflictNotFound:
+            pass
 
 
 class TestResolveConflict:

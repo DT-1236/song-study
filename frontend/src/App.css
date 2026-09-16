@@ -669,6 +669,33 @@
   border-radius: 2px;
 }
 
+/* A run of tokens merged into one JMDict phrase match (see
+   phrase_start_position in api.ts): one continuous underline across the
+   whole run, not one per token — square where it continues into the next
+   token, rounded only at the run's own start and end. */
+.token.phrase-merged {
+  border-bottom: 2px solid var(--success);
+}
+
+.token.phrase-merged-prev {
+  margin-left: -2px;
+}
+
+.token.phrase-merged:not(.phrase-merged-prev) {
+  border-bottom-left-radius: 2px;
+}
+
+.token.phrase-merged:not(.phrase-merged-next) {
+  border-bottom-right-radius: 2px;
+}
+
+/* A token that could start an unaccepted phrase suggestion — a lighter,
+   dashed hint distinct from phrase-merged's solid underline, so an
+   already-accepted phrase and a still-open suggestion don't look alike. */
+.token.has-phrase-suggestion {
+  border-bottom: 2px dashed var(--success);
+}
+
 /* The document page's content above the lyrics, laid out as the page is: a
    container only so its height can be measured, as --header-height. */
 .document-header {
@@ -748,6 +775,38 @@ label.apply-to-all {
   margin-top: 0.4rem;
 }
 
+.phrase-suggestion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+/* The "combine tokens" suggestion, promoted above every other decision in
+   the popup (see ConflictResolver) — a distinct tinted panel instead of
+   floating among plain conflict-option buttons, so it reads as the
+   headline action rather than one more option to notice among several. */
+.phrase-suggestion-promoted {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, var(--border));
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.phrase-combine-option {
+  border-color: var(--success);
+  background-color: var(--success);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.phrase-combine-option:hover:not(:disabled) {
+  border-color: var(--success);
+  filter: brightness(1.08);
+}
 
 /* The line being sung, in the color and opacity chosen on the document
    page: on the text's inline pieces (tokens, or the timing editor's), so
