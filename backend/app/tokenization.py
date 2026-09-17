@@ -39,6 +39,8 @@ from typing import NamedTuple, Optional
 from sudachipy import dictionary as sudachi_dictionary
 from sudachipy import tokenizer as sudachi_tokenizer
 
+from app.resplit import repair_boundaries
+
 _KANJI_RE = re.compile(r"[㐀-䶿一-鿿々〆]")
 
 _HIRA_TO_KATA = str.maketrans(
@@ -580,7 +582,8 @@ def tokenize_document(text: str) -> list[TokenRecord]:
 
     records: list[TokenRecord] = []
 
-    for position, m in enumerate(tok.tokenize(text, mode_c)):
+    morphemes = repair_boundaries(list(tok.tokenize(text, mode_c)), lambda word: list(tok.tokenize(word, mode_c)))
+    for position, (char_begin, m) in enumerate(morphemes):
         surface = m.surface()
         reading = m.reading_form()
         pos = tuple(m.part_of_speech())
@@ -636,8 +639,8 @@ def tokenize_document(text: str) -> list[TokenRecord]:
         records.append(
             TokenRecord(
                 position=position,
-                char_begin=m.begin(),
-                char_end=m.end(),
+                char_begin=char_begin,
+                char_end=char_begin + len(surface),
                 surface=surface,
                 dictionary_form=m.dictionary_form(),
                 normalized_form=m.normalized_form(),
