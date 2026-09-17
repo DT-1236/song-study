@@ -57,75 +57,79 @@ export function JmdictSearch() {
 
   return (
     <div className="jmdict-search">
-      <div className="jmdict-search-title">JMDict Lookup</div>
-      <input
-        type="text"
-        className="jmdict-search-input"
-        placeholder="Paste a word…"
-        value={pasted}
-        onChange={(e) => {
-          setPasted(e.target.value)
-          setRomaji('')
-          setQuery(e.target.value)
-        }}
-      />
-      <input
-        type="text"
-        className="jmdict-search-input jmdict-search-romaji"
-        placeholder="Romaji lookup…"
-        autoComplete="off"
-        spellCheck={false}
-        value={romaji}
-        onChange={(e) => {
-          // Converted as typed, the way an input method does it: a trailing
-          // n waits for the next letter, since it could start な or にゃ.
-          const kana = toKana(e.target.value, { IMEMode: true })
-          setRomaji(kana)
-          setPasted('')
-          // Looked up with that n as ん, as it is once typing stops.
-          setQuery(toKana(kana))
-        }}
-      />
-      <div className="jmdict-search-hint">Capitals for katakana: TEREBI → テレビ</div>
-      <label className="jmdict-search-tier-limit">
-        Prefix/suffix/substring matches per group
+      <div className="jmdict-search-header">
+        <div className="jmdict-search-title">JMDict Lookup</div>
         <input
-          type="number"
-          min={1}
-          max={20}
-          value={maxResultsPerTier}
-          onChange={(e) => setMaxResultsPerTier(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+          type="text"
+          className="jmdict-search-input"
+          placeholder="Paste a word…"
+          value={pasted}
+          onChange={(e) => {
+            setPasted(e.target.value)
+            setRomaji('')
+            setQuery(e.target.value)
+          }}
         />
-      </label>
-      {loading && <div className="jmdict-search-status">Searching…</div>}
-      {error && <div className="jmdict-search-status form-error">{error}</div>}
-      {!loading && !error && results !== null && results.length === 0 && (
-        <div className="jmdict-search-status">No entries found.</div>
-      )}
-      {results && results.length > 0 && (
-        <ul className="jmdict-search-results">
-          {results.map((entry) => (
-            <li key={entry.idseq} className="jmdict-entry">
-              <div className="jmdict-entry-headword">
-                {entry.kanji_forms.length > 0 ? entry.kanji_forms.join('、') : entry.kana_forms.join('、')}
-              </div>
-              {entry.kanji_forms.length > 0 && (
-                <div className="jmdict-entry-reading">{entry.kana_forms.join('、')}</div>
-              )}
-              <ol className="gloss-senses">
-                {entry.senses.map((sense, i) => (
-                  <li key={i}>
-                    {sense.gloss.join('; ')}
-                    {(sense.field.length > 0 || sense.misc.length > 0) && (
-                      <span className="gloss-tag"> ({[...sense.field, ...sense.misc].join(', ')})</span>
-                    )}
-                  </li>
-                ))}
-              </ol>
-            </li>
-          ))}
-        </ul>
-      )}
+        <input
+          type="text"
+          className="jmdict-search-input jmdict-search-romaji"
+          placeholder="Romaji lookup…"
+          autoComplete="off"
+          spellCheck={false}
+          value={romaji}
+          onChange={(e) => {
+            // Converted as typed, the way an input method does it: a trailing
+            // n waits for the next letter, since it could start な or にゃ.
+            const kana = toKana(e.target.value, { IMEMode: true })
+            setRomaji(kana)
+            setPasted('')
+            // Looked up with that n as ん, as it is once typing stops.
+            setQuery(toKana(kana))
+          }}
+        />
+        <div className="jmdict-search-hint">Capitals for katakana: TEREBI → テレビ</div>
+        <label className="jmdict-search-tier-limit">
+          Prefix/suffix/substring matches per group
+          <input
+            type="number"
+            min={1}
+            max={20}
+            value={maxResultsPerTier}
+            onChange={(e) => setMaxResultsPerTier(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+          />
+        </label>
+      </div>
+      <div className="jmdict-search-results-wrap">
+        {loading && <div className="jmdict-search-status">Searching…</div>}
+        {error && <div className="jmdict-search-status form-error">{error}</div>}
+        {!loading && !error && results !== null && results.length === 0 && (
+          <div className="jmdict-search-status">No entries found.</div>
+        )}
+        {results && results.length > 0 && (
+          <ul className="jmdict-search-results">
+            {results.map((entry) => (
+              <li key={entry.idseq} className="jmdict-entry">
+                <div className="jmdict-entry-headword">
+                  {entry.kanji_forms.length > 0 ? entry.kanji_forms.join('、') : entry.kana_forms.join('、')}
+                </div>
+                {entry.kanji_forms.length > 0 && (
+                  <div className="jmdict-entry-reading">{entry.kana_forms.join('、')}</div>
+                )}
+                <ol className="gloss-senses">
+                  {entry.senses.map((sense, i) => (
+                    <li key={i}>
+                      {sense.gloss.join('; ')}
+                      {(sense.field.length > 0 || sense.misc.length > 0) && (
+                        <span className="gloss-tag"> ({[...sense.field, ...sense.misc].join(', ')})</span>
+                      )}
+                    </li>
+                  ))}
+                </ol>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </div>
   )
 }
