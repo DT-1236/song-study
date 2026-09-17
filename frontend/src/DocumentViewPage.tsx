@@ -28,7 +28,7 @@ import type {
   Token,
 } from './api'
 import { ConfirmDialog } from './ConfirmDialog'
-import { getPosInfo } from './PosLegend'
+import { PosTermRuby, getPosInfo } from './PosLegend'
 import { useTabs } from './TabsContext'
 import { usePersistentState } from './usePersistentState'
 import { YouTubePlayer } from './YouTubePlayer'
@@ -872,10 +872,7 @@ function GlossDetails({ token }: { token: Token }) {
             )}
             {posInfo && (
               <div className="token-pos-line">
-                <ruby>
-                  {posInfo.term}
-                  <rt>{posInfo.furigana}</rt>
-                </ruby>
+                <PosTermRuby segments={posInfo.segments} />
               </div>
             )}
             {canTakeSuru(token) && (
