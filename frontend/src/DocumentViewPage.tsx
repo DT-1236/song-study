@@ -923,6 +923,14 @@ function GlossDetails({ token }: { token: Token }) {
   )
 }
 
+// The popup is centered under its token by default (see .gloss-popup's
+// left/transform in App.css), which can push it under the floating sidebar
+// or JMDict column for a token near either edge of the lyrics — both sit
+// outside .content, which clips anything that overflows its own box. Nudge
+// it back inside .content's bounds instead, so it's never covered or
+// clipped by either floating column.
+const EDGE_MARGIN_PX = 8
+
 function GlossPopup({
   token,
   instances,
@@ -938,8 +946,36 @@ function GlossPopup({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
+  const popupRef = useRef<HTMLDivElement>(null)
+
+  // Sets the popup's own transform directly (not through React state), so
+  // this never costs a second render: the shift lands within the same
+  // pre-paint layout-effect pass that measures it, with nothing for the
+  // browser to paint in between.
+  useLayoutEffect(() => {
+    function reposition() {
+      const popup = popupRef.current
+      const container = popup?.closest('.content')
+      if (!popup || !container) return
+      popup.style.transform = ''
+      const popupRect = popup.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      let shift = 0
+      if (popupRect.left < containerRect.left + EDGE_MARGIN_PX) {
+        shift = containerRect.left + EDGE_MARGIN_PX - popupRect.left
+      } else if (popupRect.right > containerRect.right - EDGE_MARGIN_PX) {
+        shift = containerRect.right - EDGE_MARGIN_PX - popupRect.right
+      }
+      if (shift) popup.style.transform = `translateX(calc(-50% + ${shift}px))`
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    return () => window.removeEventListener('resize', reposition)
+  }, [])
+
   return (
     <div
+      ref={popupRef}
       className="gloss-popup"
       onClick={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}
@@ -1196,7 +1232,7 @@ const TokenizedText = memo(function TokenizedText({
     requestAnimationFrame(() => {
       const coveredTo = panelRef.current?.getBoundingClientRect().bottom ?? 0
       const top = element.getBoundingClientRect().top
-      if (top < coveredTo) window.scrollBy({ top: top - coveredTo - 8 })
+      if (top < coveredTo) element.closest('.content')?.scrollBy({ top: top - coveredTo - 8 })
     })
   }
 
@@ -1701,7 +1737,7 @@ const TimingEditor = memo(function TimingEditor({
     if (!rows || !row) return
     const next = rows[line + 1]
     const { top, height } = row.getBoundingClientRect()
-    window.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
+    row.closest('.content')?.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
     // Timing that began with the next line off screen brings it on.
     next?.scrollIntoView({ block: 'nearest' })
   }
