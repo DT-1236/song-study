@@ -638,22 +638,28 @@ def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object
                 )
             )
         else:
-            pieces.append(
-                {"surface": part.dictionary_form, "reading": part.reading, "senses": [], "ambiguous_readings": [], "note": note}
-            )
+            pieces.append(_grammar_piece(part))
     # A group's words keep their own reading options on their tokens, so a
     # piece doesn't flag them again.
     return [{**piece, "ambiguous_readings": []} for piece in pieces]
 
 
-def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, new_rows: dict) -> None:
-    """Add a composite row to `new_rows` for each of `groups` not in
-    `cached_ids`, and a row for each of their pieces' lookups not cached."""
-    missing = {group.key: group for group in groups if group.key not in cached_ids}
-    if not missing:
-        return
+def _grammar_piece(part: GroupPart) -> dict:
+    """A composite gloss piece for a grammar word: its note, and no senses."""
+    return {
+        "surface": part.dictionary_form,
+        "reading": part.reading,
+        "senses": [],
+        "ambiguous_readings": [],
+        "note": grammar_note(part.normalized_form, part.part_of_speech),
+    }
+
+
+def _piece_sources(conn, groups: Iterable[GroupGlossRequest], new_rows: dict) -> dict[GlossKey, tuple[object, str]]:
+    """The (entries, source) of every base and helper verb in `groups`, from
+    the cache or else looked up, adding each lookup to `new_rows`."""
     alternates: dict[GlossKey, Optional[str]] = {}
-    for group in missing.values():
+    for group in groups:
         alternates.setdefault(group.base_key, group.base_alt)
         for part in group.attached:
             if is_helper_verb(part):
@@ -667,9 +673,43 @@ def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, 
     _add_composites(conn, [key for key, (entries, source) in uncached.items() if source == "jmdict" and not entries], uncached)
     new_rows.update(uncached)
     found.update({key: new_rows[key] for key in alternates.keys() - found.keys()})
+    return found
 
+
+def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, new_rows: dict) -> None:
+    """Add a composite row to `new_rows` for each of `groups` not in
+    `cached_ids`, and a row for each of their pieces' lookups not cached."""
+    missing = {group.key: group for group in groups if group.key not in cached_ids}
+    if not missing:
+        return
+    found = _piece_sources(conn, missing.values(), new_rows)
     for key, group in missing.items():
         new_rows[key] = ({"pieces": _group_pieces(group, found)}, "composite")
+
+
+def _add_katakana_readings(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[object, str]]) -> None:
+    """For each key written in katakana with no JMDict entry of its own
+    (ココロノコエ), replace its empty result in `new_rows` with a gloss of it
+    read as hiragana (こころのこえ), when every word of that reading has an
+    entry."""
+    # Imported here: app.katakana builds on this module.
+    from app.katakana import hiragana_units, is_katakana_word
+
+    readings = {key: units for key in keys if is_katakana_word(key[0]) and (units := hiragana_units(key[0]))}
+    if not readings:
+        return
+    requests = [unit for units in readings.values() for unit in units if isinstance(unit, GroupGlossRequest)]
+    found = _piece_sources(conn, requests, new_rows)
+    for key, units in readings.items():
+        words = [unit for unit in units if isinstance(unit, GroupGlossRequest)]
+        if any(found[word.base_key] == ([], "jmdict") for word in words):
+            continue
+        pieces = [
+            piece
+            for unit in units
+            for piece in (_group_pieces(unit, found) if isinstance(unit, GroupGlossRequest) else [_grammar_piece(unit)])
+        ]
+        new_rows[key] = ({"pieces": pieces, "read_as": to_hiragana(key[0])}, "composite")
 
 
 def plan_glosses(
@@ -679,9 +719,9 @@ def plan_glosses(
 ) -> GlossPlan:
     """Resolve each requested key, and each of `groups`' composite keys,
     against the gloss cache and compute every miss (from JMDict, the English
-    stub, or the compound fallback), without writing anything. Each request
-    pairs a key with an alternate spelling to try when the key's own
-    lookup_form has no JMDict entry; the first one given for a key is
+    stub, or the compound and katakana fallbacks), without writing anything.
+    Each request pairs a key with an alternate spelling to try when the key's
+    own lookup_form has no JMDict entry; the first one given for a key is
     used."""
     groups = list(groups)
     alternates: dict[GlossKey, Optional[str]] = {}
@@ -690,6 +730,7 @@ def plan_glosses(
     cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates.keys() | {g.key for g in groups}).items()}
     new_rows = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in cached_ids}
     _add_composites(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
+    _add_katakana_readings(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
     _add_group_glosses(conn, groups, cached_ids, new_rows)
     return GlossPlan(cached_ids, new_rows)
 

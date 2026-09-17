@@ -545,6 +545,9 @@ class Gloss(BaseModel):
     senses: list[GlossSense]
     source: str
     pieces: list[GlossPiece] = []
+    # The hiragana this was glossed as, for katakana with no dictionary entry
+    # of its own (see app/katakana.py).
+    read_as: Optional[str] = None
 
 
 class Conflict(BaseModel):
@@ -653,6 +656,7 @@ def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None)
                 senses=[],
                 source=gloss_source,
                 pieces=[GlossPiece(**piece) for piece in gloss_entries["pieces"]],
+                read_as=gloss_entries.get("read_as"),
             )
         else:
             data["gloss"] = Gloss(
