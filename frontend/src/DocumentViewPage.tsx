@@ -765,7 +765,7 @@ function ConflictResolver({
             <UnmergePhraseOption token={token} documentId={documentId} onTokensUpdated={onTokensUpdated} />
           )}
           {regroup && <RegroupOption group={regroup} documentId={documentId} onTokensUpdated={onTokensUpdated} />}
-          {isOov && (
+          {isOov && !token.gloss?.looked_up_as && (
             <>
               <div className="conflict-title">Not in dictionary</div>
               <div className="conflict-note">No automatic reading candidates.</div>
@@ -850,6 +850,9 @@ function GlossDetails({ token }: { token: Token }) {
         <div className="dictionary-form-line">
           Combined: {gloss.lookup_form}（{gloss.reading}）
         </div>
+      ) : gloss?.looked_up_as ? (
+        // Sudachi's analysis of the katakana itself found no word to show.
+        <div className="dictionary-form-line">Looked up as: {gloss.looked_up_as}</div>
       ) : (
         !token.is_oov && (
           <>
@@ -878,9 +881,11 @@ function GlossDetails({ token }: { token: Token }) {
       {gloss && gloss.source === 'composite' ? (
         <div className="gloss-composite">
           <div className="gloss-composite-note">
-            {gloss.pieces.some((p) => p.note)
-              ? 'A word and the grammar attached to it — shown here as its parts.'
-              : 'No single dictionary entry for this whole word — shown here as its parts.'}
+            {gloss.looked_up_as
+              ? 'Written in katakana, which has no dictionary entry — looked up as hiragana.'
+              : gloss.pieces.some((p) => p.note)
+                ? 'A word and the grammar attached to it — shown here as its parts.'
+                : 'No single dictionary entry for this whole word — shown here as its parts.'}
           </div>
           {gloss.pieces.map((piece, i) => (
             <div key={i} className="gloss-piece">

@@ -181,6 +181,9 @@ export type Gloss = {
   senses: GlossSense[]
   source: 'jmdict' | 'english_stub' | 'composite'
   pieces: GlossPiece[]
+  // The hiragana this was looked up as, for katakana with no dictionary
+  // entry of its own (ココロノコエ as こころのこえ).
+  looked_up_as: string | null
 }
 
 export type ConflictOptionValue = {

@@ -502,6 +502,17 @@ def _lookup(lookup_form: str, reading: str, alt_lookup_form: Optional[str] = Non
     return found, "jmdict"
 
 
+def _kanji_spelling(entries, senses) -> Optional[str]:
+    """How the entry the first of `senses` comes from is usually written, if
+    it's written with kanji at all (こころのこえ -> 心の声)."""
+    entry = next((e for e in entries if e["idseq"] == senses[0]["entry_idseq"]), None) if senses else None
+    forms = entry["kanji_forms"] if entry else []
+    if not forms:
+        return None
+    # A form JMDict marks common, or else the one it lists first.
+    return next((form["text"] for form in forms if form["pri"]), forms[0]["text"])
+
+
 def gloss_piece(
     surface: str,
     reading: str,
@@ -511,17 +522,21 @@ def gloss_piece(
     *,
     senses_pos_major: Optional[str] = None,
     note: Optional[str] = None,
+    spell_with_kanji: bool = False,
 ) -> dict:
     """A composite gloss piece for `surface` read as `reading`, with the
     senses in `entries` ranked for `part_of_speech`, a full Sudachi tag, or
     for `senses_pos_major` when the piece's role differs from its tag (a
     helper verb like the みる of 見てみる, ranked as 助動詞). `note` explains
-    a grammar word."""
+    a grammar word. `spell_with_kanji` shows the piece as its entry is
+    usually written, for a word only spelled in kana here (see
+    app/katakana.py)."""
     pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
+    senses = rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else []
     return {
-        "surface": surface,
+        "surface": (spell_with_kanji and _kanji_spelling(entries, senses)) or surface,
         "reading": reading,
-        "senses": rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else [],
+        "senses": senses,
         "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))} - {reading}),
         "note": note,
     }
@@ -614,14 +629,26 @@ def predicate_group_request(members, readings: list[str], head_key: GlossKey) ->
     )
 
 
-def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object, str]]) -> list[dict]:
+def _group_pieces(
+    request: GroupGlossRequest, found: dict[GlossKey, tuple[object, str]], spell_with_kanji: bool = False
+) -> list[dict]:
     """The composite pieces for `request`, with its base's and helper verbs'
-    (entries, source) from `found`."""
+    (entries, source) from `found`. `spell_with_kanji` passes through to
+    gloss_piece."""
     entries, source = found[request.base_key]
     if source == "composite":
         pieces = list(entries["pieces"])
     else:
-        pieces = [gloss_piece(request.base_key[0], request.base_key[1], entries, source, request.base_part_of_speech)]
+        pieces = [
+            gloss_piece(
+                request.base_key[0],
+                request.base_key[1],
+                entries,
+                source,
+                request.base_part_of_speech,
+                spell_with_kanji=spell_with_kanji,
+            )
+        ]
     for part in request.attached:
         note = grammar_note(part.normalized_form, part.part_of_speech)
         if is_helper_verb(part):
@@ -635,25 +662,32 @@ def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object
                     part.part_of_speech,
                     senses_pos_major="助動詞",
                     note=note,
+                    spell_with_kanji=spell_with_kanji,
                 )
             )
         else:
-            pieces.append(
-                {"surface": part.dictionary_form, "reading": part.reading, "senses": [], "ambiguous_readings": [], "note": note}
-            )
+            pieces.append(_grammar_piece(part))
     # A group's words keep their own reading options on their tokens, so a
     # piece doesn't flag them again.
     return [{**piece, "ambiguous_readings": []} for piece in pieces]
 
 
-def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, new_rows: dict) -> None:
-    """Add a composite row to `new_rows` for each of `groups` not in
-    `cached_ids`, and a row for each of their pieces' lookups not cached."""
-    missing = {group.key: group for group in groups if group.key not in cached_ids}
-    if not missing:
-        return
+def _grammar_piece(part: GroupPart) -> dict:
+    """A composite gloss piece for a grammar word: its note, and no senses."""
+    return {
+        "surface": part.dictionary_form,
+        "reading": part.reading,
+        "senses": [],
+        "ambiguous_readings": [],
+        "note": grammar_note(part.normalized_form, part.part_of_speech),
+    }
+
+
+def _piece_sources(conn, groups: Iterable[GroupGlossRequest], new_rows: dict) -> dict[GlossKey, tuple[object, str]]:
+    """The (entries, source) of every base and helper verb in `groups`, from
+    the cache or else looked up, adding each lookup to `new_rows`."""
     alternates: dict[GlossKey, Optional[str]] = {}
-    for group in missing.values():
+    for group in groups:
         alternates.setdefault(group.base_key, group.base_alt)
         for part in group.attached:
             if is_helper_verb(part):
@@ -667,9 +701,49 @@ def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, 
     _add_composites(conn, [key for key, (entries, source) in uncached.items() if source == "jmdict" and not entries], uncached)
     new_rows.update(uncached)
     found.update({key: new_rows[key] for key in alternates.keys() - found.keys()})
+    return found
 
+
+def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, new_rows: dict) -> None:
+    """Add a composite row to `new_rows` for each of `groups` not in
+    `cached_ids`, and a row for each of their pieces' lookups not cached."""
+    missing = {group.key: group for group in groups if group.key not in cached_ids}
+    if not missing:
+        return
+    found = _piece_sources(conn, missing.values(), new_rows)
     for key, group in missing.items():
         new_rows[key] = ({"pieces": _group_pieces(group, found)}, "composite")
+
+
+def _add_katakana_readings(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[object, str]]) -> None:
+    """For each key written in katakana with no JMDict entry of its own
+    (ココロノコエ), replace its empty result in `new_rows` with a gloss of it
+    looked up as hiragana (こころのこえ), when every word of the hiragana has
+    an entry."""
+    # Imported here: app.katakana builds on this module.
+    from app.katakana import hiragana_units, is_katakana_word
+
+    readings = {key: units for key in keys if is_katakana_word(key[0]) and (units := hiragana_units(key[0]))}
+    if not readings:
+        return
+    requests = [unit for units in readings.values() for unit in units if isinstance(unit, GroupGlossRequest)]
+    found = _piece_sources(conn, requests, new_rows)
+    for key, units in readings.items():
+        words = [unit for unit in units if isinstance(unit, GroupGlossRequest)]
+        if any(found[word.base_key] == ([], "jmdict") for word in words):
+            continue
+        pieces = [
+            piece
+            for unit in units
+            # Written as the words usually are (心の声), not as the katakana
+            # spells them out (こころのこえ).
+            for piece in (
+                _group_pieces(unit, found, spell_with_kanji=True)
+                if isinstance(unit, GroupGlossRequest)
+                else [_grammar_piece(unit)]
+            )
+        ]
+        new_rows[key] = ({"pieces": pieces, "looked_up_as": to_hiragana(key[0])}, "composite")
 
 
 def plan_glosses(
@@ -679,9 +753,9 @@ def plan_glosses(
 ) -> GlossPlan:
     """Resolve each requested key, and each of `groups`' composite keys,
     against the gloss cache and compute every miss (from JMDict, the English
-    stub, or the compound fallback), without writing anything. Each request
-    pairs a key with an alternate spelling to try when the key's own
-    lookup_form has no JMDict entry; the first one given for a key is
+    stub, or the compound and katakana fallbacks), without writing anything.
+    Each request pairs a key with an alternate spelling to try when the key's
+    own lookup_form has no JMDict entry; the first one given for a key is
     used."""
     groups = list(groups)
     alternates: dict[GlossKey, Optional[str]] = {}
@@ -690,6 +764,7 @@ def plan_glosses(
     cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates.keys() | {g.key for g in groups}).items()}
     new_rows = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in cached_ids}
     _add_composites(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
+    _add_katakana_readings(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
     _add_group_glosses(conn, groups, cached_ids, new_rows)
     return GlossPlan(cached_ids, new_rows)
 
