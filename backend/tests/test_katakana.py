@@ -1,5 +1,5 @@
-"""Tests for glossing katakana-written Japanese as hiragana (app/katakana.py),
-against real Sudachi and JMDict data."""
+"""Tests for glossing katakana-written Japanese by looking it up as hiragana
+(app/katakana.py), against real Sudachi and JMDict data."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class TestKatakanaGlosses:
         gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "ココロノコエ", "ココロノコエ"))
 
         assert gloss.source == "composite"
-        assert gloss.entries["read_as"] == "こころのこえ"
+        assert gloss.entries["looked_up_as"] == "こころのこえ"
         [piece] = gloss.entries["pieces"]
         # Written as the entry usually is, not as the katakana reads it out.
         assert (piece["surface"], piece["reading"]) == ("心の声", "こころのこえ")
@@ -89,5 +89,5 @@ def test_a_document_shows_katakana_glossed_as_hiragana(committed_engine):
     token = get_document_tokens(document_id)[0]
 
     assert token.surface == "ココロノコエ"
-    assert token.gloss.read_as == "こころのこえ"
+    assert token.gloss.looked_up_as == "こころのこえ"
     assert token.gloss.pieces[0].senses

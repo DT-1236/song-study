@@ -1,7 +1,7 @@
-"""Reading Japanese written in katakana for emphasis, as lyrics often do
+"""Looking up Japanese written in katakana for emphasis, as lyrics often do
 (ココロノコエ). Sudachi takes a katakana run as one word it can't find, but
-read as hiragana the same text splits into words JMDict has (こころ/の/こえ,
-together the headword こころのこえ).
+looked up as hiragana the same text splits into words JMDict has
+(こころ/の/こえ, together the headword こころのこえ).
 """
 
 from __future__ import annotations
@@ -25,10 +25,10 @@ def is_katakana_word(text: str) -> bool:
 
 
 def hiragana_units(katakana: str) -> Optional[list[Union[GroupGlossRequest, GroupPart]]]:
-    """The words of `katakana` read as hiragana, in order: a gloss request for
-    each word, phrase, or predicate group, and a bare part for each grammar
-    word between them. None when that reading doesn't split into words, as
-    for a loanword (ギガンティック)."""
+    """The words of `katakana` looked up as hiragana, in order: a gloss
+    request for each word, phrase, or predicate group, and a bare part for
+    each grammar word between them. None when the hiragana doesn't split
+    into words, as for a loanword (ギガンティック)."""
     records = tokenize_document(to_hiragana(katakana))
     if any(record.is_oov for record in records):
         return None

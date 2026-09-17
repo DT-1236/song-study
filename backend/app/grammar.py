@@ -102,7 +102,7 @@ _GRAMMAR_NOTES: dict[str, str] = {
     "見せる": "てみせる: show you can, or will definitely do",
     "回る": "て回る: go around doing",
     "欲しい": "てほしい: want (someone) to do",
-    "無い": "not",
+    "無い": "ない: not",
     "為る": "する: makes the word before it a verb",
 }
 

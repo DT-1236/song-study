@@ -529,7 +529,7 @@ def gloss_piece(
     for `senses_pos_major` when the piece's role differs from its tag (a
     helper verb like the みる of 見てみる, ranked as 助動詞). `note` explains
     a grammar word. `spell_with_kanji` shows the piece as its entry is
-    usually written, for a word only read as kana here (see
+    usually written, for a word only spelled in kana here (see
     app/katakana.py)."""
     pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
     senses = rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else []
@@ -718,8 +718,8 @@ def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, 
 def _add_katakana_readings(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[object, str]]) -> None:
     """For each key written in katakana with no JMDict entry of its own
     (ココロノコエ), replace its empty result in `new_rows` with a gloss of it
-    read as hiragana (こころのこえ), when every word of that reading has an
-    entry."""
+    looked up as hiragana (こころのこえ), when every word of the hiragana has
+    an entry."""
     # Imported here: app.katakana builds on this module.
     from app.katakana import hiragana_units, is_katakana_word
 
@@ -736,14 +736,14 @@ def _add_katakana_readings(conn, keys: list[GlossKey], new_rows: dict[GlossKey, 
             piece
             for unit in units
             # Written as the words usually are (心の声), not as the katakana
-            # read them out (こころのこえ).
+            # spells them out (こころのこえ).
             for piece in (
                 _group_pieces(unit, found, spell_with_kanji=True)
                 if isinstance(unit, GroupGlossRequest)
                 else [_grammar_piece(unit)]
             )
         ]
-        new_rows[key] = ({"pieces": pieces, "read_as": to_hiragana(key[0])}, "composite")
+        new_rows[key] = ({"pieces": pieces, "looked_up_as": to_hiragana(key[0])}, "composite")
 
 
 def plan_glosses(

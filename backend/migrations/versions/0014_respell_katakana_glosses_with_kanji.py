@@ -21,7 +21,8 @@ down_revision: Union[str, Sequence[str], None] = '0013'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
-# read_as marks a gloss of katakana read as hiragana (see app/katakana.py).
+# read_as was the key then marking a gloss of katakana looked up as hiragana
+# (see app/katakana.py); 0015 clears what is left under it.
 _KATAKANA_READING_GLOSSES = "SELECT id FROM gloss_lookups WHERE source = 'composite' AND entries ? 'read_as'"
 
 
