@@ -166,10 +166,18 @@ export type GlossPiece = {
   reading: string
   senses: GlossSense[]
   ambiguous_readings: string[]
+  // What a grammar word or helper verb adds to the word before it, for a
+  // piece of a group's gloss (see backend/app/grammar.py).
+  note: string | null
 }
 
 export type Gloss = {
   reading: string
+  // What this was looked up under — usually the token's own
+  // dictionary_form, but for a merged group (see phrase_start_position) the
+  // phrase's headword (この期に及んで) or the group's parts
+  // (欲する＋てる＋ん＋だ＋って).
+  lookup_form: string
   senses: GlossSense[]
   source: 'jmdict' | 'english_stub' | 'composite'
   pieces: GlossPiece[]
@@ -180,12 +188,57 @@ export type ConflictOptionValue = {
   furigana_spans: FuriganaSpan[]
 }
 
-export type Conflict = {
-  id: number
-  kind: 'heteronym' | 'no_kana_anchor' | 'custom'
-  value: ConflictOptionValue
-  selected: boolean
+// A suggested multi-token JMDict headword starting at this token (see
+// backend/app/phrase_merge.py): the headword and its reading, the on-page
+// text it covers with any grammar attached after it (真に受け + てみて),
+// and how many tokens that is, this one included.
+export type PhraseConflictValue = {
+  surface: string
+  lookup_form: string
+  reading: string
+  token_count: number
+  // How many of those tokens the headword itself covers.
+  phrase_token_count?: number
 }
+
+// A predicate group starting at this token (see backend/app/grammar.py),
+// which merges it again after it's been split.
+export type PredicateGroupValue = {
+  surface: string
+  token_count: number
+}
+
+// An alternative furigana split for an accepted phrase: an update per token
+// it changes, `offset` tokens after the phrase's first token.
+export type PhraseFuriganaValue = {
+  updates: { offset: number; furigana_spans: FuriganaSpan[] }[]
+}
+
+export type Conflict =
+  | {
+      id: number
+      kind: 'heteronym' | 'no_kana_anchor' | 'custom'
+      value: ConflictOptionValue
+      selected: boolean
+    }
+  | {
+      id: number
+      kind: 'phrase'
+      value: PhraseConflictValue
+      selected: boolean
+    }
+  | {
+      id: number
+      kind: 'phrase_furigana'
+      value: PhraseFuriganaValue
+      selected: boolean
+    }
+  | {
+      id: number
+      kind: 'predicate'
+      value: PredicateGroupValue
+      selected: boolean
+    }
 
 export type Token = {
   id: number
@@ -212,6 +265,13 @@ export type Token = {
   conflicts: Conflict[]
   start_time: string | null
   end_time: string | null
+  // The first token's position when this token is merged with its
+  // neighbors into one group, the same across the group; else null. See
+  // acceptPhraseSuggestions/unmergePhrase.
+  phrase_start_position: number | null
+  // What that group is: an accepted phrase suggestion, or a predicate with
+  // its grammar, grouped automatically.
+  group_kind: 'phrase' | 'predicate' | null
 }
 
 export async function fetchTokens(documentId: number): Promise<Token[]> {
@@ -222,8 +282,20 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
   return response.json()
 }
 
+// Every other reading JMDict has for tokenId's dictionary form, as reading
+// options to apply with applyReading.
+export async function fetchAlternateReadings(documentId: number, tokenId: number): Promise<ConflictOptionValue[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`)
+
+  await assertOk(response, { 404: 'Token not found for this document.' })
+
+  return response.json()
+}
+
 // Selects `reading` for each of the tokens: the option each has with that
 // reading (preferring `furiganaSpans` as its split), or else a correction.
+// Returns every token whose gloss changed, which includes the rest of any
+// group one of them is in.
 export async function applyReading(
   documentId: number,
   tokenIds: number[],
@@ -237,6 +309,46 @@ export async function applyReading(
   })
 
   await assertOk(response, { 404: 'Token not found.' })
+
+  return response.json()
+}
+
+// Accepts phrase suggestions, or split predicate groups to merge again.
+// Returns every token they changed.
+export async function acceptPhraseSuggestions(documentId: number, conflictIds: number[]): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conflict_ids: conflictIds }),
+  })
+
+  await assertOk(response, { 404: 'Conflict option not found for this token.' })
+
+  return response.json()
+}
+
+// Splits the group tokenId is merged into, found from any member of it.
+// Returns every token it changed, or [] if tokenId isn't merged.
+export async function unmergePhrase(documentId: number, tokenId: number): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
+    method: 'POST',
+  })
+
+  await assertOk(response, { 404: 'Token not found for this document.' })
+
+  return response.json()
+}
+
+// Applies one of a phrase's alternative furigana splits (see
+// PhraseFuriganaValue). Returns every affected token.
+export async function resolvePhraseFurigana(documentId: number, conflictId: number): Promise<Token[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/phrase-furigana`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ conflict_id: conflictId }),
+  })
+
+  await assertOk(response, { 404: 'Conflict option not found for this document.' })
 
   return response.json()
 }

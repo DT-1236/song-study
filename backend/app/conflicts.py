@@ -15,15 +15,43 @@ from typing import Optional
 from sqlalchemy import text
 
 from app.db import json_param
-from app.glosses import get_or_create_gloss_lookup, plan_glosses, store_glosses
+from app.glosses import (
+    GroupGlossRequest,
+    GroupPart,
+    get_or_create_gloss_lookup,
+    own_gloss_key,
+    plan_glosses,
+    predicate_group_request,
+    store_glosses,
+)
 from app.tokenization import (
     TokenRecord,
+    build_furigana_spans,
+    citation_reading,
     conflict_option_value,
+    conjugation_type_of,
     furigana_spans_for_reading,
     mixed_reading,
+    project_citation_reading,
+    slice_spans_by_token,
     to_hiragana,
     to_katakana,
 )
+
+# Conflict kinds that aren't reading options for their token: a phrase
+# suggestion, a merged phrase's alternative furigana, and a predicate group
+# that can be merged again after being split.
+NON_READING_KINDS = ("phrase", "phrase_furigana", "predicate")
+
+# Whether the group `t` is merged into is an accepted phrase (its head has
+# the phrase's conflict selected) rather than a predicate group.
+IS_ACCEPTED_PHRASE_SQL = """
+    EXISTS (
+        SELECT 1 FROM conflicts pc JOIN tokens ph ON ph.id = pc.token_id
+        WHERE ph.document_id = t.document_id AND ph.position = t.phrase_start_position
+          AND pc.kind = 'phrase' AND pc.selected
+    )
+"""
 
 
 def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None:
@@ -77,6 +105,39 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
     )
 
 
+def create_phrase_conflicts(conn, document_id: int, records: list[TokenRecord], groups: list[range]) -> None:
+    """Insert an unselected 'phrase' row for each record's phrase suggestion,
+    and a 'predicate' row on the first token of each of `groups`, which
+    merges that group again after it's split."""
+    rows = [
+        {"position": record.position, "kind": "phrase", "value": record.phrase_suggestion}
+        for record in records
+        if record.phrase_suggestion is not None
+    ]
+    rows.extend(
+        {
+            "position": records[group.start].position,
+            "kind": "predicate",
+            "value": {"surface": "".join(records[i].surface for i in group), "token_count": len(group)},
+        }
+        for group in groups
+    )
+    if not rows:
+        return
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO conflicts (token_id, kind, value, selected)
+            SELECT t.id, c.kind, c.value, FALSE
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS c(position int, kind text, value jsonb)
+            JOIN tokens t ON t.document_id = :document_id AND t.position = c.position
+            """
+        ),
+        {"document_id": document_id, "rows": json.dumps(rows)},
+    )
+
+
 def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], gloss_lookup_id: int) -> None:
     """Write a newly-selected reading's furigana and gloss onto the token
     row itself, for resolve_conflict. (select_reading makes the same update
@@ -99,11 +160,400 @@ def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], glo
     )
 
 
+def _recompute_phrase_furigana(conn, document_id: int, position: int, token_count: int, reading_hiragana: str) -> None:
+    """Set the furigana of the document's `token_count` tokens from
+    `position` from their phrase's reading, `reading_hiragana`, since a
+    phrase can read differently from its tokens (期 reads ご in この期に及んで).
+    Any other valid split of the reading is offered as a 'phrase_furigana'
+    row on the first token."""
+    members = conn.execute(
+        text(
+            """
+            SELECT id, surface FROM tokens
+            WHERE document_id = :document_id AND position >= :position AND position < :position + :token_count
+            ORDER BY position
+            """
+        ),
+        {"document_id": document_id, "position": position, "token_count": token_count},
+    ).all()
+    merged_surface = "".join(m.surface for m in members)
+    token_lengths = [len(m.surface) for m in members]
+
+    spans, needs_review, alternatives = build_furigana_spans(merged_surface, to_katakana(reading_hiragana))
+    # The reading doesn't line up with the text, so the tokens keep their own.
+    if needs_review and not alternatives:
+        return
+
+    default_sliced = slice_spans_by_token(spans, token_lengths)
+    updates = [
+        {"id": member.id, "furigana_override": sliced}
+        for member, sliced in zip(members, default_sliced)
+        if sliced is not None
+    ]
+    if updates:
+        conn.execute(
+            text(
+                """
+                UPDATE tokens t
+                SET furigana_override = v.furigana_override
+                FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS v(id int, furigana_override jsonb)
+                WHERE t.id = v.id
+                """
+            ),
+            {"rows": json.dumps(updates)},
+        )
+
+    if not alternatives:
+        return
+
+    head_token_id = members[0].id
+    rows = []
+    for alt_spans in alternatives:
+        alt_sliced = slice_spans_by_token(alt_spans, token_lengths)
+        alt_updates = [{"offset": i, "furigana_spans": sliced} for i, sliced in enumerate(alt_sliced) if sliced is not None]
+        if alt_updates:
+            rows.append({"token_id": head_token_id, "value": {"updates": alt_updates}})
+    if rows:
+        # Unselected: selecting one would deselect the phrase itself, on the
+        # same token.
+        conn.execute(
+            text(
+                """
+                INSERT INTO conflicts (token_id, kind, value, selected)
+                SELECT token_id, 'phrase_furigana', CAST(value AS JSONB), FALSE
+                FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS r(token_id int, value jsonb)
+                """
+            ),
+            {"rows": json.dumps(rows)},
+        )
+
+
+def resolve_phrase_furigana(conn, document_id: int, conflict_id: int) -> list[int]:
+    """Apply `conflict_id`, one of a phrase's alternative furigana splits.
+    Returns the affected token ids. Raises ConflictNotFound if it isn't a
+    phrase_furigana row in `document_id`."""
+    row = conn.execute(
+        text(
+            """
+            SELECT c.value, t.position
+            FROM conflicts c
+            JOIN tokens t ON t.id = c.token_id
+            WHERE c.id = :conflict_id AND c.kind = 'phrase_furigana' AND t.document_id = :document_id
+            """
+        ),
+        {"conflict_id": conflict_id, "document_id": document_id},
+    ).one_or_none()
+    if row is None:
+        raise ConflictNotFound()
+
+    rows = conn.execute(
+        text(
+            """
+            UPDATE tokens t
+            SET furigana_override = v.furigana_override
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS v(position int, furigana_override jsonb)
+            WHERE t.document_id = :document_id AND t.position = v.position
+            RETURNING t.id
+            """
+        ),
+        {
+            "document_id": document_id,
+            "rows": json.dumps(
+                [{"position": row.position + u["offset"], "furigana_override": u["furigana_spans"]} for u in row.value["updates"]]
+            ),
+        },
+    ).all()
+    return [r.id for r in rows]
+
+
+def _project_onto_last_member(conn, document_id: int, last_position: int, citation_reading_hiragana: str) -> str:
+    """`citation_reading_hiragana`, a headword's reading, as spelled on the
+    page through the token at `last_position`, which can inflect the
+    headword's last word (まにうける -> まにうけ for 真に受け)."""
+    last = conn.execute(
+        text(
+            "SELECT reading_katakana, dictionary_form, normalized_form FROM tokens "
+            "WHERE document_id = :document_id AND position = :position"
+        ),
+        {"document_id": document_id, "position": last_position},
+    ).one()
+    dict_form_citation = citation_reading(last.dictionary_form)
+    conjugation_type = conjugation_type_of(last.normalized_form)
+    projected = project_citation_reading(
+        to_katakana(citation_reading_hiragana), last.reading_katakana, dict_form_citation, conjugation_type
+    )
+    return to_hiragana(projected)
+
+
+def _group_members(conn, document_id: int, position: int, token_count: int) -> list:
+    """The document's `token_count` tokens from `position`, in order, each
+    with its selected reading option's readings, if it has one."""
+    return conn.execute(
+        text(
+            """
+            SELECT t.id, t.surface, t.reading_katakana, t.dictionary_form, t.normalized_form, t.part_of_speech,
+                   c.value ->> 'reading' AS selected_reading,
+                   COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS selected_citation_reading
+            FROM tokens t
+            LEFT JOIN conflicts c ON c.token_id = t.id AND c.selected AND c.kind <> ALL(:non_reading_kinds)
+            WHERE t.document_id = :document_id AND t.position >= :position AND t.position < :position + :token_count
+            ORDER BY t.position
+            """
+        ),
+        {
+            "document_id": document_id,
+            "position": position,
+            "token_count": token_count,
+            "non_reading_kinds": list(NON_READING_KINDS),
+        },
+    ).all()
+
+
+def _page_reading(member) -> str:
+    """A token row's reading on the page, in hiragana: its selected option's,
+    or else Sudachi's."""
+    return member.selected_reading or to_hiragana(member.reading_katakana)
+
+
+def _merge_tokens(conn, document_id: int, position: int, token_count: int, gloss_lookup_id: int) -> list[int]:
+    """Mark the document's `token_count` tokens from `position` as one group
+    sharing `gloss_lookup_id`. Returns their ids."""
+    rows = conn.execute(
+        text(
+            """
+            UPDATE tokens
+            SET gloss_lookup_id = :gloss_lookup_id, phrase_start_position = :position
+            WHERE document_id = :document_id AND position >= :position AND position < :position + :token_count
+            RETURNING id
+            """
+        ),
+        {
+            "document_id": document_id,
+            "position": position,
+            "token_count": token_count,
+            "gloss_lookup_id": gloss_lookup_id,
+        },
+    ).all()
+    return [row.id for row in rows]
+
+
+def merge_predicate_group(conn, document_id: int, position: int, token_count: int) -> list[int]:
+    """Merge the document's `token_count` tokens from `position` into a
+    predicate group (see app.grammar), glossed together under each token's
+    current reading. Returns their ids."""
+    members = _group_members(conn, document_id, position, token_count)
+    head = members[0]
+    request = predicate_group_request(
+        members,
+        [_page_reading(member) for member in members],
+        own_gloss_key(head.normalized_form, head.part_of_speech, head.selected_citation_reading),
+    )
+    gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[request.key]
+    return _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
+
+
+def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[int]:
+    """Gloss the predicate group starting at `group_start` again, after one
+    of its tokens' readings changed. Returns its token ids."""
+    token_count = conn.execute(
+        text("SELECT count(*) FROM tokens WHERE document_id = :document_id AND phrase_start_position = :group_start"),
+        {"document_id": document_id, "group_start": group_start},
+    ).scalar_one()
+    return merge_predicate_group(conn, document_id, group_start, token_count)
+
+
+def _unmerge_overlapping_groups(conn, document_id: int, position: int, token_count: int) -> list[int]:
+    """Split every group with a member among the document's `token_count`
+    tokens from `position`. Returns the affected token ids."""
+    # One member of each group is enough for unmerge_phrase to find it.
+    member_ids = conn.execute(
+        text(
+            """
+            SELECT DISTINCT ON (phrase_start_position) id FROM tokens
+            WHERE document_id = :document_id AND position >= :position AND position < :position + :token_count
+              AND phrase_start_position IS NOT NULL
+            ORDER BY phrase_start_position, position
+            """
+        ),
+        {"document_id": document_id, "position": position, "token_count": token_count},
+    ).scalars().all()
+    affected: list[int] = []
+    for member_id in member_ids:
+        affected.extend(unmerge_phrase(conn, document_id, member_id))
+    return affected
+
+
+def _apply_phrase_selection(conn, document_id: int, token_id: int, value: dict) -> list[int]:
+    """Merge an accepted phrase suggestion's tokens (see app.phrase_merge)
+    into one group, glossed under the phrase's headword plus a piece per
+    token of grammar attached after it, and recompute their furigana from
+    the phrase's reading. Returns their ids."""
+    position = conn.execute(
+        text("SELECT position FROM tokens WHERE id = :token_id"),
+        {"token_id": token_id},
+    ).scalar_one()
+    token_count = value["token_count"]
+    phrase_token_count = value.get("phrase_token_count", token_count)
+    members = _group_members(conn, document_id, position, token_count)
+    attached = members[phrase_token_count:]
+    # The headword's reading can spell more than the page does: まにうける
+    # for 真に受け.
+    phrase_reading = _project_onto_last_member(conn, document_id, position + phrase_token_count - 1, value["reading"])
+    reading = phrase_reading + "".join(_page_reading(member) for member in attached)
+
+    if attached:
+        request = GroupGlossRequest(
+            base_key=(value["lookup_form"], value["reading"]),
+            base_alt=None,
+            # No one token's part of speech is the phrase's, so its senses
+            # keep JMDict's order.
+            base_part_of_speech=("*",) * 6,
+            attached=tuple(GroupPart.of(member, _page_reading(member)) for member in attached),
+            reading=reading,
+        )
+        gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[request.key]
+    else:
+        gloss_lookup_id = get_or_create_gloss_lookup(conn, value["lookup_form"], value["reading"])
+    ids = _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
+
+    # A member can no longer start a phrase of its own inside this one:
+    # accepting that later would split this phrase apart.
+    conn.execute(
+        text(
+            """
+            DELETE FROM conflicts
+            WHERE kind = 'phrase' AND NOT selected
+              AND token_id IN (
+                  SELECT id FROM tokens
+                  WHERE document_id = :document_id AND position > :position AND position < :position + :token_count
+              )
+            """
+        ),
+        {"document_id": document_id, "position": position, "token_count": token_count},
+    )
+    _recompute_phrase_furigana(conn, document_id, position, token_count, reading)
+    return ids
+
+
+def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
+    """Split the group `token_id` is merged into — an accepted phrase or a
+    predicate group, found from any member — back into tokens with their
+    own glosses and furigana. Returns the affected token ids, or [] if
+    `token_id` isn't merged. Raises TokenNotFound if `token_id` doesn't
+    belong to `document_id`.
+
+    Accepting a phrase deselected its first token's own reading pick (see
+    resolve_conflict), so that token reverts to its default reading."""
+    locked = conn.execute(
+        text(
+            """
+            SELECT phrase_start_position FROM tokens
+            WHERE id = :token_id AND document_id = :document_id
+            FOR UPDATE
+            """
+        ),
+        {"token_id": token_id, "document_id": document_id},
+    ).one_or_none()
+    if locked is None:
+        raise TokenNotFound()
+    group_start = locked.phrase_start_position
+    if group_start is None:
+        return []
+
+    # Deselected so the phrase can be accepted again.
+    conn.execute(
+        text(
+            """
+            UPDATE conflicts SET selected = FALSE, selected_at = NULL
+            WHERE kind = 'phrase' AND selected
+              AND token_id IN (SELECT id FROM tokens WHERE document_id = :document_id AND phrase_start_position = :group_start)
+            """
+        ),
+        {"document_id": document_id, "group_start": group_start},
+    )
+    members = conn.execute(
+        text(
+            """
+            SELECT t.id, t.normalized_form, t.dictionary_form, t.part_of_speech,
+                   COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS selected_reading,
+                   c.value -> 'furigana_spans' AS selected_furigana_spans
+            FROM tokens t
+            LEFT JOIN conflicts c ON c.token_id = t.id AND c.selected AND c.kind <> ALL(:non_reading_kinds)
+            WHERE t.document_id = :document_id AND t.phrase_start_position = :group_start
+            ORDER BY t.position
+            """
+        ),
+        {"document_id": document_id, "group_start": group_start, "non_reading_kinds": list(NON_READING_KINDS)},
+    ).all()
+
+    keys = {
+        member.id: key
+        for member in members
+        if (key := own_gloss_key(member.normalized_form, member.part_of_speech, member.selected_reading)) is not None
+    }
+    gloss_ids = store_glosses(conn, plan_glosses(conn, [(keys[m.id], m.dictionary_form) for m in members if m.id in keys]))
+    # A phrase's furigana (see _recompute_phrase_furigana) gives way to each
+    # token's own selected option's, or none.
+    conn.execute(
+        text(
+            """
+            UPDATE tokens t
+            SET phrase_start_position = NULL,
+                gloss_lookup_id = v.gloss_lookup_id,
+                furigana_override = v.furigana_override
+            FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS v(id int, gloss_lookup_id int, furigana_override jsonb)
+            WHERE t.id = v.id
+            """
+        ),
+        {
+            "rows": json.dumps(
+                [
+                    {
+                        "id": member.id,
+                        "gloss_lookup_id": gloss_ids[keys[member.id]] if member.id in keys else None,
+                        "furigana_override": member.selected_furigana_spans,
+                    }
+                    for member in members
+                ]
+            )
+        },
+    )
+    # Accepting the phrase again regenerates these.
+    conn.execute(
+        text(
+            """
+            DELETE FROM conflicts
+            WHERE kind = 'phrase_furigana'
+              AND token_id IN (SELECT id FROM tokens WHERE document_id = :document_id AND position = :group_start)
+            """
+        ),
+        {"document_id": document_id, "group_start": group_start},
+    )
+    return [member.id for member in members]
+
+
 class ConflictNotFound(Exception):
     pass
 
 
-def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) -> None:
+def _select_conflict(conn, token_id: int, conflict_id: int) -> None:
+    """Make `conflict_id` the only selected conflict row of `token_id`."""
+    # Deselected first: conflicts_one_selected_per_token allows one selected
+    # row per token, whatever its kind.
+    conn.execute(
+        text("UPDATE conflicts SET selected = FALSE, selected_at = NULL WHERE token_id = :token_id"),
+        {"token_id": token_id},
+    )
+    conn.execute(
+        text("UPDATE conflicts SET selected = TRUE, selected_at = now() WHERE id = :conflict_id"),
+        {"conflict_id": conflict_id},
+    )
+
+
+def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) -> list[int]:
+    """Apply `conflict_id`, one of `token_id`'s conflict rows: select a
+    reading, accept a phrase suggestion, or merge a split predicate group
+    again. Returns every token id whose gloss changed."""
     # Locks the token row for the rest of this transaction, so a second
     # resolve/correct call for the SAME token (a double-click, or two tabs)
     # blocks until this one commits instead of racing it — both would
@@ -112,8 +562,9 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
     # index. Concurrent calls for DIFFERENT tokens are unaffected.
     owner = conn.execute(
         text(
-            """
-            SELECT c.id
+            f"""
+            SELECT c.kind, c.value, t.position, t.phrase_start_position,
+                   {IS_ACCEPTED_PHRASE_SQL} AS in_accepted_phrase
             FROM conflicts c
             JOIN tokens t ON t.id = c.token_id
             WHERE c.id = :conflict_id AND c.token_id = :token_id AND t.document_id = :document_id
@@ -125,20 +576,25 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
 
     if owner is None:
         raise ConflictNotFound()
+    kind, value = owner.kind, owner.value
 
-    conn.execute(
-        text("UPDATE conflicts SET selected = FALSE, selected_at = NULL WHERE token_id = :token_id"),
-        {"token_id": token_id},
-    )
-    conn.execute(
-        text("UPDATE conflicts SET selected = TRUE, selected_at = now() WHERE id = :conflict_id"),
-        {"conflict_id": conflict_id},
-    )
+    if kind == "predicate":
+        # Never selected: that would deselect the head's reading.
+        affected = _unmerge_overlapping_groups(conn, document_id, owner.position, value["token_count"])
+        return list({*affected, *merge_predicate_group(conn, document_id, owner.position, value["token_count"])})
 
-    value = conn.execute(
-        text("SELECT value FROM conflicts WHERE id = :conflict_id"),
-        {"conflict_id": conflict_id},
-    ).scalar_one()
+    if kind == "phrase":
+        affected = _unmerge_overlapping_groups(conn, document_id, owner.position, value["token_count"])
+        # Known limitation: this deselects a reading picked for this token,
+        # which unmerging the phrase later can't recover.
+        _select_conflict(conn, token_id, conflict_id)
+        return list({*affected, *_apply_phrase_selection(conn, document_id, token_id, value)})
+
+    # A reading picked inside an accepted phrase would leave this token's
+    # gloss out of step with the rest of the phrase, so the phrase is split
+    # first. A predicate group is glossed again with the new reading instead.
+    unmerged = unmerge_phrase(conn, document_id, token_id) if owner.in_accepted_phrase else []
+    _select_conflict(conn, token_id, conflict_id)
 
     token = conn.execute(
         text("SELECT normalized_form, dictionary_form FROM tokens WHERE id = :token_id"),
@@ -162,6 +618,34 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
     )
 
     _apply_selected_reading(conn, token_id, value["furigana_spans"], gloss_lookup_id)
+    affected = {token_id, *unmerged}
+    if owner.phrase_start_position is not None and not owner.in_accepted_phrase:
+        affected.update(_regloss_predicate_group(conn, document_id, owner.phrase_start_position))
+    return list(affected)
+
+
+def accept_phrase_suggestions(conn, document_id: int, conflict_ids: list[int]) -> list[int]:
+    """Apply each of `conflict_ids` as resolve_conflict does, such as every
+    instance of the same phrase suggestion. Returns every token id any of
+    them changed. Raises ConflictNotFound if one isn't in `document_id`."""
+    rows = conn.execute(
+        text(
+            """
+            SELECT c.id, c.token_id
+            FROM conflicts c
+            JOIN tokens t ON t.id = c.token_id
+            WHERE c.id = ANY(:conflict_ids) AND t.document_id = :document_id
+            """
+        ),
+        {"conflict_ids": conflict_ids, "document_id": document_id},
+    ).all()
+    if len(rows) != len(set(conflict_ids)):
+        raise ConflictNotFound()
+
+    affected: list[int] = []
+    for row in rows:
+        affected.extend(resolve_conflict(conn, document_id, row.token_id, row.id))
+    return affected
 
 
 class TokenNotFound(Exception):
@@ -208,27 +692,31 @@ def lock_token_group(
 
     # Its own statement, not part of the locking one: under READ COMMITTED,
     # only a statement started after the lock was granted sees options the
-    # lock's previous holder committed.
+    # lock's previous holder committed. Only reading options count, since
+    # the other kinds depend on the tokens around each one.
     tokens = conn.execute(
         text(
-            """
+            f"""
             SELECT t.id, t.surface, t.normalized_form, t.dictionary_form, t.reading_katakana,
-                   t.furigana_spans, t.furigana_override,
+                   t.furigana_spans, t.furigana_override, t.phrase_start_position,
+                   {IS_ACCEPTED_PHRASE_SQL} AS in_accepted_phrase,
                    jsonb_build_array(
                        t.surface, t.reading_katakana, t.part_of_speech,
                        COALESCE(
                            (SELECT jsonb_agg(c.value ORDER BY c.id) FROM conflicts c
-                            WHERE c.token_id = t.id AND c.kind <> 'custom'),
+                            WHERE c.token_id = t.id AND c.kind <> 'custom' AND c.kind <> ALL(:non_reading_kinds)),
                            CAST('[]' AS JSONB)
                        )
                    ) AS group_key,
-                   EXISTS (SELECT 1 FROM conflicts c WHERE c.token_id = t.id) AS has_options,
+                   EXISTS (
+                       SELECT 1 FROM conflicts c WHERE c.token_id = t.id AND c.kind <> ALL(:non_reading_kinds)
+                   ) AS has_options,
                    m.id AS match_id, m.value AS match_value
             FROM tokens t
             LEFT JOIN LATERAL (
                 SELECT c.id, c.value
                 FROM conflicts c
-                WHERE c.token_id = t.id AND c.value ->> 'reading' = :reading
+                WHERE c.token_id = t.id AND c.kind <> ALL(:non_reading_kinds) AND c.value ->> 'reading' = :reading
                 ORDER BY c.kind = 'custom',
                          c.value -> 'furigana_spans' = CAST(:furigana_spans AS JSONB) DESC NULLS LAST,
                          c.id
@@ -238,7 +726,12 @@ def lock_token_group(
             ORDER BY t.id
             """
         ),
-        {"token_ids": token_ids, "reading": reading_hiragana, "furigana_spans": json_param(furigana_spans)},
+        {
+            "token_ids": token_ids,
+            "reading": reading_hiragana,
+            "furigana_spans": json_param(furigana_spans),
+            "non_reading_kinds": list(NON_READING_KINDS),
+        },
     ).all()
     if len({json.dumps(t.group_key, sort_keys=True) for t in tokens}) > 1:
         raise TokensNotGroupable()
@@ -251,7 +744,7 @@ def select_reading(
     token_ids: list[int],
     reading_hiragana: str,
     furigana_spans: Optional[list[dict]] = None,
-) -> None:
+) -> list[int]:
     """Select `reading_hiragana` for each of the document's tokens in
     `token_ids`, which lock_token_group must accept together: the option
     they offer with that reading, if any, preferring one split as
@@ -263,8 +756,20 @@ def select_reading(
     Also re-resolves each token's gloss under the reading: different
     readings can be different words (今日 as きょう "today" vs こんにち
     "these days"), and a wrong reading is often why a JMDict entry went
-    unmatched."""
+    unmatched. Returns every token id whose gloss changed, which includes
+    the rest of any group one of them is in."""
     tokens = lock_token_group(conn, document_id, token_ids, reading_hiragana, furigana_spans)
+    # As in resolve_conflict: an accepted phrase is split first, and a
+    # predicate group is glossed again afterwards.
+    affected = set(token_ids)
+    for token in tokens:
+        if token.in_accepted_phrase:
+            affected.update(unmerge_phrase(conn, document_id, token.id))
+    group_starts = {
+        token.phrase_start_position
+        for token in tokens
+        if token.phrase_start_position is not None and not token.in_accepted_phrase
+    }
 
     chosen_ids: list[int] = []
     new_rows: list[dict] = []
@@ -348,6 +853,9 @@ def select_reading(
             )
         },
     )
+    for group_start in group_starts:
+        affected.update(_regloss_predicate_group(conn, document_id, group_start))
+    return list(affected)
 
 
 def correct_reading(conn, document_id: int, token_id: int, reading_hiragana: str) -> None:

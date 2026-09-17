@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -30,7 +31,20 @@ from typing import Optional
 from jamdict import Jamdict
 from sqlalchemy import text
 
-from app.tokenization import TokenRecord, a_split_decomposition, heteronym_readings, mixed_reading, to_hiragana
+from app.grammar import grammar_note, is_helper_verb
+from app.tokenization import (
+    TokenRecord,
+    a_split_decomposition,
+    citation_reading,
+    conflict_option_value,
+    conjugation_type_of,
+    furigana_spans_for_reading,
+    heteronym_readings,
+    mixed_reading,
+    project_citation_reading,
+    to_hiragana,
+    to_katakana,
+)
 
 _SKIP_POS_MAJOR = {"補助記号", "空白"}
 
@@ -283,6 +297,116 @@ def rank_senses(entries: list[dict], sudachi_major: str) -> list[dict]:
     return [sense for _, sense in scored]
 
 
+def _get_raw_conn() -> sqlite3.Connection:
+    """A thread-local connection straight to JMDict's sqlite database, for
+    headword checks too frequent to pay for Jamdict building whole entries."""
+    conn = getattr(_jam_local, "raw_conn", None)
+    if conn is None:
+        conn = sqlite3.connect(_get_jamdict().db_file)
+        _jam_local.raw_conn = conn
+    return conn
+
+
+def _prefix_upper_bound(s: str) -> str:
+    """The smallest string that sorts after every string starting with `s`."""
+    return s[:-1] + chr(ord(s[-1]) + 1)
+
+
+def phrase_prefix_state(candidate: str) -> tuple[bool, bool]:
+    """Whether `candidate` is a JMDict headword, and whether a longer headword
+    starts with it."""
+    conn = _get_raw_conn()
+    # A range scan rather than LIKE 'x%', which SQLite only runs as one for
+    # ASCII: on Japanese text it was ~1000x slower.
+    hi = _prefix_upper_bound(candidate)
+    is_exact = (
+        conn.execute(
+            "SELECT 1 FROM Kanji WHERE text = ? UNION ALL SELECT 1 FROM Kana WHERE text = ? LIMIT 1",
+            (candidate, candidate),
+        ).fetchone()
+        is not None
+    )
+    has_longer = (
+        conn.execute(
+            "SELECT 1 FROM Kanji WHERE text > ? AND text < ? "
+            "UNION ALL SELECT 1 FROM Kana WHERE text > ? AND text < ? LIMIT 1",
+            (candidate, hi, candidate, hi),
+        ).fetchone()
+        is not None
+    )
+    return is_exact, has_longer
+
+
+def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
+    """Every kana form JMDict lists for the entries with `text` as a headword,
+    as (not common, entry order, kana form), so sorting puts common readings
+    first."""
+    jam = _get_jamdict()
+    result = jam.lookup(text, lookup_chars=False, lookup_ne=False)
+    scored: list[tuple[bool, int, str]] = []
+    for order, e in enumerate(result.entries):
+        matches_kanji = any(k.text == text for k in e.kanji_forms)
+        matches_kana = any(k.text == text for k in e.kana_forms)
+        if not matches_kanji and not matches_kana:
+            continue
+        if matches_kana and not matches_kanji:
+            candidates = [k for k in e.kana_forms if k.text == text]
+        else:
+            candidates = [k for k in e.kana_forms if not k.restr or text in k.restr] or e.kana_forms
+        for k in candidates:
+            has_priority = bool(k.pri) or any(kj.pri for kj in e.kanji_forms if kj.text == text)
+            scored.append((not has_priority, order, k.text))
+    return scored
+
+
+def resolve_phrase_reading(surface: str) -> Optional[str]:
+    """The hiragana reading JMDict gives `surface` as a headword, common ones
+    first, or None if it isn't one. It can differ from its tokens' readings:
+    期 alone reads き, but この期に及んで has ご."""
+    scored = _scored_headword_kana(surface)
+    if not scored:
+        return None
+    _, _, kana_text = min(scored, key=lambda row: row[:2])
+    return to_hiragana(kana_text)
+
+
+def search_readings(dictionary_form: str) -> list[str]:
+    """Every distinct katakana reading JMDict lists for `dictionary_form` as
+    a headword, in any part of speech, common ones first. Broader than
+    heteronym_readings, which keeps to the token's part of speech and so
+    misses 期 read ご."""
+    scored = sorted(_scored_headword_kana(dictionary_form), key=lambda row: row[:2])
+    readings: list[str] = []
+    for _, _, kana_text in scored:
+        reading = to_katakana(kana_text)
+        if reading not in readings:
+            readings.append(reading)
+    return readings
+
+
+def alternate_reading_options(
+    surface: str,
+    reading_katakana: str,
+    dictionary_form: str,
+    normalized_form: str,
+) -> list[dict]:
+    """Every other reading JMDict has for `dictionary_form`, as reading
+    options for an occurrence of it on `surface`, which can be inflected."""
+    dict_form_citation = citation_reading(dictionary_form)
+    conjugation_type = conjugation_type_of(normalized_form)
+
+    options = []
+    for alt_citation in search_readings(dictionary_form):
+        if alt_citation == dict_form_citation:
+            continue
+        alt_surface_reading = project_citation_reading(alt_citation, reading_katakana, dict_form_citation, conjugation_type)
+        alt_spans = furigana_spans_for_reading(surface, alt_surface_reading)
+        options.append(
+            conflict_option_value(to_hiragana(alt_surface_reading), alt_spans, to_hiragana(alt_citation))
+        )
+    return options
+
+
 def is_lexical(part_of_speech) -> bool:
     """False for punctuation and whitespace."""
     return part_of_speech[0] not in _SKIP_POS_MAJOR
@@ -318,6 +442,17 @@ def gloss_key(record: TokenRecord) -> Optional[GlossKey]:
     # For a flagged token, this is also the key of the default option
     # create_conflicts selects.
     return citation_key(record.normalized_form)
+
+
+def own_gloss_key(normalized_form: str, part_of_speech, selected_reading: Optional[str]) -> Optional[GlossKey]:
+    """The gloss key for a stored token: under `selected_reading`, if a
+    reading was picked, else its citation form's, or None if it isn't
+    glossable."""
+    if selected_reading is not None:
+        return (normalized_form, selected_reading)
+    if is_lexical(part_of_speech):
+        return citation_key(normalized_form)
+    return None
 
 
 @dataclass
@@ -367,6 +502,31 @@ def _lookup(lookup_form: str, reading: str, alt_lookup_form: Optional[str] = Non
     return found, "jmdict"
 
 
+def gloss_piece(
+    surface: str,
+    reading: str,
+    entries,
+    source: str,
+    part_of_speech,
+    *,
+    senses_pos_major: Optional[str] = None,
+    note: Optional[str] = None,
+) -> dict:
+    """A composite gloss piece for `surface` read as `reading`, with the
+    senses in `entries` ranked for `part_of_speech`, a full Sudachi tag, or
+    for `senses_pos_major` when the piece's role differs from its tag (a
+    helper verb like the みる of 見てみる, ranked as 助動詞). `note` explains
+    a grammar word."""
+    pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
+    return {
+        "surface": surface,
+        "reading": reading,
+        "senses": rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else [],
+        "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))} - {reading}),
+        "note": note,
+    }
+
+
 def _add_composites(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[object, str]]) -> None:
     """For each key — a word with no JMDict entry of its own — replace its
     empty result in new_rows with a gloss built from its SplitMode.A pieces,
@@ -396,30 +556,141 @@ def _add_composites(conn, keys: list[GlossKey], new_rows: dict[GlossKey, tuple[o
         result_pieces = []
         for surface, reading, pos in pieces:
             entries, source = cached.get((surface, reading)) or new_rows[(surface, reading)]
-            result_pieces.append(
-                {
-                    "surface": surface,
-                    "reading": reading,
-                    "senses": rank_senses(entries, pos[0]) if source in ("jmdict", "english_stub") else [],
-                    "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, pos)} - {reading}),
-                }
-            )
+            result_pieces.append(gloss_piece(surface, reading, entries, source, pos))
         if any(p["senses"] for p in result_pieces):
             new_rows[key] = ({"pieces": result_pieces}, "composite")
 
 
-def plan_glosses(conn, requests: Iterable[tuple[GlossKey, Optional[str]]]) -> GlossPlan:
-    """Resolve each requested key against the gloss cache and compute every
-    miss (from JMDict, the English stub, or the compound fallback), without
-    writing anything. Each request pairs a key with an alternate spelling to
-    try when the key's own lookup_form has no JMDict entry; the first one
-    given for a key is used."""
+@dataclass(frozen=True)
+class GroupPart:
+    """A token attached to the word a group gloss is built on."""
+
+    dictionary_form: str
+    normalized_form: str
+    part_of_speech: tuple
+    # Hiragana, as read on the page.
+    reading: str
+
+    @classmethod
+    def of(cls, token, reading: str) -> "GroupPart":
+        """The part for `token`, a token or token row, read as `reading`."""
+        return cls(token.dictionary_form, token.normalized_form, tuple(token.part_of_speech), reading)
+
+
+@dataclass(frozen=True)
+class GroupGlossRequest:
+    """A composite gloss for a word plus the grammar attached to it
+    (欲し + てる/ん/だ/って): the word's own gloss as the first piece, then a
+    piece per attached token."""
+
+    # The word's own gloss key (a verb's citation key, or an idiom's
+    # headword), and an alternate spelling to try for it.
+    base_key: GlossKey
+    base_alt: Optional[str]
+    base_part_of_speech: tuple
+    attached: tuple[GroupPart, ...]
+    # The whole group's reading, as on the page.
+    reading: str
+
+    @property
+    def key(self) -> GlossKey:
+        # "＋" never appears in a JMDict headword, so this can't collide with
+        # a plain lookup's key. Dictionary forms keep apart groups spelled
+        # the same with different grammar (ん as ぬ vs as の).
+        return ("＋".join([self.base_key[0], *(part.dictionary_form for part in self.attached)]), self.reading)
+
+
+def predicate_group_request(members, readings: list[str], head_key: GlossKey) -> GroupGlossRequest:
+    """The gloss request for a predicate group of `members`, tokens or token
+    rows read as `readings` in hiragana, with its head glossed under
+    `head_key`."""
+    head = members[0]
+    return GroupGlossRequest(
+        base_key=head_key,
+        base_alt=head.dictionary_form,
+        base_part_of_speech=tuple(head.part_of_speech),
+        attached=tuple(GroupPart.of(member, reading) for member, reading in zip(members[1:], readings[1:])),
+        reading="".join(readings),
+    )
+
+
+def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object, str]]) -> list[dict]:
+    """The composite pieces for `request`, with its base's and helper verbs'
+    (entries, source) from `found`."""
+    entries, source = found[request.base_key]
+    if source == "composite":
+        pieces = list(entries["pieces"])
+    else:
+        pieces = [gloss_piece(request.base_key[0], request.base_key[1], entries, source, request.base_part_of_speech)]
+    for part in request.attached:
+        note = grammar_note(part.normalized_form, part.part_of_speech)
+        if is_helper_verb(part):
+            entries, source = found[citation_key(part.normalized_form)]
+            pieces.append(
+                gloss_piece(
+                    part.dictionary_form,
+                    mixed_reading(part.dictionary_form),
+                    entries,
+                    source,
+                    part.part_of_speech,
+                    senses_pos_major="助動詞",
+                    note=note,
+                )
+            )
+        else:
+            pieces.append(
+                {"surface": part.dictionary_form, "reading": part.reading, "senses": [], "ambiguous_readings": [], "note": note}
+            )
+    # A group's words keep their own reading options on their tokens, so a
+    # piece doesn't flag them again.
+    return [{**piece, "ambiguous_readings": []} for piece in pieces]
+
+
+def _add_group_glosses(conn, groups: list[GroupGlossRequest], cached_ids: dict, new_rows: dict) -> None:
+    """Add a composite row to `new_rows` for each of `groups` not in
+    `cached_ids`, and a row for each of their pieces' lookups not cached."""
+    missing = {group.key: group for group in groups if group.key not in cached_ids}
+    if not missing:
+        return
+    alternates: dict[GlossKey, Optional[str]] = {}
+    for group in missing.values():
+        alternates.setdefault(group.base_key, group.base_alt)
+        for part in group.attached:
+            if is_helper_verb(part):
+                alternates.setdefault(citation_key(part.normalized_form), part.dictionary_form)
+
+    found = {
+        key: (row.entries, row.source)
+        for key, row in _cached_rows(conn, alternates.keys() - new_rows.keys(), with_entries=True).items()
+    }
+    uncached = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in found and key not in new_rows}
+    _add_composites(conn, [key for key, (entries, source) in uncached.items() if source == "jmdict" and not entries], uncached)
+    new_rows.update(uncached)
+    found.update({key: new_rows[key] for key in alternates.keys() - found.keys()})
+
+    for key, group in missing.items():
+        new_rows[key] = ({"pieces": _group_pieces(group, found)}, "composite")
+
+
+def plan_glosses(
+    conn,
+    requests: Iterable[tuple[GlossKey, Optional[str]]],
+    groups: Iterable[GroupGlossRequest] = (),
+) -> GlossPlan:
+    """Resolve each requested key, and each of `groups`' composite keys,
+    against the gloss cache and compute every miss (from JMDict, the English
+    stub, or the compound fallback), without writing anything. Each request
+    pairs a key with an alternate spelling to try when the key's own
+    lookup_form has no JMDict entry; the first one given for a key is
+    used."""
+    groups = list(groups)
     alternates: dict[GlossKey, Optional[str]] = {}
     for key, alt in requests:
         alternates.setdefault(key, alt)
-    cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates).items()}
+    cached_ids = {key: row.id for key, row in _cached_rows(conn, alternates.keys() | {g.key for g in groups}).items()}
     new_rows = {key: _lookup(*key, alt) for key, alt in alternates.items() if key not in cached_ids}
     _add_composites(conn, [key for key, (entries, source) in new_rows.items() if source == "jmdict" and not entries], new_rows)
+    _add_group_glosses(conn, groups, cached_ids, new_rows)
     return GlossPlan(cached_ids, new_rows)
 
 
@@ -494,15 +765,10 @@ def attach_glosses(conn, document_id: int) -> None:
     keys: dict[int, GlossKey] = {}
     requests = []
     for row in unlinked:
-        if row.selected_reading is not None:
-            # A token with a selected reading recorded (a resolved pick, or a
-            # user's own correction) is glossed under THAT reading, not
-            # Sudachi's default — otherwise a real correction silently
-            # reverts the moment this runs again for any reason.
-            key = (row.normalized_form, row.selected_reading)
-        elif is_lexical(row.part_of_speech):
-            key = citation_key(row.normalized_form)
-        else:
+        # Under a picked reading, or a correction would revert whenever this
+        # runs.
+        key = own_gloss_key(row.normalized_form, row.part_of_speech, row.selected_reading)
+        if key is None:
             continue
         keys[row.id] = key
         requests.append((key, row.dictionary_form))

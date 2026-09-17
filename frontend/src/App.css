@@ -669,6 +669,36 @@
   border-radius: 2px;
 }
 
+/* An accepted phrase's tokens: one continuous underline across them,
+   rounded only at its ends. */
+.token.phrase-merged {
+  border-bottom: 2px solid var(--success);
+}
+
+.token.phrase-merged-prev {
+  margin-left: -2px;
+}
+
+.token.phrase-merged:not(.phrase-merged-prev) {
+  border-bottom-left-radius: 2px;
+}
+
+.token.phrase-merged:not(.phrase-merged-next) {
+  border-bottom-right-radius: 2px;
+}
+
+/* Every token of the group the hovered or pinned token is merged into,
+   highlighted as that token is, so the group reads as one word. */
+.token.group-looked-at {
+  background-color: var(--border);
+}
+
+/* A token that starts a phrase suggestion: dashed, unlike an accepted
+   phrase's solid underline. */
+.token.has-phrase-suggestion {
+  border-bottom: 2px dashed var(--success);
+}
+
 /* The document page's content above the lyrics, laid out as the page is: a
    container only so its height can be measured, as --header-height. */
 .document-header {
@@ -748,6 +778,35 @@ label.apply-to-all {
   margin-top: 0.4rem;
 }
 
+.phrase-suggestion {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.3rem;
+  margin-top: 0.4rem;
+}
+
+/* A phrase suggestion, set apart as the popup's main action. */
+.phrase-suggestion-promoted {
+  margin-top: 0;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid color-mix(in srgb, var(--success) 45%, var(--border));
+  border-radius: 6px;
+  background-color: color-mix(in srgb, var(--success) 12%, transparent);
+}
+
+.phrase-combine-option {
+  border-color: var(--success);
+  background-color: var(--success);
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.phrase-combine-option:hover:not(:disabled) {
+  border-color: var(--success);
+  filter: brightness(1.08);
+}
 
 /* The line being sung, in the color and opacity chosen on the document
    page: on the text's inline pieces (tokens, or the timing editor's), so
