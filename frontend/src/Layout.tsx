@@ -43,7 +43,9 @@ export function Layout() {
         </div>
       </nav>
       <main className="content">
-        <Outlet />
+        <div className="content-inner">
+          <Outlet />
+        </div>
       </main>
       <aside className="right-panel">
         <JmdictSearch />

@@ -4,7 +4,8 @@
 
 .app-layout {
   display: flex;
-  min-height: 100vh;
+  height: 100vh;
+  overflow: hidden;
 }
 
 .sidebar {
@@ -83,12 +84,21 @@
   margin-bottom: 0.25rem;
 }
 
+/* Its own scroll container (rather than the page/window) so its scrollbar
+   sits at the boundary with .right-panel instead of the far edge of the
+   screen, past the floating JMDict lookup. */
 .content {
   flex: 1;
   min-width: 0;
-  padding: 2rem;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.content-inner {
+  box-sizing: border-box;
   max-width: 960px;
   margin: 0 auto;
+  padding: 2rem;
 }
 
 /* Floats like .sidebar: pinned to the viewport so the lookup is reachable

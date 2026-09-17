@@ -1196,7 +1196,7 @@ const TokenizedText = memo(function TokenizedText({
     requestAnimationFrame(() => {
       const coveredTo = panelRef.current?.getBoundingClientRect().bottom ?? 0
       const top = element.getBoundingClientRect().top
-      if (top < coveredTo) window.scrollBy({ top: top - coveredTo - 8 })
+      if (top < coveredTo) element.closest('.content')?.scrollBy({ top: top - coveredTo - 8 })
     })
   }
 
@@ -1701,7 +1701,7 @@ const TimingEditor = memo(function TimingEditor({
     if (!rows || !row) return
     const next = rows[line + 1]
     const { top, height } = row.getBoundingClientRect()
-    window.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
+    row.closest('.content')?.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
     // Timing that began with the next line off screen brings it on.
     next?.scrollIntoView({ block: 'nearest' })
   }
