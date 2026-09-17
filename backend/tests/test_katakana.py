@@ -50,18 +50,29 @@ class TestKatakanaGlosses:
         assert gloss.source == "composite"
         assert gloss.entries["read_as"] == "こころのこえ"
         [piece] = gloss.entries["pieces"]
+        # Written as the entry usually is, not as the katakana reads it out.
+        assert (piece["surface"], piece["reading"]) == ("心の声", "こころのこえ")
         assert "voice of one's heart" in piece["senses"][0]["gloss"]
 
     def test_grammar_words_get_notes(self, db_conn):
         gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "キミトボクノミライ", "キミトボクノミライ"))
 
         assert [(p["surface"], p["note"] is not None) for p in gloss.entries["pieces"]] == [
-            ("きみ", False),
+            ("君", False),
             ("と", True),
             ("僕", False),
             ("の", True),
             ("未来", False),
         ]
+
+    def test_a_words_kanji_follows_the_sense_shown_first(self, db_conn):
+        # あう is 会う, 合う, or 遭う; 会う is the entry the first sense comes
+        # from. ナイテル's なく is 泣く rather than 鳴く the same way.
+        gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "アイタイ", "アイタイ"))
+        assert [p["surface"] for p in gloss.entries["pieces"]] == ["会う", "たい"]
+
+        gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "ナイテル", "ナイテル"))
+        assert gloss.entries["pieces"][0]["surface"] == "泣く"
 
     def test_katakana_with_its_own_entry_is_unchanged(self, db_conn):
         gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "テレビ", "テレビ"))

@@ -502,6 +502,17 @@ def _lookup(lookup_form: str, reading: str, alt_lookup_form: Optional[str] = Non
     return found, "jmdict"
 
 
+def _kanji_spelling(entries, senses) -> Optional[str]:
+    """How the entry the first of `senses` comes from is usually written, if
+    it's written with kanji at all (こころのこえ -> 心の声)."""
+    entry = next((e for e in entries if e["idseq"] == senses[0]["entry_idseq"]), None) if senses else None
+    forms = entry["kanji_forms"] if entry else []
+    if not forms:
+        return None
+    # A form JMDict marks common, or else the one it lists first.
+    return next((form["text"] for form in forms if form["pri"]), forms[0]["text"])
+
+
 def gloss_piece(
     surface: str,
     reading: str,
@@ -511,17 +522,21 @@ def gloss_piece(
     *,
     senses_pos_major: Optional[str] = None,
     note: Optional[str] = None,
+    spell_with_kanji: bool = False,
 ) -> dict:
     """A composite gloss piece for `surface` read as `reading`, with the
     senses in `entries` ranked for `part_of_speech`, a full Sudachi tag, or
     for `senses_pos_major` when the piece's role differs from its tag (a
     helper verb like the みる of 見てみる, ranked as 助動詞). `note` explains
-    a grammar word."""
+    a grammar word. `spell_with_kanji` shows the piece as its entry is
+    usually written, for a word only read as kana here (see
+    app/katakana.py)."""
     pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
+    senses = rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else []
     return {
-        "surface": surface,
+        "surface": (spell_with_kanji and _kanji_spelling(entries, senses)) or surface,
         "reading": reading,
-        "senses": rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else [],
+        "senses": senses,
         "ambiguous_readings": sorted({to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))} - {reading}),
         "note": note,
     }
@@ -614,14 +629,26 @@ def predicate_group_request(members, readings: list[str], head_key: GlossKey) ->
     )
 
 
-def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object, str]]) -> list[dict]:
+def _group_pieces(
+    request: GroupGlossRequest, found: dict[GlossKey, tuple[object, str]], spell_with_kanji: bool = False
+) -> list[dict]:
     """The composite pieces for `request`, with its base's and helper verbs'
-    (entries, source) from `found`."""
+    (entries, source) from `found`. `spell_with_kanji` passes through to
+    gloss_piece."""
     entries, source = found[request.base_key]
     if source == "composite":
         pieces = list(entries["pieces"])
     else:
-        pieces = [gloss_piece(request.base_key[0], request.base_key[1], entries, source, request.base_part_of_speech)]
+        pieces = [
+            gloss_piece(
+                request.base_key[0],
+                request.base_key[1],
+                entries,
+                source,
+                request.base_part_of_speech,
+                spell_with_kanji=spell_with_kanji,
+            )
+        ]
     for part in request.attached:
         note = grammar_note(part.normalized_form, part.part_of_speech)
         if is_helper_verb(part):
@@ -635,6 +662,7 @@ def _group_pieces(request: GroupGlossRequest, found: dict[GlossKey, tuple[object
                     part.part_of_speech,
                     senses_pos_major="助動詞",
                     note=note,
+                    spell_with_kanji=spell_with_kanji,
                 )
             )
         else:
@@ -707,7 +735,13 @@ def _add_katakana_readings(conn, keys: list[GlossKey], new_rows: dict[GlossKey, 
         pieces = [
             piece
             for unit in units
-            for piece in (_group_pieces(unit, found) if isinstance(unit, GroupGlossRequest) else [_grammar_piece(unit)])
+            # Written as the words usually are (心の声), not as the katakana
+            # read them out (こころのこえ).
+            for piece in (
+                _group_pieces(unit, found, spell_with_kanji=True)
+                if isinstance(unit, GroupGlossRequest)
+                else [_grammar_piece(unit)]
+            )
         ]
         new_rows[key] = ({"pieces": pieces, "read_as": to_hiragana(key[0])}, "composite")
 
