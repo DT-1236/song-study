@@ -5,10 +5,13 @@ as 青 + き線, because き線 is a dictionary word of its own (饋線, an
 electrical feeder line). Re-tokenizing the pair with the boundary moved
 gives 青き + 線.
 
-Each rule in `_RULES` decides which pair it applies to and what its new
-boundary must look like; _move_boundary does the re-tokenizing for all of
-them, and only ever takes characters from a token with no dictionary entry
-of its own.
+A dictionary word spanning a boundary can misplace any of them, not only a
+classical adjective's ending; that ending is where Sudachi loses often
+enough to matter, and where its own 文語形容詞 tag says whether the repair
+worked. Each rule in `_RULES` decides which pair it applies to and what its
+new boundary must look like; _move_boundary does the re-tokenizing for all
+of them, and only ever takes characters from a token with no dictionary
+entry of its own.
 """
 
 from __future__ import annotations
@@ -21,11 +24,13 @@ _ADJECTIVE_ENDINGS = ("き", "く", "し")
 
 
 def _is_dictionary_word(morpheme) -> bool:
+    """Whether JMDict has `morpheme` as a headword, as written or under its
+    dictionary form."""
     # Imported here: app.glosses builds on app.tokenization, which builds on
     # this module.
-    from app.glosses import phrase_prefix_state
+    from app.glosses import is_headword
 
-    return any(phrase_prefix_state(form)[0] for form in (morpheme.surface(), morpheme.normalized_form()))
+    return any(is_headword(form) for form in (morpheme.surface(), morpheme.normalized_form()))
 
 
 def _move_boundary(left, right, chars: int, tokenize: Callable, accept: Callable) -> Optional[list]:

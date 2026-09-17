@@ -8,7 +8,7 @@ a coincidence, like 今日/は spelling こんにちは or し/たく spelling �
 
 from __future__ import annotations
 
-from app.glosses import phrase_prefix_state, resolve_phrase_reading
+from app.glosses import is_headword, phrase_prefix_state, resolve_phrase_reading
 from app.grammar import attached_end
 from app.tokenization import TokenRecord
 
@@ -58,7 +58,7 @@ def find_phrase_suggestions(records: list[TokenRecord]) -> None:
             # headword itself.
             if records[j].dictionary_form != records[j].surface:
                 citation_candidate = current + records[j].dictionary_form
-                if phrase_prefix_state(citation_candidate)[0]:
+                if is_headword(citation_candidate):
                     best_end = j + 1
                     best_candidate = citation_candidate
 

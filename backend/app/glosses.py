@@ -337,6 +337,11 @@ def phrase_prefix_state(candidate: str) -> tuple[bool, bool]:
     return is_exact, has_longer
 
 
+def is_headword(text: str) -> bool:
+    """Whether JMDict has `text` as a headword, written either way."""
+    return phrase_prefix_state(text)[0]
+
+
 def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
     """Every kana form JMDict lists for the entries with `text` as a headword,
     as (not common, entry order, kana form), so sorting puts common readings
