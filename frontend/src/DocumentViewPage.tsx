@@ -923,6 +923,14 @@ function GlossDetails({ token }: { token: Token }) {
   )
 }
 
+// The popup is centered under its token by default (see .gloss-popup's
+// left/transform in App.css), which can push it under the floating sidebar
+// or JMDict column for a token near either edge of the lyrics — both sit
+// outside .content, which clips anything that overflows its own box. Nudge
+// it back inside .content's bounds instead, so it's never covered or
+// clipped by either floating column.
+const EDGE_MARGIN_PX = 8
+
 function GlossPopup({
   token,
   instances,
@@ -938,9 +946,44 @@ function GlossPopup({
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
+  const popupRef = useRef<HTMLDivElement>(null)
+  // Mirrors shiftPx for reposition() below, which is registered once (on
+  // mount) as the resize listener: a ref, unlike the state variable it was
+  // closed over at that point, always reads the latest applied shift.
+  const shiftRef = useRef(0)
+  const [shiftPx, setShiftPx] = useState(0)
+
+  useLayoutEffect(() => {
+    function reposition() {
+      const popup = popupRef.current
+      const container = popup?.closest('.content')
+      if (!popup || !container) return
+      const popupRect = popup.getBoundingClientRect()
+      const containerRect = container.getBoundingClientRect()
+      // Undoes any previously applied shift before measuring, so repeated
+      // overflow in the same direction (e.g. a resize that shrinks .content
+      // further) doesn't compound.
+      const naturalLeft = popupRect.left - shiftRef.current
+      const naturalRight = popupRect.right - shiftRef.current
+      let next = 0
+      if (naturalLeft < containerRect.left + EDGE_MARGIN_PX) {
+        next = containerRect.left + EDGE_MARGIN_PX - naturalLeft
+      } else if (naturalRight > containerRect.right - EDGE_MARGIN_PX) {
+        next = containerRect.right - EDGE_MARGIN_PX - naturalRight
+      }
+      shiftRef.current = next
+      setShiftPx(next)
+    }
+    reposition()
+    window.addEventListener('resize', reposition)
+    return () => window.removeEventListener('resize', reposition)
+  }, [])
+
   return (
     <div
+      ref={popupRef}
       className="gloss-popup"
+      style={shiftPx ? { transform: `translateX(calc(-50% + ${shiftPx}px))` } : undefined}
       onClick={(e) => e.stopPropagation()}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
