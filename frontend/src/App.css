@@ -623,6 +623,36 @@
 
 .token {
   position: relative;
+  /* Its own stacking context, so the ::before below stays behind this
+     token's text without escaping to paint behind unrelated content
+     elsewhere on the page (a plain positioned element with no z-index
+     doesn't contain a negative z-index child). */
+  z-index: 0;
+  /* Reserved so a token gaining/losing an underline state below doesn't
+     change the line's height. */
+  border-bottom: 2px solid transparent;
+}
+
+/* Raised above every sibling token (all at the default z-index: 0 above),
+   so a later token's text can't paint over this one's open popup — without
+   this, the popup's own z-index: 10 only wins within its own token's
+   stacking context, not against the ones after it in the document. */
+.token:has(.gloss-popup) {
+  z-index: 20;
+}
+
+/* A highlight's background paints here, behind the text, rather than on
+   .token itself. A token's own background-color affects whether its
+   furigana is allowed to overhang into it (see the ruby layout spec) — so
+   toggling background-color directly on .token can silently widen a
+   neighboring ruby token by a couple of pixels and shift the line. This
+   layer keeps .token's own background always transparent. */
+.token::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
 }
 
 /* Scrolling a token into view from below stops at the top of its line, not
@@ -646,9 +676,18 @@
   border-radius: 2px;
 }
 
+/* Stronger than .phrase-outline's mere boundary, so the exact token being
+   looked at (as opposed to the rest of its token group, see .phrase-outline
+   below) is never in doubt. Solid, not tinted, so it isn't lost against
+   the page's own dark background. */
 .token.has-gloss:hover,
 .token.has-gloss.pinned {
-  background-color: var(--border);
+  color: var(--accent-text);
+}
+
+.token.has-gloss:hover::before,
+.token.has-gloss.pinned::before {
+  background-color: var(--accent);
 }
 
 /* Highlighted, not just outlined, to stand apart from the dashed outlines
@@ -658,7 +697,11 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
   border-radius: 2px;
-  background-color: color-mix(in srgb, var(--accent) 30%, transparent);
+  color: var(--accent-text);
+}
+
+.token.has-gloss.selected::before {
+  background-color: var(--accent);
 }
 
 /* Tokens a decision for the highlighted or selected one could also apply
@@ -670,9 +713,17 @@
 }
 
 /* An accepted phrase's tokens: one continuous underline across them,
-   rounded only at its ends. */
+   rounded only at its ends — just the bottom line of .phrase-outline below,
+   so a permanently-accepted phrase reads as the same shape as a
+   temporarily highlighted one. Box-shadow, like .phrase-outline, so it
+   paints without affecting layout. */
 .token.phrase-merged {
-  border-bottom: 2px solid var(--success);
+  box-shadow: inset 0 -2px 0 0 var(--success);
+  /* Reset before the two rules below round only the true ends: .has-gloss's
+     own border-radius would otherwise leak through on the corners neither
+     rule touches, rounding an internal token boundary that should be a
+     flat seam and showing as a small notch in the underline. */
+  border-radius: 0;
 }
 
 .token.phrase-merged-prev {
@@ -680,17 +731,59 @@
 }
 
 .token.phrase-merged:not(.phrase-merged-prev) {
-  border-bottom-left-radius: 2px;
+  border-bottom-left-radius: 3px;
 }
 
 .token.phrase-merged:not(.phrase-merged-next) {
-  border-bottom-right-radius: 2px;
+  border-bottom-right-radius: 3px;
 }
 
-/* Every token of the group the hovered or pinned token is merged into,
-   highlighted as that token is, so the group reads as one word. */
-.token.group-looked-at {
-  background-color: var(--border);
+/* One outline around the whole token group (phrase or predicate group) the
+   pinned or hovered token belongs to — or, for a standalone token, around
+   just that token — distinct from .eligible's dashed "same word elsewhere"
+   outline and from the stronger background above that marks the specific
+   token looked at. Independent of playback: see .token.playing instead.
+   Drawn with inset box-shadow rather than outline: outline always wraps
+   each element's own box, so a multi-token span would show one rectangle
+   per token; inset box-shadow can draw just one edge at a time (box-shadow
+   is paint only, like outline, so this doesn't affect layout either), so
+   the top and bottom lines go on every member but the left and right caps
+   go only on the span's first and last token, reading as one shape. */
+.token.phrase-outline {
+  box-shadow:
+    inset 0 2px 0 0 var(--success),
+    inset 0 -2px 0 0 var(--success);
+  /* Reset for the same reason as .phrase-merged above: an internal token
+     boundary must stay square, or its leaked corner radius shows as a
+     notch in the top/bottom lines. */
+  border-radius: 0;
+}
+
+.token.phrase-outline.phrase-outline-start {
+  box-shadow:
+    inset 0 2px 0 0 var(--success),
+    inset 0 -2px 0 0 var(--success),
+    inset 2px 0 0 0 var(--success);
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+.token.phrase-outline.phrase-outline-end {
+  box-shadow:
+    inset 0 2px 0 0 var(--success),
+    inset 0 -2px 0 0 var(--success),
+    inset -2px 0 0 0 var(--success);
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+}
+
+.token.phrase-outline.phrase-outline-start.phrase-outline-end {
+  box-shadow:
+    inset 0 2px 0 0 var(--success),
+    inset 0 -2px 0 0 var(--success),
+    inset 2px 0 0 0 var(--success),
+    inset -2px 0 0 0 var(--success);
+  border-radius: 3px;
 }
 
 /* A token that starts a phrase suggestion: dashed, unlike an accepted
@@ -810,9 +903,24 @@ label.apply-to-all {
 
 /* The line being sung, in the color and opacity chosen on the document
    page: on the text's inline pieces (tokens, or the timing editor's), so
-   the furigana above them stays clear, as the line's box wouldn't. */
-.token.playing,
-.timing-row.playing .timing-text > span {
+   the furigana above them stays clear, as the line's box wouldn't.
+   Painted on ::before rather than the piece itself for the same reason as
+   .token.group-looked-at above: a piece's own background-color affects
+   ruby overhang from its neighbors, which would shift the line. */
+.timing-text > span {
+  position: relative;
+  z-index: 0;
+}
+
+.timing-text > span::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+
+.token.playing::before,
+.timing-row.playing .timing-text > span::before {
   background-color: color-mix(in srgb, var(--highlight-color) var(--highlight-opacity), transparent);
 }
 
@@ -823,8 +931,8 @@ label.apply-to-all {
   transform: translateX(-50%);
   z-index: 10;
   margin-top: 0.4rem;
-  min-width: 10rem;
-  max-width: 20rem;
+  min-width: 20rem;
+  max-width: 40rem;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border);
   border-radius: 6px;

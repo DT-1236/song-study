@@ -189,6 +189,14 @@ function isMerged(token: Token): boolean {
   return token.phrase_start_position !== null
 }
 
+// A token's fused "token group": every token sharing its phrase_start_position,
+// or just itself if it isn't merged into one. Used to outline the whole span
+// as one unit — a group of one for a standalone token — rather than only the
+// token that's actually pinned, hovered, or playing.
+function phraseSpanKey(token: Token, index: number): string {
+  return token.phrase_start_position !== null ? `phrase:${token.phrase_start_position}` : `solo:${index}`
+}
+
 // Whether this token is part of an accepted phrase, whose tokens are glossed
 // as the phrase's headword rather than as themselves.
 function isInAcceptedPhrase(token: Token): boolean {
@@ -1208,23 +1216,29 @@ const TokenizedText = memo(function TokenizedText({
 
   const kind = selected.length > 0 ? selectionKind(tokens, keys, selected) : null
   const focus = lastAdded !== null && selected.includes(lastAdded) ? lastAdded : selected[selected.length - 1]
-  // The group whose tokens are outlined as eligible to decide for together:
-  // the selection's (a run has none), or else the pinned or hovered token's.
-  const lookedAt = indexById.get(pinnedId ?? hoveredId ?? -1)
-  const eligibleKey =
-    selected.length > 0 ? (kind === 'group' ? keys[selected[0]] : null) : lookedAt !== undefined ? keys[lookedAt] : null
-  // The group the pinned or hovered token is merged into, highlighted as
-  // one word while there's no selection.
-  const lookedAtGroup = selected.length === 0 && lookedAt !== undefined ? tokens[lookedAt].phrase_start_position : null
+  // Pinning and hovering outline independently, both at once: pinning a
+  // token's gloss open shouldn't lose its own mirrors/token group just
+  // because the mouse moves on to preview a different word (hover alone
+  // never opens a second popup though — see isActive below, which keeps
+  // pinnedId's own priority for that).
+  const pinnedAt = indexById.get(pinnedId ?? -1)
+  const hoveredAt = indexById.get(hoveredId ?? -1)
+  const eligibleKeys = new Set<string>()
+  if (selected.length > 0) {
+    if (kind === 'group') eligibleKeys.add(keys[selected[0]])
+  } else {
+    if (pinnedAt !== undefined) eligibleKeys.add(keys[pinnedAt])
+    if (hoveredAt !== undefined) eligibleKeys.add(keys[hoveredAt])
+  }
 
-  // Whether the token at `index` is outlined as eligible — not the looked-at
-  // token itself, which is already highlighted.
+  // Whether the token at `index` is outlined as eligible — not the pinned or
+  // hovered token itself, which is already highlighted.
   function isEligible(index: number): boolean {
     return (
       hasPopup(tokens[index]) &&
       !selected.includes(index) &&
-      keys[index] === eligibleKey &&
-      (selected.length > 0 || index !== lookedAt)
+      eligibleKeys.has(keys[index]) &&
+      (selected.length > 0 || (index !== pinnedAt && index !== hoveredAt))
     )
   }
 
@@ -1247,6 +1261,21 @@ const TokenizedText = memo(function TokenizedText({
     })
     return { lineOf, firstWithText }
   }, [tokens])
+
+  // The token-group spans outlined right now: the pinned token's and the
+  // hovered token's, both at once (each may be a span of one) — while
+  // nothing's selected, a selection's own tokens outline via .selected
+  // instead. Independent of playback — the line being sung gets its own
+  // .playing highlight (see below), not every phrase within it outlined at
+  // once.
+  const activeSpanKeys = useMemo(() => {
+    const active = new Set<string>()
+    if (selected.length === 0) {
+      if (pinnedAt !== undefined) active.add(phraseSpanKey(tokens[pinnedAt], pinnedAt))
+      if (hoveredAt !== undefined) active.add(phraseSpanKey(tokens[hoveredAt], hoveredAt))
+    }
+    return active
+  }, [tokens, selected.length, pinnedAt, hoveredAt])
 
   // The popup sits below the token with a small margin gap (see .gloss-popup
   // in App.css), which the cursor has to cross to reach it. Clearing
@@ -1396,7 +1425,16 @@ const TokenizedText = memo(function TokenizedText({
           if (mergedWithPrev) classNames.push('phrase-merged-prev')
           if (mergedWithNext) classNames.push('phrase-merged-next')
           if (!inPhrase && phraseSuggestion(token)) classNames.push('has-phrase-suggestion')
-          if (lookedAtGroup !== null && token.phrase_start_position === lookedAtGroup) classNames.push('group-looked-at')
+          // One outline around the whole token group, not one per member: its
+          // left/right caps only go on the span's first/last token (a
+          // standalone token is both). See .phrase-outline in App.css.
+          const spanKey = phraseSpanKey(token, index)
+          if (activeSpanKeys.has(spanKey)) {
+            classNames.push('phrase-outline')
+            if (index === 0 || phraseSpanKey(tokens[index - 1], index - 1) !== spanKey) classNames.push('phrase-outline-start')
+            if (index === tokens.length - 1 || phraseSpanKey(tokens[index + 1], index + 1) !== spanKey)
+              classNames.push('phrase-outline-end')
+          }
 
           return (
             <Fragment key={token.id}>
