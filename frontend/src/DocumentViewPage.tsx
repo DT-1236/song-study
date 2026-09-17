@@ -189,7 +189,7 @@ function isMerged(token: Token): boolean {
   return token.phrase_start_position !== null
 }
 
-// A token's fused "super token": every token sharing its phrase_start_position,
+// A token's fused "token group": every token sharing its phrase_start_position,
 // or just itself if it isn't merged into one. Used to outline the whole span
 // as one unit — a group of one for a standalone token — rather than only the
 // token that's actually pinned, hovered, or playing.
@@ -1217,7 +1217,7 @@ const TokenizedText = memo(function TokenizedText({
   const kind = selected.length > 0 ? selectionKind(tokens, keys, selected) : null
   const focus = lastAdded !== null && selected.includes(lastAdded) ? lastAdded : selected[selected.length - 1]
   // Pinning and hovering outline independently, both at once: pinning a
-  // token's gloss open shouldn't lose its own mirrors/super token just
+  // token's gloss open shouldn't lose its own mirrors/token group just
   // because the mouse moves on to preview a different word (hover alone
   // never opens a second popup though — see isActive below, which keeps
   // pinnedId's own priority for that).
@@ -1262,7 +1262,7 @@ const TokenizedText = memo(function TokenizedText({
     return { lineOf, firstWithText }
   }, [tokens])
 
-  // The super-token spans outlined right now: the pinned token's and the
+  // The token-group spans outlined right now: the pinned token's and the
   // hovered token's, both at once (each may be a span of one) — while
   // nothing's selected, a selection's own tokens outline via .selected
   // instead. Independent of playback — the line being sung gets its own
@@ -1425,7 +1425,7 @@ const TokenizedText = memo(function TokenizedText({
           if (mergedWithPrev) classNames.push('phrase-merged-prev')
           if (mergedWithNext) classNames.push('phrase-merged-next')
           if (!inPhrase && phraseSuggestion(token)) classNames.push('has-phrase-suggestion')
-          // One outline around the whole super token, not one per member: its
+          // One outline around the whole token group, not one per member: its
           // left/right caps only go on the span's first/last token (a
           // standalone token is both). See .phrase-outline in App.css.
           const spanKey = phraseSpanKey(token, index)

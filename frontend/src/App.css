@@ -677,7 +677,7 @@
 }
 
 /* Stronger than .phrase-outline's mere boundary, so the exact token being
-   looked at (as opposed to the rest of its super token, see .phrase-outline
+   looked at (as opposed to the rest of its token group, see .phrase-outline
    below) is never in doubt. Solid, not tinted, so it isn't lost against
    the page's own dark background. */
 .token.has-gloss:hover,
@@ -738,7 +738,7 @@
   border-bottom-right-radius: 3px;
 }
 
-/* One outline around the whole super token (phrase or predicate group) the
+/* One outline around the whole token group (phrase or predicate group) the
    pinned or hovered token belongs to — or, for a standalone token, around
    just that token — distinct from .eligible's dashed "same word elsewhere"
    outline and from the stronger background above that marks the specific
