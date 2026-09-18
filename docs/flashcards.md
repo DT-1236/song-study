@@ -435,6 +435,7 @@ Every kanji in the target word or group, on the reveal only. The prompt stays di
 ```
 聞   ブン・モン ・ き(こえる)                        grade 2 · freq 319
      hear, ask, listen
+     radical 耳 ear ・ also 門
      also in your deck:  新聞 (mature) · 聞く (learning)
 ```
 
@@ -444,6 +445,8 @@ Every kanji in the target word or group, on the reveal only. The prompt stays di
   apiece. The contextual reading is the useful one anyway.
 - **Meanings, grade and frequency**, free from KANJIDIC2 — enough to distinguish "you will meet
   this one everywhere" (生: grade 1, freq 29) from "this one is rarer" (涙: grade 8, freq 1381).
+- **The radicals it's built from**, in two tiers. See below — the two available sources answer
+  different questions and the distinction matters.
 - **Cross-links into your own deck**, which is the part a dictionary cannot do. Seeing 聞 beside
   新聞 is a link being made rather than passive exposure, and `study_cards.lookup_form` is short
   enough that a `LIKE '%聞%'` scan is fine at this scale.
@@ -475,6 +478,55 @@ Matching the two sources needs three normalizations:
 
 Where no kun reading matches — a jukugo read with on'yomi — showing the on'yomi list alone is the
 correct outcome, not a failure to handle.
+
+#### Radicals: two sources, two different questions
+
+`jamdict` carries both, and they are not interchangeable.
+
+**KANJIDIC2's classical radical** (`.radical`) is the single semantic key, and it comes with an
+English name and stroke count already attached:
+
+```
+聞 → 耳-ear[sc:6]      通 → 辵-walk[sc:7]     涙 → 水-water[sc:4]
+神 → 示-spirit[sc:5]   生 → 生-life[sc:5]
+```
+
+Every one of those is meaningful: 聞 is an ear at a gate, 涙 is water, 神 relates to the spirits.
+This is the tier to lead with.
+
+**KRADFILE** (`jamdict.krad`) decomposes a kanji into its visual components, which is a different
+and noisier thing:
+
+```
+聞 → 耳, 門           clean and meaningful
+通 → 辶, 用, マ        マ is a stroke shape, not a semantic unit
+涙 → 戸, 氵, 大, 一, 尸  over-decomposed: 涙 is 氵 + 戻, and 戻 is 戸 + 大
+神 → ｜, 日, 礻, 田     ｜ and 日/田 are fragments of 申
+```
+
+It decomposes recursively to atomic pieces and includes stroke fragments, so presented raw it is
+as likely to mislead as to help.
+
+**Decided: lead with the classical radical and its English name, then show the remaining KRADFILE
+components as a muted secondary line.** The first tier is always meaningful; the second is a
+useful "what else is in here" hint as long as it is visibly subordinate rather than presented as
+semantic structure. Capping the second tier is reasonable — 涙's four leftovers earn little.
+
+**A fourth matching wrinkle.** KANJIDIC gives the classical radical in its **standalone** form,
+but the kanji contains its **variant**:
+
+| kanji | classical | as it actually appears |
+|---|---|---|
+| 涙 | 水 | 氵 |
+| 神 | 示 | 礻 |
+| 通 | 辵 | 辶 |
+
+Displaying "水 water" beside 涙 when the visible component is 氵 invites exactly the confusion this
+sidebar exists to prevent. KRADFILE supplies the variant form, so the fix is to render the
+classical radical using whichever KRADFILE component corresponds to it — which needs a small
+standalone-to-variant mapping (水→氵, 示→礻, 辵→辶, 手→扌, 心→忄, 火→灬, 犬→犭, 艸→艹, and a couple
+of dozen more). Finite, well documented, and worth getting right, since it is the difference
+between a radical that teaches and one that confuses.
 
 ### Grading is objective on every card type
 
@@ -830,8 +882,9 @@ Not a migration — just the inventory, so we know what's cheap and what isn't.
   `GlossDetails` both show the reading, so neither can be reused for the prompt side
 - **Per-review latency** on the review log, plus the thresholds in force at the time, so ratings
   stay interpretable if the thresholds change
-- **KANJIDIC2 lookups** through the existing `jamdict` dependency, plus kun-reading matching
-  (okurigana, rendaku, script) against `furigana_spans`
+- **KANJIDIC2 and KRADFILE lookups** through the existing `jamdict` dependency, plus kun-reading
+  matching (okurigana, rendaku, script) against `furigana_spans`, and a standalone-to-variant
+  radical mapping (水→氵, 示→礻, 辵→辶, …)
 - **Reading correction from inside a session** — reuses `GET /documents/{id}/tokens/{tid}/alternate-readings`
   and `POST /documents/{id}/tokens/reading`; new work is the card-side flow, not the endpoints
 
@@ -895,7 +948,8 @@ dates are shared state. Default parameters are fitted on ~727M reviews and are f
 - **A card points at a word identity and never snapshots its gloss**; an uncached key is
   rehydrated through the existing `plan_glosses()` / `store_glosses()` pipeline.
 - **Kanji get a reveal-side sidebar, never cards of their own** — all on'yomi, the contextual
-  kun'yomi, meanings, grade and frequency, plus links to other words in your deck (§3).
+  kun'yomi, meanings, grade and frequency, the classical radical with its English name over a
+  muted component breakdown, and links to other words in your deck (§3).
 - **The doc lives at `docs/flashcards.md`.**
 
 ## 10. Still open
