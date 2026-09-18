@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { FuriganaExampleList } from './furigana'
+import { useDialogModal } from './useDialogModal'
 
 // One kanji (or kanji run) paired with just the reading it covers, so ruby
 // text lines up with the character it belongs to instead of floating over
@@ -25,7 +26,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'Noun',
     description: 'A word for a person, place, thing, or idea.',
-    examples: ['猫 (cat)', '学校 (school)', '愛 (love)'],
+    examples: ['猫[ねこ] (cat)', '学校[がっこう] (school)', '愛[あい] (love)'],
   },
   {
     term: '動詞',
@@ -35,7 +36,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'Verb',
     description: 'Describes an action or state of being.',
-    examples: ['食べる (to eat)', '行く (to go)', 'ある (to exist)'],
+    examples: ['食[た]べる (to eat)', '行[い]く (to go)', 'ある (to exist)'],
   },
   {
     term: '形容詞',
@@ -46,7 +47,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'i-Adjective',
     description: 'A descriptive word ending in い that conjugates on its own.',
-    examples: ['高い (tall/expensive)', '楽しい (fun)', '無い (nonexistent)'],
+    examples: ['高[たか]い (tall/expensive)', '楽[たの]しい (fun)', '無[な]い (nonexistent)'],
   },
   {
     term: '形状詞',
@@ -57,7 +58,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'na-Adjective',
     description: 'A descriptive word that takes な before a noun (e.g. 静かな部屋).',
-    examples: ['静か (quiet)', '綺麗 (pretty)', '便利 (convenient)'],
+    examples: ['静[しず]か (quiet)', '綺麗[きれい] (pretty)', '便利[べんり] (convenient)'],
   },
   {
     term: '副詞',
@@ -121,7 +122,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'Pronoun',
     description: 'Stands in for a noun already understood from context.',
-    examples: ['私 (I)', 'これ (this)', '彼 (he)'],
+    examples: ['私[わたし] (I)', 'これ (this)', '彼[かれ] (he)'],
   },
   {
     term: '連体詞',
@@ -143,7 +144,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'Prefix',
     description: 'Attaches before a word to modify its meaning.',
-    examples: ['お茶 (polite お-)', '真夜中 (true, 真-)', '不安 (un-, 不-)'],
+    examples: ['お茶[ちゃ] (polite お-)', '真夜中[まよなか] (true, 真-)', '不安[ふあん] (un-, 不-)'],
   },
   {
     term: '接尾辞',
@@ -154,7 +155,7 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'Suffix',
     description: 'Attaches after a word to modify its meaning.',
-    examples: ['～さん (Mr./Ms.)', '～たち (plural)', '～的 (-like/-ic)'],
+    examples: ['～さん (Mr./Ms.)', '～たち (plural)', '～的[てき] (-like/-ic)'],
   },
 ]
 
@@ -182,50 +183,34 @@ export function PosTermRuby({ segments }: { segments: PosSegment[] }) {
 // A modal listing all parts of speech, shown while `open`. Escape and the
 // Close button both call onClose.
 export function PosLegendModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const dialogRef = useRef<HTMLDialogElement>(null)
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    if (open && !dialog.open) {
-      dialog.showModal()
-    } else if (!open && dialog.open) {
-      dialog.close()
-    }
-  }, [open])
+  const { dialogRef, hasOpened, onCancel, onClick } = useDialogModal(open, onClose)
 
   return (
-    <dialog
-      ref={dialogRef}
-      className="pos-legend-dialog"
-      onCancel={(e) => {
-        e.preventDefault()
-        onClose()
-      }}
-      onClick={(e) => {
-        // The dialog element covers the whole viewport, so a click landing
-        // on it directly (not on a descendant) means it hit the backdrop.
-        if (e.target === dialogRef.current) onClose()
-      }}
-    >
-      <div className="pos-legend-title">Parts of Speech</div>
-      <ul className="pos-legend-list">
-        {POS_LEGEND.map((info) => (
-          <li key={info.term} className="pos-legend-item">
-            <span className="pos-legend-item-term">
-              <PosTermRuby segments={info.segments} />
-            </span>
-            <span className="pos-legend-item-label">{info.label}</span>
-            <span className="pos-legend-item-description">{info.description}</span>
-            <span className="pos-legend-item-examples">{info.examples.join(' ・ ')}</span>
-          </li>
-        ))}
-      </ul>
-      <div className="pos-legend-dialog-actions">
-        <button type="button" onClick={onClose}>
-          Close
-        </button>
-      </div>
+    <dialog ref={dialogRef} className="pos-legend-dialog" onCancel={onCancel} onClick={onClick}>
+      {hasOpened && (
+        <>
+          <div className="pos-legend-title">Parts of Speech</div>
+          <ul className="pos-legend-list">
+            {POS_LEGEND.map((info) => (
+              <li key={info.term} className="pos-legend-item">
+                <span className="pos-legend-item-term">
+                  <PosTermRuby segments={info.segments} />
+                </span>
+                <span className="pos-legend-item-label">{info.label}</span>
+                <span className="pos-legend-item-description">{info.description}</span>
+                <span className="pos-legend-item-examples">
+                  <FuriganaExampleList examples={info.examples} />
+                </span>
+              </li>
+            ))}
+          </ul>
+          <div className="pos-legend-dialog-actions">
+            <button type="button" onClick={onClose}>
+              Close
+            </button>
+          </div>
+        </>
+      )}
     </dialog>
   )
 }

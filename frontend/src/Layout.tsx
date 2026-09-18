@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { GrammarLegendModal } from './GrammarLegend'
 import { JmdictSearch } from './JmdictSearch'
 import { PosLegendModal } from './PosLegend'
 import { useTabs } from './TabsContext'
@@ -7,6 +8,7 @@ import { useTabs } from './TabsContext'
 export function Layout() {
   const { tabs } = useTabs()
   const [showPosLegend, setShowPosLegend] = useState(false)
+  const [showGrammarLegend, setShowGrammarLegend] = useState(false)
 
   return (
     <div className="app-layout">
@@ -40,6 +42,9 @@ export function Layout() {
           <button type="button" onClick={() => setShowPosLegend(true)}>
             Parts of Speech
           </button>
+          <button type="button" onClick={() => setShowGrammarLegend(true)}>
+            Grammar Rules
+          </button>
         </div>
       </nav>
       <main className="content">
@@ -51,6 +56,7 @@ export function Layout() {
         <JmdictSearch />
       </aside>
       <PosLegendModal open={showPosLegend} onClose={() => setShowPosLegend(false)} />
+      <GrammarLegendModal open={showGrammarLegend} onClose={() => setShowGrammarLegend(false)} />
     </div>
   )
 }
