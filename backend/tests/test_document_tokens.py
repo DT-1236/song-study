@@ -31,21 +31,21 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    # Includes create_phrase_conflicts' INSERT (this text has phrase
+    # Includes the ownership check, create_phrase_conflicts' INSERT (this text has phrase
     # suggestions and predicate groups) and one read of the cached glosses
     # its uncached predicate groups are built from.
-    assert round_trips(cold) == 12
+    assert round_trips(cold) == 13
     assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Saving the text deletes the tokens but keeps the gloss cache, so the
     # next request is a first processing where every gloss is already cached.
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
     warm = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert round_trips(warm) == 10
+    assert round_trips(warm) == 11
     assert round_trips(warm, "INSERT INTO gloss_lookups") == 0
 
     viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert round_trips(viewed) == 2
+    assert round_trips(viewed) == 3
 
 
 def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeypatch):

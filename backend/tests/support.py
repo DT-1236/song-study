@@ -146,8 +146,8 @@ def make_token(conn, **overrides) -> int:
     document_id = conn.execute(
         text(
             """
-            INSERT INTO documents (title, text)
-            VALUES ('test', 'test')
+            INSERT INTO documents (title, text, owner_id)
+            VALUES ('test', 'test', 1)
             RETURNING id
             """
         )

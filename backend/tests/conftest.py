@@ -37,8 +37,11 @@ def committed_engine(test_database):
     yield engine
     with engine.begin() as conn:
         # Read from the catalog so a table added by a later migration is
-        # emptied too.
+        # emptied too. `users` keeps the default user the migrations seed.
         tables = conn.execute(
-            text("SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename <> 'alembic_version'")
+            text(
+                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                "AND tablename NOT IN ('alembic_version', 'users')"
+            )
         ).scalars().all()
         conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY"))
