@@ -411,6 +411,71 @@ next addition. The open problem is variants: ている and てる both express "
 is in the song, so a defensible answer can miss the gold string. Solvable (accept any form whose
 auxiliary shares a `normalized_form`), but it's the reason this isn't in v1.
 
+### The kanji sidebar
+
+**Decided: kanji get a sidebar on the reveal, never a card of their own.**
+
+Dedicated kanji cards would break three constraints the rest of the deck meets. They have no line
+to play, since 聞 never appears in a song — 聞こえてる does. They have no objectively gradable
+question: kanji meanings are fuzzy glosses ("hear, ask, listen"), and asking for a reading in
+isolation has no single right answer, since 通 carries two on'yomi and eight kun'yomi and which
+one applies depends entirely on the surrounding word. And they don't serve the motivating
+question, because a song can be followed by ear with no kanji knowledge at all.
+
+The cost of that choice is real and worth stating: kanji recognition will lag vocabulary. Knowing
+涙 inside a song is not the same as recognising it in a novel. The sidebar softens that; it does
+not fix it. The signal to revisit the decision is already in the data — Type A failures on words
+whose *meaning* is known but whose written form isn't are kanji weakness surfacing as vocabulary
+failure.
+
+#### What it shows
+
+Every kanji in the target word or group, on the reveal only. The prompt stays dimmed and focused.
+
+```
+聞   ブン・モン ・ き(こえる)                        grade 2 · freq 319
+     hear, ask, listen
+     also in your deck:  新聞 (mature) · 聞く (learning)
+```
+
+- **All on'yomi.** Almost always one or two, so the full list costs nothing.
+- **Only the kun'yomi in play**, with a `+N more` count. This is exactly where "show both standard
+  readings" breaks down: 通 has 8 kun'yomi, 下 has 12, 生 has 18 — while their on'yomi are two
+  apiece. The contextual reading is the useful one anyway.
+- **Meanings, grade and frequency**, free from KANJIDIC2 — enough to distinguish "you will meet
+  this one everywhere" (生: grade 1, freq 29) from "this one is rarer" (涙: grade 8, freq 1381).
+- **Cross-links into your own deck**, which is the part a dictionary cannot do. Seeing 聞 beside
+  新聞 is a link being made rather than passive exposure, and `study_cards.lookup_form` is short
+  enough that a `LIKE '%聞%'` scan is fine at this scale.
+
+Size and layout are left open: 勝利の女神 contributes four kanji, and a predicate group can
+contribute more.
+
+#### Data, and three matching wrinkles
+
+KANJIDIC2 ships with `jamdict`, already a dependency, so this adds no packages.
+`Jamdict().lookup('通')` returns `.chars[0]`, whose `rm_groups[0]` carries `on_readings`,
+`kun_readings` and `meanings`, alongside `stroke_count`, `grade` and `freq`.
+
+The contextual reading is already computed. `build_furigana_spans` splits **per character**, even
+inside compounds, and returns hiragana:
+
+```
+女神      → [{'text': '女', 'reading': 'め'}, {'text': '神', 'reading': 'がみ'}]
+聞こえてる  → [{'text': '聞', 'reading': 'き'}, {'text': 'こえてる', 'reading': None}]
+```
+
+Matching the two sources needs three normalizations:
+
+1. **Okurigana markers.** KANJIDIC writes kun readings as `き.く`, `とお.り`, `-どお.り`. Compare
+   against the stem before the dot, and strip leading hyphens.
+2. **Rendaku.** 女神 gives 神 the reading がみ, while KANJIDIC lists かみ. Voiced initials have to
+   be unvoiced before comparison.
+3. **Script.** On'yomi are katakana (ブン); kun'yomi and furigana readings are hiragana (き).
+
+Where no kun reading matches — a jukugo read with on'yomi — showing the on'yomi list alone is the
+correct outcome, not a failure to handle.
+
 ### Grading is objective on every card type
 
 **Decided: there is no self-rating anywhere.** You never judge your own recall; every card has a
@@ -765,6 +830,8 @@ Not a migration — just the inventory, so we know what's cheap and what isn't.
   `GlossDetails` both show the reading, so neither can be reused for the prompt side
 - **Per-review latency** on the review log, plus the thresholds in force at the time, so ratings
   stay interpretable if the thresholds change
+- **KANJIDIC2 lookups** through the existing `jamdict` dependency, plus kun-reading matching
+  (okurigana, rendaku, script) against `furigana_spans`
 - **Reading correction from inside a session** — reuses `GET /documents/{id}/tokens/{tid}/alternate-readings`
   and `POST /documents/{id}/tokens/reading`; new work is the card-side flow, not the endpoints
 
@@ -827,6 +894,8 @@ dates are shared state. Default parameters are fitted on ~727M reviews and are f
   candidate, and building review history on a guess is worse than enrolling late.
 - **A card points at a word identity and never snapshots its gloss**; an uncached key is
   rehydrated through the existing `plan_glosses()` / `store_glosses()` pipeline.
+- **Kanji get a reveal-side sidebar, never cards of their own** — all on'yomi, the contextual
+  kun'yomi, meanings, grade and frequency, plus links to other words in your deck (§3).
 - **The doc lives at `docs/flashcards.md`.**
 
 ## 10. Still open
