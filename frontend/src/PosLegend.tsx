@@ -1,10 +1,11 @@
-import { FuriganaExampleList } from './furigana'
+import { FuriganaExampleList, renderSegments, type FuriganaSegment } from './furigana'
 import { useDialogModal } from './useDialogModal'
 
 // One kanji (or kanji run) paired with just the reading it covers, so ruby
 // text lines up with the character it belongs to instead of floating over
-// the whole term.
-export type PosSegment = { text: string; reading: string }
+// the whole term. Term headers are short enough (2-4 characters) to author
+// directly as segments rather than through furigana.tsx's bracket markup.
+export type PosSegment = FuriganaSegment
 
 export type PosInfo = {
   term: string
@@ -165,19 +166,8 @@ export function getPosInfo(term: string): PosInfo | undefined {
   return POS_BY_TERM.get(term)
 }
 
-// One ruby element per segment, so each reading sits over the character(s)
-// it actually belongs to rather than being centered over the whole term.
 export function PosTermRuby({ segments }: { segments: PosSegment[] }) {
-  return (
-    <>
-      {segments.map((segment, i) => (
-        <ruby key={i}>
-          {segment.text}
-          <rt>{segment.reading}</rt>
-        </ruby>
-      ))}
-    </>
-  )
+  return renderSegments(segments)
 }
 
 // A modal listing all parts of speech, shown while `open`. Escape and the
