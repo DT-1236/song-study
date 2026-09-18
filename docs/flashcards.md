@@ -1021,28 +1021,45 @@ deployment · personal FSRS parameters from the accumulated review log.
 
 ### Which model to run each step with
 
-A heuristic about task shape, not a benchmark claim. **Opus 5** where a mistake is silent or the
-surrounding code is delicate; **Sonnet 5** where the spec is tight and the work is pattern
-application across breadth; **Haiku 4.5** for mechanical steps with one obvious right answer.
-Switch with `/model`; `/fast` gives Opus faster output without dropping to a smaller model.
+A heuristic about task shape, not a benchmark claim.
 
-| Step | Model | Why |
-|---|---|---|
-| 0 — Doc | Sonnet 5 | Prose and git mechanics, fully specified |
-| 1 — Users and ownership | Sonnet 5 | Repetitive route scoping with one trap: the current-user default that keeps the existing tests passing |
-| 2 — Card storage and harvest | **Opus 5** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
-| 3 — Scheduling | Sonnet 5 | `py-fsrs` does the hard math; the one subtlety is that a push-out is a reschedule, never a logged rating |
-| 4 — Card content | **Opus 5** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
-| 5 — Study UI | Sonnet 5, **Opus 5** for the extraction | A new page is conventional React; pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not |
-| 6 — Progress | Sonnet 5 | SQL aggregation against a clearly specified definition |
-| 7 — Correction and deck management | **Opus 5** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
+**Model** answers *how subtle is this?* — **Opus 5** where a mistake is silent or the surrounding
+code is delicate; **Sonnet 5** where the spec is tight and the work is pattern application across
+breadth; **Haiku 4.5** for mechanical steps with one obvious right answer. Switch with `/model`;
+`/fast` gives Opus faster output without dropping to a smaller model.
 
-For the later items: Type C and OAuth/deployment suit Sonnet 5; typed conjugation production wants
-Opus 5, since the ている/てる variant-matching problem is where it gets subtle.
+**Effort** answers a different question — *how much of this is already decided?* — and the two
+are independent. Set it with `/effort`. Steps this document has fully specified can run at lower
+effort on a capable model; steps where the implementer still has to work something out need
+higher effort even when the code is ordinary. Effort trades time and tokens for thoroughness, so
+these are **starting points, not floors**: escalate a step that stalls rather than beginning
+everything at `max`. `xhigh` and `max` are deliberately absent below — reserve them for a step
+that has already failed at its recommended level, or for debugging something that makes no sense.
+
+| Step | Model | Effort | Why |
+|---|---|---|---|
+| 0 — Doc | Sonnet 5 | low | Prose and git mechanics, fully specified |
+| 1 — Users and ownership | Sonnet 5 | medium | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing |
+| 2 — Card storage and harvest | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
+| 3 — Scheduling | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
+| 4 — Card content | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
+| 5 — Study UI | Sonnet 5 | medium | A new page is conventional React against a specified layout |
+| 5 — …the `DocumentViewPage` extraction | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
+| 6 — Progress | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
+| 7 — Correction and deck management | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
+
+For the later items: Type C and OAuth/deployment suit Sonnet 5 at medium; typed conjugation
+production wants Opus 5 at high, since the ている/てる variant-matching problem is where it gets
+subtle.
 
 The pattern worth noticing: the Opus steps are the ones touching **existing, subtle code**
 (`glosses.py`'s caching, `DocumentViewPage.tsx`'s positioning) or making **semantic judgments**.
 The Sonnet steps are the ones where this document has already done the deciding.
+
+Model and effort line up here only because this document did its job. Where a step is still
+underspecified — the open questions in §10, or anything renegotiated at implementation time, such
+as the kanji sidebar's size and layout — raise the effort for that step regardless of which model
+is running it. Underspecification, not difficulty, is what effort is for.
 
 ### Verification
 
