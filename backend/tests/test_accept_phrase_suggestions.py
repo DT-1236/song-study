@@ -6,9 +6,13 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from app.main import DocumentCreate, PhraseAcceptance, accept_phrase_suggestions_endpoint, create_document, get_document_tokens
+from app.main import (
+    DocumentCreate,
+    PhraseAcceptance,
+)
 
 TEXT = "それでも僕は行く。それでも彼は行かない。"
+from tests.support import accept_phrase_suggestions_endpoint, create_document, get_document_tokens
 
 
 def _unselected_phrase_conflict_ids(document_id) -> list[int]:

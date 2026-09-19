@@ -15,13 +15,10 @@ from app.main import (
     DocumentTextUpdate,
     _process_document,
     _write_processed_document,
-    create_document,
-    get_document_tokens,
-    update_document_text,
 )
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
-from tests.support import BackgroundCall, pick_reading, round_trips, statements_sent, wait_for_lock_wait
+from tests.support import BackgroundCall, create_document, get_document_tokens, pick_reading, round_trips, statements_sent, update_document_text, wait_for_lock_wait
 
 
 def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):

@@ -1,8 +1,9 @@
 """create users table and give documents an owner
 
-Every existing document belongs to the seeded default user (id 1, see
-app/users.py). A YouTube video can now be used by one document per owner
-rather than one overall.
+Every existing document is given to a seeded placeholder user (id 1), which
+nobody logs in as; it exists only so the existing rows can have an owner, and
+can be deleted once they've been reassigned. A YouTube video can now be used
+by one document per owner rather than one overall.
 
 Revision ID: 0016
 Revises: 0015

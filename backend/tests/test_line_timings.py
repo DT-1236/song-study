@@ -12,12 +12,9 @@ from app.main import (
     DocumentTextUpdate,
     LineTiming,
     LineTimingsUpdate,
-    create_document,
-    get_document,
-    save_line_timings,
-    update_document_text,
 )
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
+from tests.support import create_document, get_document, save_line_timings, update_document_text
 
 # One timing per line of a two-stanza document, the blank line between them
 # untimed.

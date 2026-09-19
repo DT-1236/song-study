@@ -9,6 +9,7 @@ imports app.db.
 
 from __future__ import annotations
 
+import functools
 import json
 import os
 import threading
@@ -51,6 +52,11 @@ os.environ["DATABASE_URL"] = _test_database_url()
 
 from app.db import engine  # noqa: E402
 
+# The user tests act as, inserted by recreate_test_database and kept by the
+# `committed_engine` cleanup. Its id is far from any the tests' own inserts
+# would hand out.
+TEST_USER_ID = 1000
+
 
 def recreate_test_database() -> None:
     """Drop and re-create the test database, then migrate it to head."""
@@ -66,6 +72,8 @@ def recreate_test_database() -> None:
     # Config values go through configparser interpolation, so % is escaped.
     config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%"))
     command.upgrade(config, "head")
+    with engine.begin() as conn:
+        conn.execute(text("INSERT INTO users (id, name) VALUES (:id, 'test')"), {"id": TEST_USER_ID})
 
 
 def statements_sent(engine, fn) -> list[tuple[str, int]]:
@@ -147,10 +155,11 @@ def make_token(conn, **overrides) -> int:
         text(
             """
             INSERT INTO documents (title, text, owner_id)
-            VALUES ('test', 'test', 1)
+            VALUES ('test', 'test', :owner_id)
             RETURNING id
             """
-        )
+        ),
+        {"owner_id": TEST_USER_ID},
     ).scalar_one()
 
     defaults = {
@@ -193,15 +202,13 @@ def make_token(conn, **overrides) -> int:
 def document_tokens(document_id: int, surface: str) -> list:
     """The document's tokens with `surface`, in order, processing it first
     if it hasn't been."""
-    from app.main import get_document_tokens
-
     return [t for t in get_document_tokens(document_id) if t.surface == surface]
 
 
 def pick_reading(document_id: int, surface: str, reading: str) -> None:
     """Select `reading` among the options of the document's first token with
     `surface`."""
-    from app.main import ConflictResolution, resolve_token_conflict
+    from app.main import ConflictResolution
 
     token = document_tokens(document_id, surface)[0]
     option = next(c for c in token.conflicts if c.value["reading"] == reading)
@@ -211,3 +218,27 @@ def pick_reading(document_id: int, surface: str, reading: str) -> None:
 def selected_reading(token) -> str:
     """The reading selected among a token's options."""
     return next(c for c in token.conflicts if c.selected).value["reading"]
+
+
+def _as_test_user(route):
+    """`route` with its `user_id` fixed to TEST_USER_ID."""
+
+    @functools.wraps(route)
+    def call(*args, **kwargs):
+        return route(*args, user_id=TEST_USER_ID, **kwargs)
+
+    return call
+
+
+# The routes, acting as TEST_USER_ID: tests call them directly, with no
+# request to log a user in. A test of another user's view calls the
+# app.main route itself, with that `user_id`.
+def _bind_routes() -> None:
+    from app import main
+
+    for name in ROUTE_NAMES:
+        globals()[name] = _as_test_user(getattr(main, name))
+
+
+ROUTE_NAMES = ['create_document', 'get_document', 'get_document_tokens', 'list_documents', 'update_document_text', 'link_lrclib', 'unlink_lrclib', 'save_line_timings', 'resolve_token_conflict', 'accept_phrase_suggestions_endpoint', 'resolve_phrase_furigana_endpoint', 'unmerge_phrase_tokens', 'get_alternate_readings', 'correct_token_reading', 'apply_tokens_reading', 'set_tokens_ignored']
+_bind_routes()

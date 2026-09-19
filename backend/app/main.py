@@ -55,7 +55,7 @@ from app.lrclib import (
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
 from app.auth import router as auth_router, session_secret
-from app.users import DEFAULT_USER_ID, CurrentUser
+from app.users import CurrentUser
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
 
 app = FastAPI()
@@ -160,7 +160,7 @@ def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
 
 
 @app.post("/documents", response_model=Document, status_code=201)
-def create_document(document: DocumentCreate, user_id: CurrentUser = DEFAULT_USER_ID) -> Document:
+def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
     """Create a document; given an LRCLIB track, its lyrics are used in
     place of `text`."""
     lrclib_uri = lyrics = None
@@ -212,7 +212,7 @@ def create_document(document: DocumentCreate, user_id: CurrentUser = DEFAULT_USE
 
 
 @app.get("/documents/{document_id}", response_model=Document)
-def get_document(document_id: int, user_id: CurrentUser = DEFAULT_USER_ID) -> Document:
+def get_document(document_id: int, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there."""
     with engine.connect() as conn:
@@ -341,7 +341,7 @@ class DocumentTextUpdate(BaseModel):
 
 @app.patch("/documents/{document_id}", response_model=Document)
 def update_document_text(
-    document_id: int, body: DocumentTextUpdate, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, body: DocumentTextUpdate, user_id: CurrentUser
 ) -> Document:
     """Editing the lyrics invalidates every token derived from the old text
     — furigana, gloss links, conflicts, all of it no longer corresponds to
@@ -390,7 +390,7 @@ class LrclibLink(BaseModel):
 
 
 @app.put("/documents/{document_id}/lrclib", response_model=Document)
-def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser = DEFAULT_USER_ID) -> Document:
+def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Document:
     """Link the document to an LRCLIB track, either replacing its lyrics
     with the track's (readings picked for it are reset unless the text is
     the same) or keeping its lyrics and readings as they are."""
@@ -400,7 +400,7 @@ def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser = DEFAU
 
 
 @app.delete("/documents/{document_id}/lrclib", response_model=Document)
-def unlink_lrclib(document_id: int, user_id: CurrentUser = DEFAULT_USER_ID) -> Document:
+def unlink_lrclib(document_id: int, user_id: CurrentUser) -> Document:
     """Stop loading the document's lyrics from LRCLIB, keeping the ones it
     has, which become editable."""
     # Its line timings are kept, since they still match its unchanged text.
@@ -441,7 +441,7 @@ class LineTimingsUpdate(BaseModel):
 
 @app.put("/documents/{document_id}/timings", response_model=Document)
 def save_line_timings(
-    document_id: int, body: LineTimingsUpdate, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, body: LineTimingsUpdate, user_id: CurrentUser
 ) -> Document:
     """Save `body.lines` as the document's line timings, used in place of
     LRCLIB's for as long as its lyrics stay `body.text`."""
@@ -494,11 +494,11 @@ class DocumentPage(BaseModel):
 
 @app.get("/documents", response_model=DocumentPage)
 def list_documents(
+    user_id: CurrentUser,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: SortField = "created_at",
     sort_dir: Literal["asc", "desc"] = "desc",
-    user_id: CurrentUser = DEFAULT_USER_ID,
 ) -> DocumentPage:
     direction = "ASC" if sort_dir == "asc" else "DESC"
     offset = (page - 1) * page_size
@@ -804,7 +804,7 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
 
 
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
-def get_document_tokens(document_id: int, user_id: CurrentUser = DEFAULT_USER_ID) -> list[Token]:
+def get_document_tokens(document_id: int, user_id: CurrentUser) -> list[Token]:
     with engine.connect() as conn:
         _require_owned_document(conn, document_id, user_id)
 
@@ -867,7 +867,7 @@ class ConflictResolution(BaseModel):
 
 @app.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
 def resolve_token_conflict(
-    document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser
 ) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
@@ -885,7 +885,7 @@ class PhraseAcceptance(BaseModel):
 
 @app.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
 def accept_phrase_suggestions_endpoint(
-    document_id: int, body: PhraseAcceptance, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, body: PhraseAcceptance, user_id: CurrentUser
 ) -> list[Token]:
     """Apply each of `conflict_ids` — phrase suggestions, or split predicate
     groups to merge again — as accept_phrase_suggestions does. Returns every
@@ -902,7 +902,7 @@ def accept_phrase_suggestions_endpoint(
 
 @app.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
 def resolve_phrase_furigana_endpoint(
-    document_id: int, body: ConflictResolution, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, body: ConflictResolution, user_id: CurrentUser
 ) -> list[Token]:
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
@@ -917,7 +917,7 @@ def resolve_phrase_furigana_endpoint(
 
 
 @app.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
-def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser = DEFAULT_USER_ID) -> list[Token]:
+def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser) -> list[Token]:
     """Split the group token_id is merged into, found from any member of it.
     Returns the tokens it changed."""
     with engine.begin() as conn:
@@ -933,7 +933,7 @@ def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser 
 
 
 @app.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
-def get_alternate_readings(document_id: int, token_id: int, user_id: CurrentUser = DEFAULT_USER_ID) -> list[dict]:
+def get_alternate_readings(document_id: int, token_id: int, user_id: CurrentUser) -> list[dict]:
     """Every other reading JMDict has for token_id's dictionary form, as
     reading options to apply through /tokens/reading."""
     with engine.connect() as conn:
@@ -966,7 +966,7 @@ class ReadingCorrection(BaseModel):
 
 @app.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
 def correct_token_reading(
-    document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser
 ) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
@@ -1009,7 +1009,7 @@ class TokensReading(ReadingCorrection, TokenIds):
 
 @app.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
 def apply_tokens_reading(
-    document_id: int, body: TokensReading, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, body: TokensReading, user_id: CurrentUser
 ) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
@@ -1028,7 +1028,7 @@ class TokensIgnored(TokenIds):
 
 @app.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
 def set_tokens_ignored(
-    document_id: int, body: TokensIgnored, user_id: CurrentUser = DEFAULT_USER_ID
+    document_id: int, body: TokensIgnored, user_id: CurrentUser
 ) -> list[Token]:
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""

@@ -37,7 +37,7 @@ def committed_engine(test_database):
     yield engine
     with engine.begin() as conn:
         # Read from the catalog so a table added by a later migration is
-        # emptied too. `users` keeps the default user the migrations seed.
+        # emptied too. `users` keeps the user tests act as.
         tables = conn.execute(
             text(
                 "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "

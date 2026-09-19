@@ -12,11 +12,8 @@ from app.main import (
     DocumentCreate,
     TokensIgnored,
     TokensReading,
-    apply_tokens_reading,
-    create_document,
-    set_tokens_ignored,
 )
-from tests.support import document_tokens, round_trips, selected_reading, statements_sent
+from tests.support import apply_tokens_reading, create_document, document_tokens, round_trips, selected_reading, set_tokens_ignored, statements_sent
 
 # Two instances each of 今日, a heteronym, and は, which offers no options.
 TEXT = "今日は晴れ。今日は雨。"

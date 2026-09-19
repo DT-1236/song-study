@@ -33,7 +33,7 @@ from app.conflicts import (
     unmerge_phrase,
 )
 from app.tokenization import TokenRecord
-from tests.support import BackgroundCall, make_token, wait_for_lock_wait
+from tests.support import TEST_USER_ID, BackgroundCall, make_token, wait_for_lock_wait
 
 
 def _conflicts_for(conn, token_id):
@@ -62,7 +62,7 @@ def _token_row(conn, token_id):
 class TestCreateConflicts:
     def test_no_rows_for_records_with_no_conflict_options(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
@@ -87,7 +87,7 @@ class TestCreateConflicts:
 
     def test_flagged_record_gets_a_selected_default_plus_unselected_alternatives(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0, surface="今日")
 
@@ -132,7 +132,7 @@ class TestPhraseConflicts:
     def _seed_phrase_tokens(self, conn):
         # この/期/に/及ん/で, whose idiom reads 期 as ご, unlike the token.
         document_id = conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         # Real token data, so each token's own gloss after a split differs.
         tokens_data = [
@@ -199,7 +199,7 @@ class TestPhraseConflicts:
 
     def test_no_rows_when_no_token_has_a_suggestion(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0)
         record = TokenRecord(
@@ -359,7 +359,7 @@ class TestPhraseConflicts:
 
     def test_unmerge_is_a_noop_for_a_token_that_was_never_merged(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
@@ -367,10 +367,10 @@ class TestPhraseConflicts:
 
     def test_unmerge_raises_for_a_token_outside_the_document(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         other_document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t2', 't2', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t2', 't2', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(db_conn, document_id=other_document_id, position=0)
 
@@ -399,7 +399,7 @@ class TestPhraseFurigana:
         # まにうける spells a る that 真に受け doesn't, and the kana に and け
         # leave nowhere to put it.
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         shin = make_token(db_conn, document_id=document_id, position=0, surface="真")
         ni = make_token(db_conn, document_id=document_id, position=1, surface="に")
@@ -413,7 +413,7 @@ class TestPhraseFurigana:
     def test_offers_a_pick_for_a_genuinely_ambiguous_run(self, db_conn):
         # 六右 read むゆう splits as む/ゆう or むゆ/う.
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         roku = make_token(db_conn, document_id=document_id, position=0, surface="六")
         u = make_token(db_conn, document_id=document_id, position=1, surface="右")
@@ -438,7 +438,7 @@ class TestPhraseFurigana:
 
     def test_raises_for_a_nonexistent_conflict_id(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
 
         try:
@@ -451,7 +451,7 @@ class TestPhraseFurigana:
 class TestResolveConflict:
     def _seed_heteronym_token(self, conn):
         document_id = conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(
             conn,
@@ -537,7 +537,7 @@ class TestResolveConflict:
 class TestCorrectReading:
     def _seed_uncorrected_token(self, conn):
         document_id = conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
         token_id = make_token(
             conn,
@@ -623,7 +623,7 @@ class TestCorrectReading:
 
     def test_raises_when_token_not_found(self, db_conn):
         document_id = db_conn.execute(
-            text("INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', 1) RETURNING id")
+            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
         ).scalar_one()
 
         try:
