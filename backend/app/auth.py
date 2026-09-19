@@ -63,8 +63,9 @@ async def callback(request: Request):
     """Finish a Google login: log the account in and return to the app."""
     token = await oauth.google.authorize_access_token(request)
     info = token["userinfo"]
+    email = info.get("email")
     with engine.begin() as conn:
-        user_id = upsert_google_user(conn, info["sub"], info.get("email"), info.get("name") or info.get("email") or "")
+        user_id = upsert_google_user(conn, info["sub"], email, info.get("name") or email or "")
     request.session.clear()
     request.session["user_id"] = user_id
     return RedirectResponse(FRONTEND_URL)

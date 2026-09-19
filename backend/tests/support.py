@@ -50,6 +50,7 @@ def _test_database_url() -> str:
 # never overrides a variable that's already set.
 os.environ["DATABASE_URL"] = _test_database_url()
 
+from app import main  # noqa: E402
 from app.db import engine  # noqa: E402
 
 # The user tests act as, inserted by recreate_test_database and kept by the
@@ -233,12 +234,19 @@ def _as_test_user(route):
 # The routes, acting as TEST_USER_ID: tests call them directly, with no
 # request to log a user in. A test of another user's view calls the
 # app.main route itself, with that `user_id`.
-def _bind_routes() -> None:
-    from app import main
-
-    for name in ROUTE_NAMES:
-        globals()[name] = _as_test_user(getattr(main, name))
-
-
-ROUTE_NAMES = ['create_document', 'get_document', 'get_document_tokens', 'list_documents', 'update_document_text', 'link_lrclib', 'unlink_lrclib', 'save_line_timings', 'resolve_token_conflict', 'accept_phrase_suggestions_endpoint', 'resolve_phrase_furigana_endpoint', 'unmerge_phrase_tokens', 'get_alternate_readings', 'correct_token_reading', 'apply_tokens_reading', 'set_tokens_ignored']
-_bind_routes()
+create_document = _as_test_user(main.create_document)
+get_document = _as_test_user(main.get_document)
+get_document_tokens = _as_test_user(main.get_document_tokens)
+list_documents = _as_test_user(main.list_documents)
+update_document_text = _as_test_user(main.update_document_text)
+link_lrclib = _as_test_user(main.link_lrclib)
+unlink_lrclib = _as_test_user(main.unlink_lrclib)
+save_line_timings = _as_test_user(main.save_line_timings)
+resolve_token_conflict = _as_test_user(main.resolve_token_conflict)
+accept_phrase_suggestions_endpoint = _as_test_user(main.accept_phrase_suggestions_endpoint)
+resolve_phrase_furigana_endpoint = _as_test_user(main.resolve_phrase_furigana_endpoint)
+unmerge_phrase_tokens = _as_test_user(main.unmerge_phrase_tokens)
+get_alternate_readings = _as_test_user(main.get_alternate_readings)
+correct_token_reading = _as_test_user(main.correct_token_reading)
+apply_tokens_reading = _as_test_user(main.apply_tokens_reading)
+set_tokens_ignored = _as_test_user(main.set_tokens_ignored)

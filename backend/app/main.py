@@ -9,11 +9,12 @@ from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.auth import router as auth_router, session_secret
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
@@ -54,9 +55,8 @@ from app.lrclib import (
 )
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
-from app.auth import router as auth_router, session_secret
-from app.users import CurrentUser
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
+from app.users import CurrentUser
 
 app = FastAPI()
 
@@ -340,9 +340,7 @@ class DocumentTextUpdate(BaseModel):
 
 
 @app.patch("/documents/{document_id}", response_model=Document)
-def update_document_text(
-    document_id: int, body: DocumentTextUpdate, user_id: CurrentUser
-) -> Document:
+def update_document_text(document_id: int, body: DocumentTextUpdate, user_id: CurrentUser) -> Document:
     """Editing the lyrics invalidates every token derived from the old text
     — furigana, gloss links, conflicts, all of it no longer corresponds to
     anything real. No version history is kept (not asked for), so this just
@@ -368,12 +366,7 @@ def update_document_text(
         ).one_or_none()
 
         if row is None:
-            exists = conn.execute(
-                text("SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"),
-                {"id": document_id, "owner_id": user_id},
-            ).scalar_one()
-            if not exists:
-                raise HTTPException(status_code=404, detail="Document not found.")
+            _require_owned_document(conn, document_id, user_id)
             raise HTTPException(
                 status_code=409, detail="This document's lyrics come from LRCLIB — unlink it to edit them."
             )
@@ -440,9 +433,7 @@ class LineTimingsUpdate(BaseModel):
 
 
 @app.put("/documents/{document_id}/timings", response_model=Document)
-def save_line_timings(
-    document_id: int, body: LineTimingsUpdate, user_id: CurrentUser
-) -> Document:
+def save_line_timings(document_id: int, body: LineTimingsUpdate, user_id: CurrentUser) -> Document:
     """Save `body.lines` as the document's line timings, used in place of
     LRCLIB's for as long as its lyrics stay `body.text`."""
     with engine.begin() as conn:
@@ -805,11 +796,9 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
 
 @app.get("/documents/{document_id}/tokens", response_model=list[Token])
 def get_document_tokens(document_id: int, user_id: CurrentUser) -> list[Token]:
-    with engine.connect() as conn:
-        _require_owned_document(conn, document_id, user_id)
-
     while True:
         with engine.connect() as conn:
+            _require_owned_document(conn, document_id, user_id)
             existing = _fetch_tokens(conn, document_id)
             if not existing:
                 # Tokens only exist for a document that does, so the document
@@ -866,9 +855,7 @@ class ConflictResolution(BaseModel):
 
 
 @app.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
-def resolve_token_conflict(
-    document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser
-) -> Token:
+def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
         try:
@@ -884,9 +871,7 @@ class PhraseAcceptance(BaseModel):
 
 
 @app.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
-def accept_phrase_suggestions_endpoint(
-    document_id: int, body: PhraseAcceptance, user_id: CurrentUser
-) -> list[Token]:
+def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance, user_id: CurrentUser) -> list[Token]:
     """Apply each of `conflict_ids` — phrase suggestions, or split predicate
     groups to merge again — as accept_phrase_suggestions does. Returns every
     token they changed."""
@@ -901,9 +886,7 @@ def accept_phrase_suggestions_endpoint(
 
 
 @app.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
-def resolve_phrase_furigana_endpoint(
-    document_id: int, body: ConflictResolution, user_id: CurrentUser
-) -> list[Token]:
+def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution, user_id: CurrentUser) -> list[Token]:
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
     with engine.begin() as conn:
@@ -965,9 +948,7 @@ class ReadingCorrection(BaseModel):
 
 
 @app.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
-def correct_token_reading(
-    document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser
-) -> Token:
+def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
         try:
@@ -1008,9 +989,7 @@ class TokensReading(ReadingCorrection, TokenIds):
 
 
 @app.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
-def apply_tokens_reading(
-    document_id: int, body: TokensReading, user_id: CurrentUser
-) -> list[Token]:
+def apply_tokens_reading(document_id: int, body: TokensReading, user_id: CurrentUser) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
     does. Returns every token whose gloss changed, which includes the rest
@@ -1027,9 +1006,7 @@ class TokensIgnored(TokenIds):
 
 
 @app.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
-def set_tokens_ignored(
-    document_id: int, body: TokensIgnored, user_id: CurrentUser
-) -> list[Token]:
+def set_tokens_ignored(document_id: int, body: TokensIgnored, user_id: CurrentUser) -> list[Token]:
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""
     with engine.begin() as conn:
