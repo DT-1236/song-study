@@ -9,6 +9,7 @@ from typing import Literal, Optional
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -53,10 +54,14 @@ from app.lrclib import (
 )
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
+from app.auth import router as auth_router, session_secret
 from app.users import DEFAULT_USER_ID, CurrentUser
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
 
 app = FastAPI()
+
+# Off for local http; set on any https deployment.
+HTTPS_ONLY_COOKIES = os.environ.get("HTTPS_ONLY_COOKIES") == "1"
 
 allowed_origins = [
     origin.strip()
@@ -69,7 +74,12 @@ app.add_middleware(
     allow_origins=allowed_origins,
     allow_methods=["*"],
     allow_headers=["*"],
+    allow_credentials=True,
 )
+# The frontend and API differ only by port, which cookies ignore, so a Lax
+# cookie is sent on the frontend's fetches too.
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="lax", https_only=HTTPS_ONLY_COOKIES)
+app.include_router(auth_router)
 
 
 def _sanitize_lyrics(value: str) -> Optional[str]:

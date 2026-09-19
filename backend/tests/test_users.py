@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
+from app.users import DEFAULT_USER_ID
 from app.main import (
     DocumentCreate,
     DocumentTextUpdate,
@@ -15,7 +16,6 @@ from app.main import (
     unlink_lrclib,
     update_document_text,
 )
-from app.users import DEFAULT_USER_ID, current_user_id
 
 
 @pytest.fixture
@@ -29,7 +29,6 @@ def other_user(committed_engine):
 
 
 def test_default_user_is_seeded(committed_engine):
-    assert current_user_id() == DEFAULT_USER_ID
     with committed_engine.connect() as conn:
         assert conn.execute(text("SELECT id FROM users")).scalars().all() == [DEFAULT_USER_ID]
 

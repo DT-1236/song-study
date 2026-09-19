@@ -10,3 +10,7 @@ __pycache__/
 node_modules/
 .vite/
 dist/
+
+# Google OAuth client credentials downloaded from the Cloud console
+google_client_secret.json
+client_secret_*.json

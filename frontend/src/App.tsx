@@ -1,5 +1,6 @@
 import { Navigate, Route, RouterProvider, createBrowserRouter, createRoutesFromElements } from 'react-router-dom'
 import './App.css'
+import { AuthGate } from './AuthGate'
 import { Layout } from './Layout'
 import { NewDocumentForm } from './NewDocumentForm'
 import { DocumentsListPage } from './DocumentsListPage'
@@ -26,7 +27,11 @@ const router = createBrowserRouter(
 )
 
 function App() {
-  return <RouterProvider router={router} />
+  return (
+    <AuthGate>
+      <RouterProvider router={router} />
+    </AuthGate>
+  )
 }
 
 export default App

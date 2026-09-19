@@ -10,5 +10,8 @@ python-dotenv==1.2.3
 
 fastapi==0.141.1
 uvicorn[standard]==0.52.4
+Authlib==1.8.0
+httpx2==2.13.0
+itsdangerous==2.2.0
 
 pytest==9.1.1

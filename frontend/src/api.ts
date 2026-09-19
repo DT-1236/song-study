@@ -29,6 +29,33 @@ export type Document = {
 
 export class ApiError extends Error {}
 
+// fetch with the session cookie, which the API is on a different origin from.
+function apiFetch(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+  return fetch(input, { ...init, credentials: 'include' })
+}
+
+export type CurrentUser = {
+  id: number
+  name: string
+  email: string | null
+}
+
+// Where the browser goes to log in with Google; it comes back to the app.
+export const LOGIN_URL = `${API_URL}/auth/login`
+
+// The logged-in user, or null if nobody is.
+export async function fetchCurrentUser(): Promise<CurrentUser | null> {
+  const response = await apiFetch(`${API_URL}/auth/me`)
+  if (response.status === 401) return null
+  await assertOk(response)
+  return response.json()
+}
+
+export async function logout(): Promise<void> {
+  const response = await apiFetch(`${API_URL}/auth/logout`, { method: 'POST' })
+  await assertOk(response)
+}
+
 // The message to show for a failed request: the server's own, from an
 // ApiError, or `fallback` for anything else (a network failure, say).
 export function errorMessage(err: unknown, fallback: string): string {
@@ -59,7 +86,7 @@ export async function createDocument(input: {
   youtubeVideoId: string
   lrclibUri: string
 }): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents`, {
+  const response = await apiFetch(`${API_URL}/documents`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -76,7 +103,7 @@ export async function createDocument(input: {
 }
 
 export async function fetchDocument(id: number): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents/${id}`)
+  const response = await apiFetch(`${API_URL}/documents/${id}`)
 
   await assertOk(response)
 
@@ -84,7 +111,7 @@ export async function fetchDocument(id: number): Promise<Document> {
 }
 
 export async function updateDocumentText(id: number, text: string): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents/${id}`, {
+  const response = await apiFetch(`${API_URL}/documents/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text }),
@@ -99,7 +126,7 @@ export async function updateDocumentText(id: number, text: string): Promise<Docu
 export const LRCLIB_URI_PLACEHOLDER = 'e.g. https://lrclib.net/api/get/12345, or just 12345'
 
 export async function linkLrclib(id: number, uri: string, replaceText: boolean): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents/${id}/lrclib`, {
+  const response = await apiFetch(`${API_URL}/documents/${id}/lrclib`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ uri, replace_text: replaceText }),
@@ -111,7 +138,7 @@ export async function linkLrclib(id: number, uri: string, replaceText: boolean):
 }
 
 export async function unlinkLrclib(id: number): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents/${id}/lrclib`, { method: 'DELETE' })
+  const response = await apiFetch(`${API_URL}/documents/${id}/lrclib`, { method: 'DELETE' })
 
   await assertOk(response, { 404: 'Document not found.' })
 
@@ -121,7 +148,7 @@ export async function unlinkLrclib(id: number): Promise<Document> {
 // Saves `lines` as the document's edited line timings, made for its lyrics
 // as they were when editing started (`text`).
 export async function saveLineTimings(id: number, text: string, lines: (LineTiming | null)[]): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents/${id}/timings`, {
+  const response = await apiFetch(`${API_URL}/documents/${id}/timings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, lines }),
@@ -278,7 +305,7 @@ export type Token = {
 }
 
 export async function fetchTokens(documentId: number): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens`)
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens`)
 
   await assertOk(response)
 
@@ -288,7 +315,7 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
 // Every other reading JMDict has for tokenId's dictionary form, as reading
 // options to apply with applyReading.
 export async function fetchAlternateReadings(documentId: number, tokenId: number): Promise<ConflictOptionValue[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`)
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`)
 
   await assertOk(response, { 404: 'Token not found for this document.' })
 
@@ -305,7 +332,7 @@ export async function applyReading(
   reading: string,
   furiganaSpans?: FuriganaSpan[],
 ): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/reading`, {
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens/reading`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token_ids: tokenIds, reading, furigana_spans: furiganaSpans ?? null }),
@@ -319,7 +346,7 @@ export async function applyReading(
 // Accepts phrase suggestions, or split predicate groups to merge again.
 // Returns every token they changed.
 export async function acceptPhraseSuggestions(documentId: number, conflictIds: number[]): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conflict_ids: conflictIds }),
@@ -333,7 +360,7 @@ export async function acceptPhraseSuggestions(documentId: number, conflictIds: n
 // Splits the group tokenId is merged into, found from any member of it.
 // Returns every token it changed, or [] if tokenId isn't merged.
 export async function unmergePhrase(documentId: number, tokenId: number): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
     method: 'POST',
   })
 
@@ -345,7 +372,7 @@ export async function unmergePhrase(documentId: number, tokenId: number): Promis
 // Applies one of a phrase's alternative furigana splits (see
 // PhraseFuriganaValue). Returns every affected token.
 export async function resolvePhraseFurigana(documentId: number, conflictId: number): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/phrase-furigana`, {
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens/phrase-furigana`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ conflict_id: conflictId }),
@@ -357,7 +384,7 @@ export async function resolvePhraseFurigana(documentId: number, conflictId: numb
 }
 
 export async function setTokensIgnored(documentId: number, tokenIds: number[], ignored: boolean): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/ignored`, {
+  const response = await apiFetch(`${API_URL}/documents/${documentId}/tokens/ignored`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ token_ids: tokenIds, ignored }),
@@ -390,7 +417,7 @@ export async function searchJmdict(query: string, maxResultsPerTier = 3): Promis
   url.searchParams.set('q', query)
   url.searchParams.set('max_results_per_tier', String(maxResultsPerTier))
 
-  const response = await fetch(url)
+  const response = await apiFetch(url)
 
   await assertOk(response)
 
@@ -409,7 +436,7 @@ export async function fetchDocuments(params: {
   url.searchParams.set('sort_by', params.sortBy)
   url.searchParams.set('sort_dir', params.sortDir)
 
-  const response = await fetch(url)
+  const response = await apiFetch(url)
 
   await assertOk(response)
 

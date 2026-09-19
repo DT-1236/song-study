@@ -1318,3 +1318,19 @@ label.apply-to-all {
   color: var(--accent-text);
   opacity: 0.8;
 }
+
+.login-page {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  margin-top: 20vh;
+}
+
+.login-button {
+  padding: 10px 20px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+}
