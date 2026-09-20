@@ -7,14 +7,13 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import router as auth_router, session_secret
+from app.auth import APP_URL, router as auth_router, session_secret
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
@@ -58,28 +57,14 @@ from app.sanitize import sanitize_text
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
 from app.users import CurrentUser
 
-app = FastAPI()
+app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
-# Off for local http; set on any https deployment.
-HTTPS_ONLY_COOKIES = os.environ.get("HTTPS_ONLY_COOKIES") == "1"
+# The API is served under /api on the app's own origin, so there's no CORS.
+# Its cookie is Secure exactly when the app is served over https.
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="lax", https_only=APP_URL.startswith("https://"))
 
-allowed_origins = [
-    origin.strip()
-    for origin in os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
-    if origin.strip()
-]
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
-    allow_credentials=True,
-)
-# The frontend and API differ only by port, which cookies ignore, so a Lax
-# cookie is sent on the frontend's fetches too.
-app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="lax", https_only=HTTPS_ONLY_COOKIES)
-app.include_router(auth_router)
+api = APIRouter(prefix="/api")
+api.include_router(auth_router)
 
 
 def _sanitize_lyrics(value: str) -> Optional[str]:
@@ -159,7 +144,7 @@ def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/documents", response_model=Document, status_code=201)
+@api.post("/documents", response_model=Document, status_code=201)
 def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
     """Create a document; given an LRCLIB track, its lyrics are used in
     place of `text`."""
@@ -211,7 +196,7 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
     return Document(**row._mapping)
 
 
-@app.get("/documents/{document_id}", response_model=Document)
+@api.get("/documents/{document_id}", response_model=Document)
 def get_document(document_id: int, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there."""
@@ -339,7 +324,7 @@ class DocumentTextUpdate(BaseModel):
         return sanitized
 
 
-@app.patch("/documents/{document_id}", response_model=Document)
+@api.patch("/documents/{document_id}", response_model=Document)
 def update_document_text(document_id: int, body: DocumentTextUpdate, user_id: CurrentUser) -> Document:
     """Editing the lyrics invalidates every token derived from the old text
     — furigana, gloss links, conflicts, all of it no longer corresponds to
@@ -382,7 +367,7 @@ class LrclibLink(BaseModel):
     replace_text: bool = True
 
 
-@app.put("/documents/{document_id}/lrclib", response_model=Document)
+@api.put("/documents/{document_id}/lrclib", response_model=Document)
 def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Document:
     """Link the document to an LRCLIB track, either replacing its lyrics
     with the track's (readings picked for it are reset unless the text is
@@ -392,7 +377,7 @@ def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Doc
         return _store_lrclib_lyrics(conn, _lock_document(conn, document_id, user_id), uri, lyrics, body.replace_text)
 
 
-@app.delete("/documents/{document_id}/lrclib", response_model=Document)
+@api.delete("/documents/{document_id}/lrclib", response_model=Document)
 def unlink_lrclib(document_id: int, user_id: CurrentUser) -> Document:
     """Stop loading the document's lyrics from LRCLIB, keeping the ones it
     has, which become editable."""
@@ -432,7 +417,7 @@ class LineTimingsUpdate(BaseModel):
         return lines
 
 
-@app.put("/documents/{document_id}/timings", response_model=Document)
+@api.put("/documents/{document_id}/timings", response_model=Document)
 def save_line_timings(document_id: int, body: LineTimingsUpdate, user_id: CurrentUser) -> Document:
     """Save `body.lines` as the document's line timings, used in place of
     LRCLIB's for as long as its lyrics stay `body.text`."""
@@ -483,7 +468,7 @@ class DocumentPage(BaseModel):
     page_size: int
 
 
-@app.get("/documents", response_model=DocumentPage)
+@api.get("/documents", response_model=DocumentPage)
 def list_documents(
     user_id: CurrentUser,
     page: int = Query(default=1, ge=1),
@@ -537,7 +522,7 @@ class JmdictEntry(BaseModel):
     senses: list[JmdictSense]
 
 
-@app.get("/jmdict/search", response_model=list[JmdictEntry])
+@api.get("/jmdict/search", response_model=list[JmdictEntry])
 def jmdict_search(
     q: str = Query(min_length=1),
     max_results_per_tier: int = Query(default=3, ge=1, le=20),
@@ -794,7 +779,7 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
     create_phrase_conflicts(conn, document_id, processed.records, processed.groups)
 
 
-@app.get("/documents/{document_id}/tokens", response_model=list[Token])
+@api.get("/documents/{document_id}/tokens", response_model=list[Token])
 def get_document_tokens(document_id: int, user_id: CurrentUser) -> list[Token]:
     while True:
         with engine.connect() as conn:
@@ -854,7 +839,7 @@ class ConflictResolution(BaseModel):
     conflict_id: int
 
 
-@app.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
+@api.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
 def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
@@ -870,7 +855,7 @@ class PhraseAcceptance(BaseModel):
     conflict_ids: list[int] = Field(min_length=1)
 
 
-@app.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
+@api.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
 def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance, user_id: CurrentUser) -> list[Token]:
     """Apply each of `conflict_ids` — phrase suggestions, or split predicate
     groups to merge again — as accept_phrase_suggestions does. Returns every
@@ -885,7 +870,7 @@ def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance,
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@app.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
+@api.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
 def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution, user_id: CurrentUser) -> list[Token]:
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
@@ -899,7 +884,7 @@ def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution,
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@app.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
+@api.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
 def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser) -> list[Token]:
     """Split the group token_id is merged into, found from any member of it.
     Returns the tokens it changed."""
@@ -915,7 +900,7 @@ def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser)
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@app.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
+@api.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
 def get_alternate_readings(document_id: int, token_id: int, user_id: CurrentUser) -> list[dict]:
     """Every other reading JMDict has for token_id's dictionary form, as
     reading options to apply through /tokens/reading."""
@@ -947,7 +932,7 @@ class ReadingCorrection(BaseModel):
         return value
 
 
-@app.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
+@api.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
 def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
@@ -988,7 +973,7 @@ class TokensReading(ReadingCorrection, TokenIds):
     furigana_spans: Optional[list[dict]] = None
 
 
-@app.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
+@api.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
 def apply_tokens_reading(document_id: int, body: TokensReading, user_id: CurrentUser) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
@@ -1005,7 +990,7 @@ class TokensIgnored(TokenIds):
     ignored: bool
 
 
-@app.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
+@api.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
 def set_tokens_ignored(document_id: int, body: TokensIgnored, user_id: CurrentUser) -> list[Token]:
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""
@@ -1018,3 +1003,7 @@ def set_tokens_ignored(document_id: int, body: TokensIgnored, user_id: CurrentUs
             {"token_ids": body.token_ids, "ignored": body.ignored},
         )
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
+
+
+# After every route above is registered, since including a router copies its routes.
+app.include_router(api)

@@ -96,13 +96,15 @@ uvicorn app.main:app --reload
 
 # in a second terminal
 cd frontend
-cp .env.example .env
 npm install
 npm run dev
 ```
 
-The frontend runs at `http://localhost:5173` and talks to the backend at
-`http://localhost:8000` by default (see each `.env.example` to change either).
+Open `http://localhost:5173`. The backend runs at `http://localhost:8000`, but
+the browser only talks to the frontend's origin: the Vite dev server proxies
+`/api` to the backend, and a deployment's reverse proxy should do the same
+(`/api/*` to the backend, everything else to the built frontend). The app's
+public URL is `APP_URL` in `.env`.
 
 ## Running tests
 

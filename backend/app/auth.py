@@ -16,7 +16,10 @@ from app.users import current_user_id
 
 router = APIRouter(prefix="/auth")
 
-FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:5173")
+# Where the app is reached in a browser. The API is served under its /api on
+# this same origin (the Vite dev server proxies it; a deployment's reverse
+# proxy does the same), so the session cookie never crosses origins.
+APP_URL = os.environ.get("APP_URL", "http://localhost:5173").rstrip("/")
 
 oauth = OAuth()
 oauth.register(
@@ -55,10 +58,10 @@ async def login(request: Request):
     """Send the browser to Google to log in."""
     if not os.environ.get("GOOGLE_CLIENT_ID"):
         raise HTTPException(status_code=503, detail="Google login isn't configured (GOOGLE_CLIENT_ID).")
-    return await oauth.google.authorize_redirect(request, str(request.url_for("auth_callback")))
+    return await oauth.google.authorize_redirect(request, f"{APP_URL}/api/auth/callback")
 
 
-@router.get("/callback", name="auth_callback")
+@router.get("/callback")
 async def callback(request: Request):
     """Finish a Google login: log the account in and return to the app."""
     token = await oauth.google.authorize_access_token(request)
@@ -68,7 +71,7 @@ async def callback(request: Request):
         user_id = upsert_google_user(conn, info["sub"], email, info.get("name") or email or "")
     request.session.clear()
     request.session["user_id"] = user_id
-    return RedirectResponse(FRONTEND_URL)
+    return RedirectResponse(APP_URL)
 
 
 class Me(BaseModel):
