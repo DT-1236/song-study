@@ -1,5 +1,20 @@
 # Instructions for AI agents working in this repo
 
+## Development vs. deployment
+
+- Local development may differ from a deployment only in configuration:
+  `http` instead of `https`, `localhost` hostnames, throwaway secrets, debug
+  flags. Each of those is an environment variable (or a value derived from
+  one), and no code branches on "dev" vs. "prod".
+- Everything else is written the way it would be deployed, even if that's
+  more work now: the same origin layout, cookie and session behavior, auth
+  flow, routing and database engine. A bug in any of those only surfaces at
+  deploy time, which is the most expensive time to find it.
+- Before adding a dev-only shortcut, ask whether it changes the shape of the
+  code (CORS for a split origin, a default user, a special-cased URL) or only
+  a value. Only a value is fine; otherwise reconfigure the dev setup, such as
+  the Vite proxy, to match deployment instead.
+
 ## Function descriptions (docstrings)
 
 - Limit a docstring to the function's *intended effect*, phrased in terms
@@ -48,6 +63,24 @@
   `backend/tests/fixtures/kumo_no_ito.py` does. For other real data, copy
   exactly the rows a case reads instead of pointing the test at the app
   database.
+
+## Skipped review findings
+
+- When a `/simplify` run finds something it decides not to fix — because the
+  fix would change behavior, reach well outside the reviewed diff, or isn't
+  worth its cost yet — add it to `docs/backlog.md` rather than leaving it
+  only in the run's summary. Give each entry a bullet under a heading naming
+  the run (`/simplify` on PR #N, and what it covered): what the finding is,
+  where it is, and what fixing it would cost, so it can be picked up later
+  without re-deriving the reasoning.
+- End each entry with the model and effort expected to complete it, chosen
+  as `docs/flashcards.md` does ("Which model to run each step with"): the
+  model by how subtle the change is (Opus 5 where a mistake is silent or the
+  surrounding code is delicate, Sonnet 5 for pattern application against a
+  clear spec, Haiku 4.5 for a mechanical change with one obvious answer),
+  and the effort by how much is already decided. Add a few words on why when
+  the pairing isn't obvious.
+- Skip false positives; they aren't backlog.
 
 ## Pull requests
 
