@@ -24,7 +24,11 @@ export function DocumentsListPage() {
     () => fetchDocuments({ page, pageSize: PAGE_SIZE, sortBy, sortDir }),
     [page, sortBy, sortDir],
   )
-  const { data, loading, error } = useApiResource(fetchFn, [page, sortBy, sortDir], 'Failed to load documents.')
+  const { data, loading, error } = useApiResource(
+    fetchFn,
+    [page, sortBy, sortDir],
+    'Failed to load documents.',
+  )
   const items = data?.items ?? []
   const total = data?.total ?? 0
 
@@ -83,7 +87,11 @@ export function DocumentsListPage() {
             >
               <td className="tab-indicator">
                 {processingIds.has(doc.id) ? (
-                  <span className="spinner" aria-label="Processing" title="Processing…" />
+                  <span
+                    className="spinner"
+                    aria-label="Processing"
+                    title="Processing…"
+                  />
                 ) : openIds.has(doc.id) ? (
                   '👁'
                 ) : (
@@ -100,7 +108,11 @@ export function DocumentsListPage() {
       </table>
 
       <div className="pagination">
-        <button type="button" disabled={page <= 1} onClick={() => setPage((p) => p - 1)}>
+        <button
+          type="button"
+          disabled={page <= 1}
+          onClick={() => setPage((p) => p - 1)}
+        >
           Previous
         </button>
         <span>

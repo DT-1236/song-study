@@ -21,7 +21,12 @@ export function NewDocumentForm() {
     try {
       // LRCLIB's lyrics take precedence server-side, so any pasted ones are
       // just ignored when a track is given.
-      const document = await createDocument({ title, text: lyrics, youtubeVideoId, lrclibUri })
+      const document = await createDocument({
+        title,
+        text: lyrics,
+        youtubeVideoId,
+        lrclibUri,
+      })
       setSavedTitle(document.title)
       setTitle('')
       setLyrics('')
@@ -56,7 +61,8 @@ export function NewDocumentForm() {
         placeholder={LRCLIB_URI_PLACEHOLDER}
       />
       <p className="lyrics-editor-note">
-        When set, the lyrics and their timing are loaded from LRCLIB instead of pasted below.
+        When set, the lyrics and their timing are loaded from LRCLIB instead of
+        pasted below.
       </p>
 
       <label htmlFor="lyrics">Lyrics</label>
@@ -65,7 +71,9 @@ export function NewDocumentForm() {
         value={usingLrclib ? '' : lyrics}
         onChange={(e) => setLyrics(e.target.value)}
         rows={16}
-        placeholder={usingLrclib ? 'Loaded from LRCLIB' : 'Paste the full lyrics here'}
+        placeholder={
+          usingLrclib ? 'Loaded from LRCLIB' : 'Paste the full lyrics here'
+        }
         required={!usingLrclib}
         disabled={usingLrclib}
       />

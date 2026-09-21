@@ -40,11 +40,13 @@ function parseFurigana(text: string): FuriganaSegment[] {
   let lastIndex = 0
   for (const match of text.matchAll(FURIGANA_RE)) {
     const index = match.index ?? 0
-    if (index > lastIndex) segments.push({ text: text.slice(lastIndex, index), reading: null })
+    if (index > lastIndex)
+      segments.push({ text: text.slice(lastIndex, index), reading: null })
     segments.push({ text: match[1], reading: match[2] })
     lastIndex = index + match[0].length
   }
-  if (lastIndex < text.length) segments.push({ text: text.slice(lastIndex), reading: null })
+  if (lastIndex < text.length)
+    segments.push({ text: text.slice(lastIndex), reading: null })
   return segments
 }
 
@@ -54,7 +56,11 @@ export function Furigana({ text }: { text: string }): ReactNode {
 
 // The shared "examples" column format used by both reference legends: a
 // list of furigana-marked-up strings rendered inline, joined by " ・ ".
-export function FuriganaExampleList({ examples }: { examples: string[] }): ReactNode {
+export function FuriganaExampleList({
+  examples,
+}: {
+  examples: string[]
+}): ReactNode {
   return (
     <>
       {examples.map((example, i) => (

@@ -31,99 +31,100 @@ type Props = {
   onSeek?: () => void
 }
 
-export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(function YouTubePlayer(
-  { videoId, onSeek },
-  ref,
-) {
-  const containerRef = useRef<HTMLDivElement>(null)
-  // Set only once the player is ready, since its methods don't exist before.
-  const playerRef = useRef<YT.Player | null>(null)
-  // Where the last seek went and when, until the player's own time catches
-  // up: it keeps reporting the time from before a seek until the iframe
-  // reports back, some 50 ms later.
-  const seekRef = useRef<{ seconds: number; at: number } | null>(null)
+export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
+  function YouTubePlayer({ videoId, onSeek }, ref) {
+    const containerRef = useRef<HTMLDivElement>(null)
+    // Set only once the player is ready, since its methods don't exist before.
+    const playerRef = useRef<YT.Player | null>(null)
+    // Where the last seek went and when, until the player's own time catches
+    // up: it keeps reporting the time from before a seek until the iframe
+    // reports back, some 50 ms later.
+    const seekRef = useRef<{ seconds: number; at: number } | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    let player: YT.Player | null = null
+    useEffect(() => {
+      let cancelled = false
+      let player: YT.Player | null = null
 
-    loadYouTubeIframeApi().then((YT) => {
-      if (cancelled || !containerRef.current) return
-      player = new YT.Player(containerRef.current, {
-        videoId,
-        width: '100%',
-        height: '100%',
-        events: {
-          onReady: (event) => {
-            if (!cancelled) playerRef.current = event.target
+      loadYouTubeIframeApi().then((YT) => {
+        if (cancelled || !containerRef.current) return
+        player = new YT.Player(containerRef.current, {
+          videoId,
+          width: '100%',
+          height: '100%',
+          events: {
+            onReady: (event) => {
+              if (!cancelled) playerRef.current = event.target
+            },
           },
-        },
+        })
       })
-    })
 
-    return () => {
-      cancelled = true
-      player?.destroy()
-      playerRef.current = null
-    }
-  }, [videoId])
+      return () => {
+        cancelled = true
+        player?.destroy()
+        playerRef.current = null
+      }
+    }, [videoId])
 
-  useImperativeHandle(ref, () => {
-    // The playback time, counting a seek the player hasn't reported yet.
-    function currentTime(player: YT.Player): number {
-      const time = player.getCurrentTime()
-      const seek = seekRef.current
-      if (!seek) return time
-      const elapsedMs = performance.now() - seek.at
-      // Caught up once it's at the target, or as far past it as playback
-      // could have gone since: the time from before a seek is short of it
-      // (seeking ahead) or further past it (seeking back), however near.
-      const caughtUp =
-        time >= seek.seconds - SEEK_SLACK_SECONDS && time <= seek.seconds + elapsedMs / 1000 + SEEK_SLACK_SECONDS
-      if (!caughtUp && elapsedMs < SEEK_REPORT_TIMEOUT_MS) return seek.seconds
-      seekRef.current = null
-      return time
-    }
+    useImperativeHandle(ref, () => {
+      // The playback time, counting a seek the player hasn't reported yet.
+      function currentTime(player: YT.Player): number {
+        const time = player.getCurrentTime()
+        const seek = seekRef.current
+        if (!seek) return time
+        const elapsedMs = performance.now() - seek.at
+        // Caught up once it's at the target, or as far past it as playback
+        // could have gone since: the time from before a seek is short of it
+        // (seeking ahead) or further past it (seeking back), however near.
+        const caughtUp =
+          time >= seek.seconds - SEEK_SLACK_SECONDS &&
+          time <= seek.seconds + elapsedMs / 1000 + SEEK_SLACK_SECONDS
+        if (!caughtUp && elapsedMs < SEEK_REPORT_TIMEOUT_MS) return seek.seconds
+        seekRef.current = null
+        return time
+      }
 
-    function seekTo(player: YT.Player, seconds: number) {
-      player.seekTo(seconds, true)
-      seekRef.current = { seconds, at: performance.now() }
-      onSeek?.()
-    }
+      function seekTo(player: YT.Player, seconds: number) {
+        player.seekTo(seconds, true)
+        seekRef.current = { seconds, at: performance.now() }
+        onSeek?.()
+      }
 
-    return {
-      getCurrentTime: () => (playerRef.current ? currentTime(playerRef.current) : null),
-      getDuration: () => playerRef.current?.getDuration() ?? 0,
-      getVideoData: () => playerRef.current?.getVideoData() ?? null,
-      togglePlay: () => {
-        const player = playerRef.current
-        if (!player) return
-        if (player.getPlayerState() === YT_PLAYING_STATE) {
-          player.pauseVideo()
-        } else {
+      return {
+        getCurrentTime: () =>
+          playerRef.current ? currentTime(playerRef.current) : null,
+        getDuration: () => playerRef.current?.getDuration() ?? 0,
+        getVideoData: () => playerRef.current?.getVideoData() ?? null,
+        togglePlay: () => {
+          const player = playerRef.current
+          if (!player) return
+          if (player.getPlayerState() === YT_PLAYING_STATE) {
+            player.pauseVideo()
+          } else {
+            player.playVideo()
+          }
+        },
+        seekBy: (deltaSeconds) => {
+          const player = playerRef.current
+          if (!player) return
+          // From where the last seek went, so presses in quick succession add up.
+          const target = currentTime(player) + deltaSeconds
+          const clamped = Math.min(Math.max(target, 0), player.getDuration())
+          seekTo(player, clamped)
+        },
+        playFrom: (seconds) => {
+          const player = playerRef.current
+          if (!player) return
+          seekTo(player, seconds)
           player.playVideo()
-        }
-      },
-      seekBy: (deltaSeconds) => {
-        const player = playerRef.current
-        if (!player) return
-        // From where the last seek went, so presses in quick succession add up.
-        const target = currentTime(player) + deltaSeconds
-        const clamped = Math.min(Math.max(target, 0), player.getDuration())
-        seekTo(player, clamped)
-      },
-      playFrom: (seconds) => {
-        const player = playerRef.current
-        if (!player) return
-        seekTo(player, seconds)
-        player.playVideo()
-      },
-    }
-  }, [onSeek])
+        },
+      }
+    }, [onSeek])
 
-  return (
-    <div className="youtube-player">
-      <div ref={containerRef} />
-    </div>
-  )
-})
+    return (
+      <div className="youtube-player">
+        <div ref={containerRef} />
+      </div>
+    )
+  },
+)

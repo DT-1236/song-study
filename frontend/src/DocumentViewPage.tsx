@@ -1,4 +1,14 @@
-import { Fragment, memo, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { useBlocker, useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
@@ -72,7 +82,11 @@ const LRCLIB_SYNC_NOTE =
 // after one, that line. Of lines that start together, it's the last, the
 // only one with any length. Searches from `from`, the line last found, since
 // playback mostly moves on a line at a time; -1 searches from the top.
-function lastStartedBy(lines: (LineTiming | null)[], time: number, from: number): number {
+function lastStartedBy(
+  lines: (LineTiming | null)[],
+  time: number,
+  from: number,
+): number {
   let i = Math.min(from, lines.length - 1)
   // Back past lines that haven't started (after a seek back)...
   while (i >= 0 && (lines[i]?.start ?? Infinity) > time) i--
@@ -89,7 +103,10 @@ function lastStartedBy(lines: (LineTiming | null)[], time: number, from: number)
 // Each line's timing, given its start (null for an untimed line): until the
 // next timed line starts, as in LRC, and for the last timed line, until
 // `songEnd`.
-function timingsFromStarts(starts: (number | null)[], songEnd: number): (LineTiming | null)[] {
+function timingsFromStarts(
+  starts: (number | null)[],
+  songEnd: number,
+): (LineTiming | null)[] {
   let end = songEnd
   const result: (LineTiming | null)[] = starts.map(() => null)
   for (let i = starts.length - 1; i >= 0; i--) {
@@ -117,7 +134,9 @@ function formatTimestamp(seconds: number): string {
 function isTypingTarget(element: Element | null): boolean {
   return (
     element instanceof HTMLElement &&
-    (element.tagName === 'INPUT' || element.tagName === 'TEXTAREA' || element.isContentEditable)
+    (element.tagName === 'INPUT' ||
+      element.tagName === 'TEXTAREA' ||
+      element.isContentEditable)
   )
 }
 
@@ -128,7 +147,10 @@ function isTypingTarget(element: Element | null): boolean {
 // the user hasn't reviewed, so it counts for the same purposes needs_review
 // conflicts normally would.
 function hasAmbiguousCompositePiece(token: Token): boolean {
-  return token.gloss?.source === 'composite' && token.gloss.pieces.some((p) => p.ambiguous_readings.length > 0)
+  return (
+    token.gloss?.source === 'composite' &&
+    token.gloss.pieces.some((p) => p.ambiguous_readings.length > 0)
+  )
 }
 
 // A clean JMDict miss under the reading we currently have — a real gloss
@@ -139,47 +161,71 @@ function hasAmbiguousCompositePiece(token: Token): boolean {
 // not as one entry, so an empty top-level senses list there doesn't mean
 // the same thing it does for a plain jmdict/english_stub gloss.
 function hasMissingGloss(token: Token): boolean {
-  return token.gloss !== null && token.gloss.senses.length === 0 && token.gloss.source !== 'composite'
+  return (
+    token.gloss !== null &&
+    token.gloss.senses.length === 0 &&
+    token.gloss.source !== 'composite'
+  )
 }
 
 // Conflict rows that aren't reading options, with values of other shapes: a
 // phrase suggestion, a phrase's alternative furigana, and a split predicate
 // group.
-function isPhraseConflict(conflict: Conflict): conflict is Conflict & { kind: 'phrase'; value: PhraseConflictValue } {
+function isPhraseConflict(
+  conflict: Conflict,
+): conflict is Conflict & { kind: 'phrase'; value: PhraseConflictValue } {
   return conflict.kind === 'phrase'
 }
 
 function isPhraseFuriganaConflict(
   conflict: Conflict,
-): conflict is Conflict & { kind: 'phrase_furigana'; value: PhraseFuriganaValue } {
+): conflict is Conflict & {
+  kind: 'phrase_furigana'
+  value: PhraseFuriganaValue
+} {
   return conflict.kind === 'phrase_furigana'
 }
 
-function isPredicateConflict(conflict: Conflict): conflict is Conflict & { kind: 'predicate'; value: PredicateGroupValue } {
+function isPredicateConflict(
+  conflict: Conflict,
+): conflict is Conflict & { kind: 'predicate'; value: PredicateGroupValue } {
   return conflict.kind === 'predicate'
 }
 
-function readingConflicts(token: Token): (Conflict & { kind: 'heteronym' | 'no_kana_anchor' | 'custom' })[] {
+function readingConflicts(
+  token: Token,
+): (Conflict & { kind: 'heteronym' | 'no_kana_anchor' | 'custom' })[] {
   return token.conflicts.filter(
     (c): c is Conflict & { kind: 'heteronym' | 'no_kana_anchor' | 'custom' } =>
-      !isPhraseConflict(c) && !isPhraseFuriganaConflict(c) && !isPredicateConflict(c),
+      !isPhraseConflict(c) &&
+      !isPhraseFuriganaConflict(c) &&
+      !isPredicateConflict(c),
   )
 }
 
 // The one phrase suggestion offered starting at this token, if any and if
 // it hasn't already been accepted.
-function phraseSuggestion(token: Token): (Conflict & { kind: 'phrase'; value: PhraseConflictValue }) | undefined {
-  return token.conflicts.find((c): c is Conflict & { kind: 'phrase'; value: PhraseConflictValue } => isPhraseConflict(c) && !c.selected)
+function phraseSuggestion(
+  token: Token,
+): (Conflict & { kind: 'phrase'; value: PhraseConflictValue }) | undefined {
+  return token.conflicts.find(
+    (c): c is Conflict & { kind: 'phrase'; value: PhraseConflictValue } =>
+      isPhraseConflict(c) && !c.selected,
+  )
 }
 
 // The other valid furigana splits of the accepted phrase this token starts.
-function phraseFuriganaOptions(token: Token): (Conflict & { kind: 'phrase_furigana'; value: PhraseFuriganaValue })[] {
+function phraseFuriganaOptions(
+  token: Token,
+): (Conflict & { kind: 'phrase_furigana'; value: PhraseFuriganaValue })[] {
   return token.conflicts.filter(isPhraseFuriganaConflict)
 }
 
 // The predicate group starting at this token that can be merged again, if
 // it's been split.
-function splitPredicateGroup(token: Token): (Conflict & { kind: 'predicate'; value: PredicateGroupValue }) | undefined {
+function splitPredicateGroup(
+  token: Token,
+): (Conflict & { kind: 'predicate'; value: PredicateGroupValue }) | undefined {
   if (token.phrase_start_position !== null) return undefined
   return token.conflicts.find(isPredicateConflict)
 }
@@ -194,7 +240,9 @@ function isMerged(token: Token): boolean {
 // as one unit — a group of one for a standalone token — rather than only the
 // token that's actually pinned, hovered, or playing.
 function phraseSpanKey(token: Token, index: number): string {
-  return token.phrase_start_position !== null ? `phrase:${token.phrase_start_position}` : `solo:${index}`
+  return token.phrase_start_position !== null
+    ? `phrase:${token.phrase_start_position}`
+    : `solo:${index}`
 }
 
 // Whether this token is part of an accepted phrase, whose tokens are glossed
@@ -206,7 +254,9 @@ function isInAcceptedPhrase(token: Token): boolean {
 // Whether this noun can combine with a directly-following する to form a
 // verb, by Sudachi's サ変可能 ("can take する") tag.
 function canTakeSuru(token: Token): boolean {
-  return token.part_of_speech[0] === '名詞' && token.part_of_speech[2] === 'サ変可能'
+  return (
+    token.part_of_speech[0] === '名詞' && token.part_of_speech[2] === 'サ変可能'
+  )
 }
 
 // Whether a token has reading options to pick from. An OOV token's options
@@ -215,13 +265,22 @@ function hasReadingOptions(token: Token): boolean {
   // Hidden inside an accepted phrase, whose reading is the phrase's: split
   // it first (see UnmergePhraseOption). A predicate group is glossed again
   // with the picked reading instead.
-  return token.review_reason !== 'oov' && !isInAcceptedPhrase(token) && readingConflicts(token).length > 0
+  return (
+    token.review_reason !== 'oov' &&
+    !isInAcceptedPhrase(token) &&
+    readingConflicts(token).length > 0
+  )
 }
 
 // Whether a token opens a gloss popup, and so can be hovered, pinned, and
 // selected.
 function hasPopup(token: Token): boolean {
-  return !token.is_english && (token.gloss !== null || token.conflicts.length > 0 || token.review_reason === 'oov')
+  return (
+    !token.is_english &&
+    (token.gloss !== null ||
+      token.conflicts.length > 0 ||
+      token.review_reason === 'oov')
+  )
 }
 
 // Tokens with the same key are one word, read and parsed the same way, with
@@ -261,7 +320,10 @@ function useSave() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  async function save<T>(request: () => Promise<T>, onSaved: (result: T) => void) {
+  async function save<T>(
+    request: () => Promise<T>,
+    onSaved: (result: T) => void,
+  ) {
     setSaving(true)
     setError(null)
     try {
@@ -354,7 +416,10 @@ function AlternateReadingSearch({
           disabled={searching}
           onClick={(e) => {
             e.stopPropagation()
-            runSearch(() => fetchAlternateReadings(documentId, targets[0].id), setOptions)
+            runSearch(
+              () => fetchAlternateReadings(documentId, targets[0].id),
+              setOptions,
+            )
           }}
         >
           Look for other readings
@@ -365,7 +430,11 @@ function AlternateReadingSearch({
   }
 
   if (options.length === 0) {
-    return <div className="conflict-note">No other readings found for this word.</div>
+    return (
+      <div className="conflict-note">
+        No other readings found for this word.
+      </div>
+    )
   }
 
   return (
@@ -381,7 +450,13 @@ function AlternateReadingSearch({
             onClick={(e) => {
               e.stopPropagation()
               applyOption(
-                () => applyReading(documentId, targets.map((t) => t.id), option.reading, option.furigana_spans),
+                () =>
+                  applyReading(
+                    documentId,
+                    targets.map((t) => t.id),
+                    option.reading,
+                    option.furigana_spans,
+                  ),
                 onTokensUpdated,
               )
             }}
@@ -421,8 +496,13 @@ function ReadingOptions({
           <button
             key={conflict.id}
             type="button"
-            className={conflict.selected ? 'conflict-option selected' : 'conflict-option'}
-            disabled={applyingId !== null || (conflict.selected && !token.needs_review && !canRepick)}
+            className={
+              conflict.selected ? 'conflict-option selected' : 'conflict-option'
+            }
+            disabled={
+              applyingId !== null ||
+              (conflict.selected && !token.needs_review && !canRepick)
+            }
             onClick={async (e) => {
               e.stopPropagation()
               setApplyingId(conflict.id)
@@ -430,7 +510,12 @@ function ReadingOptions({
               try {
                 const ids = targets.map((t) => t.id)
                 onTokensUpdated(
-                  await applyReading(documentId, ids, conflict.value.reading, conflict.value.furigana_spans),
+                  await applyReading(
+                    documentId,
+                    ids,
+                    conflict.value.reading,
+                    conflict.value.furigana_spans,
+                  ),
                 )
               } catch (err) {
                 setError(errorMessage(err, 'Failed to save — try again.'))
@@ -462,14 +547,24 @@ function IgnoreGlossButton({
 
   return (
     <div className="ignore-gloss">
-      {ignored && <div className="conflict-note">Ignored: no gloss expected.</div>}
+      {ignored && (
+        <div className="conflict-note">Ignored: no gloss expected.</div>
+      )}
       <button
         type="button"
         className="conflict-option"
         disabled={saving}
         onClick={(e) => {
           e.stopPropagation()
-          save(() => setTokensIgnored(documentId, targets.map((t) => t.id), !ignored), onTokensUpdated)
+          save(
+            () =>
+              setTokensIgnored(
+                documentId,
+                targets.map((t) => t.id),
+                !ignored,
+              ),
+            onTokensUpdated,
+          )
         }}
       >
         {ignored ? 'Stop ignoring' : 'Ignore — no gloss needed'}
@@ -488,7 +583,9 @@ function matchingPhraseSuggestions(
   return instances
     .map(phraseSuggestion)
     .filter(
-      (other): other is Conflict & { kind: 'phrase'; value: PhraseConflictValue } =>
+      (
+        other,
+      ): other is Conflict & { kind: 'phrase'; value: PhraseConflictValue } =>
         other !== undefined &&
         other.value.surface === suggestion.value.surface &&
         other.value.reading === suggestion.value.reading &&
@@ -519,9 +616,12 @@ function PhraseSuggestionOption({
   return (
     <div className="phrase-suggestion phrase-suggestion-promoted">
       <div className="conflict-note">
-        Combine {suggestion.value.surface} into one {suggestion.value.token_count === (suggestion.value.phrase_token_count ?? suggestion.value.token_count)
+        Combine {suggestion.value.surface} into one{' '}
+        {suggestion.value.token_count ===
+        (suggestion.value.phrase_token_count ?? suggestion.value.token_count)
           ? 'word'
-          : 'word with its grammar'}?
+          : 'word with its grammar'}
+        ?
       </div>
       {matches.length > 1 && (
         <ApplyToAllOption
@@ -537,7 +637,10 @@ function PhraseSuggestionOption({
         disabled={saving}
         onClick={(e) => {
           e.stopPropagation()
-          save(() => acceptPhraseSuggestions(documentId, conflictIds), onTokensUpdated)
+          save(
+            () => acceptPhraseSuggestions(documentId, conflictIds),
+            onTokensUpdated,
+          )
         }}
       >
         Combine as {suggestion.value.lookup_form}「{suggestion.value.reading}」
@@ -605,7 +708,10 @@ function RegroupOption({
         disabled={saving}
         onClick={(e) => {
           e.stopPropagation()
-          save(() => acceptPhraseSuggestions(documentId, [group.id]), onTokensUpdated)
+          save(
+            () => acceptPhraseSuggestions(documentId, [group.id]),
+            onTokensUpdated,
+          )
         }}
       >
         Group {group.value.surface} with its grammar again
@@ -633,7 +739,9 @@ function PhraseFuriganaOptions({
 
   return (
     <div className="phrase-suggestion">
-      <div className="conflict-note">This word's reading could be split more than one way:</div>
+      <div className="conflict-note">
+        This word's reading could be split more than one way:
+      </div>
       <div className="conflict-options">
         {options.map((option) => (
           <button
@@ -643,11 +751,16 @@ function PhraseFuriganaOptions({
             disabled={applying}
             onClick={(e) => {
               e.stopPropagation()
-              save(() => resolvePhraseFurigana(documentId, option.id), onTokensUpdated)
+              save(
+                () => resolvePhraseFurigana(documentId, option.id),
+                onTokensUpdated,
+              )
             }}
           >
             {renderFuriganaSpans(
-              [...option.value.updates].sort((a, b) => a.offset - b.offset).flatMap((u) => u.furigana_spans),
+              [...option.value.updates]
+                .sort((a, b) => a.offset - b.offset)
+                .flatMap((u) => u.furigana_spans),
             )}
           </button>
         ))}
@@ -691,17 +804,34 @@ function TokenDecisions({
   return (
     <>
       {source && (
-        <ReadingOptions token={source} targets={targets} documentId={documentId} onTokensUpdated={onTokensUpdated} />
+        <ReadingOptions
+          token={source}
+          targets={targets}
+          documentId={documentId}
+          onTokensUpdated={onTokensUpdated}
+        />
       )}
       {isOov ? (
         (offerCorrection || missingGloss.length > 0) && (
-          <ReadingCorrectionForm targets={targets} documentId={documentId} onTokensUpdated={onTokensUpdated} />
+          <ReadingCorrectionForm
+            targets={targets}
+            documentId={documentId}
+            onTokensUpdated={onTokensUpdated}
+          />
         )
       ) : (
-        <AlternateReadingSearch targets={targets} documentId={documentId} onTokensUpdated={onTokensUpdated} />
+        <AlternateReadingSearch
+          targets={targets}
+          documentId={documentId}
+          onTokensUpdated={onTokensUpdated}
+        />
       )}
       {missingGloss.length > 0 && (
-        <IgnoreGlossButton targets={missingGloss} documentId={documentId} onTokensUpdated={onTokensUpdated} />
+        <IgnoreGlossButton
+          targets={missingGloss}
+          documentId={documentId}
+          onTokensUpdated={onTokensUpdated}
+        />
       )}
     </>
   )
@@ -720,7 +850,11 @@ function ApplyToAllOption({
 }) {
   return (
     <label className="checkbox-option apply-to-all">
-      <input type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} />
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+      />
       Apply to all {count} matching {surface} in this document
     </label>
   )
@@ -743,7 +877,9 @@ function ConflictResolver({
   // `token` first, so its own options are the ones offered if it has any.
   // Instances in accepted phrases are excluded even when "apply to all" is
   // checked, as a pick on one directly would be (see hasReadingOptions).
-  const targets = applyToAll ? [token, ...instances.filter((t) => t !== token && !isInAcceptedPhrase(t))] : [token]
+  const targets = applyToAll
+    ? [token, ...instances.filter((t) => t !== token && !isInAcceptedPhrase(t))]
+    : [token]
   const isOov = token.review_reason === 'oov'
   const suggestion = phraseSuggestion(token)
   const regroup = splitPredicateGroup(token)
@@ -764,23 +900,46 @@ function ConflictResolver({
       )}
       {isInAcceptedPhrase(token) ? (
         <>
-          <PhraseFuriganaOptions token={token} documentId={documentId} onTokensUpdated={onTokensUpdated} />
-          <UnmergePhraseOption token={token} documentId={documentId} onTokensUpdated={onTokensUpdated} />
+          <PhraseFuriganaOptions
+            token={token}
+            documentId={documentId}
+            onTokensUpdated={onTokensUpdated}
+          />
+          <UnmergePhraseOption
+            token={token}
+            documentId={documentId}
+            onTokensUpdated={onTokensUpdated}
+          />
         </>
       ) : (
         <>
           {isMerged(token) && (
-            <UnmergePhraseOption token={token} documentId={documentId} onTokensUpdated={onTokensUpdated} />
+            <UnmergePhraseOption
+              token={token}
+              documentId={documentId}
+              onTokensUpdated={onTokensUpdated}
+            />
           )}
-          {regroup && <RegroupOption group={regroup} documentId={documentId} onTokensUpdated={onTokensUpdated} />}
+          {regroup && (
+            <RegroupOption
+              group={regroup}
+              documentId={documentId}
+              onTokensUpdated={onTokensUpdated}
+            />
+          )}
           {isOov && !token.gloss?.looked_up_as && (
             <>
               <div className="conflict-title">Not in dictionary</div>
-              <div className="conflict-note">No automatic reading candidates.</div>
+              <div className="conflict-note">
+                No automatic reading candidates.
+              </div>
             </>
           )}
           {hasReadingOptions(token) && (
-            <div className="conflict-title">{REVIEW_REASON_LABELS[token.review_reason ?? ''] ?? 'Needs review'}</div>
+            <div className="conflict-title">
+              {REVIEW_REASON_LABELS[token.review_reason ?? ''] ??
+                'Needs review'}
+            </div>
           )}
           {instances.length > 1 && (
             <ApplyToAllOption
@@ -818,7 +977,10 @@ function SenseBlock({ senses }: { senses: GlossSense[] }) {
           <li key={`${sense.entry_idseq}-${i}`}>
             {sense.gloss.join('; ')}
             {(sense.field.length > 0 || sense.misc.length > 0) && (
-              <span className="gloss-tag"> ({[...sense.field, ...sense.misc].join(', ')})</span>
+              <span className="gloss-tag">
+                {' '}
+                ({[...sense.field, ...sense.misc].join(', ')})
+              </span>
             )}
           </li>
         ))}
@@ -860,15 +1022,20 @@ function GlossDetails({ token }: { token: Token }) {
         </div>
       ) : gloss?.looked_up_as ? (
         // Sudachi's analysis of the katakana itself found no word to show.
-        <div className="dictionary-form-line">Looked up as: {gloss.looked_up_as}</div>
+        <div className="dictionary-form-line">
+          Looked up as: {gloss.looked_up_as}
+        </div>
       ) : (
         !token.is_oov && (
           <>
             <div className="dictionary-form-line">
-              Dictionary form: {token.dictionary_form}（{token.dictionary_form_reading}）
+              Dictionary form: {token.dictionary_form}（
+              {token.dictionary_form_reading}）
             </div>
             {token.dictionary_form_note && (
-              <div className="dictionary-form-note">{token.dictionary_form_note}</div>
+              <div className="dictionary-form-note">
+                {token.dictionary_form_note}
+              </div>
             )}
             {posInfo && (
               <div className="token-pos-line">
@@ -877,7 +1044,8 @@ function GlossDetails({ token }: { token: Token }) {
             )}
             {canTakeSuru(token) && (
               <div className="dictionary-form-note">
-                Can combine with する to form a verb: {token.dictionary_form}する
+                Can combine with する to form a verb: {token.dictionary_form}
+                する
               </div>
             )}
           </>
@@ -898,14 +1066,19 @@ function GlossDetails({ token }: { token: Token }) {
                 {piece.surface}
                 {piece.reading !== piece.surface && `「${piece.reading}」`}
               </div>
-              {piece.note && <div className="dictionary-form-note">{piece.note}</div>}
+              {piece.note && (
+                <div className="dictionary-form-note">{piece.note}</div>
+              )}
               {/* A grammar word has its note instead of senses. */}
-              {(piece.senses.length > 0 || !piece.note) && <SenseBlock senses={piece.senses} />}
+              {(piece.senses.length > 0 || !piece.note) && (
+                <SenseBlock senses={piece.senses} />
+              )}
               {piece.ambiguous_readings.length > 0 && (
                 <div className="dictionary-form-note">
-                  Sudachi also lists {piece.ambiguous_readings.join(', ')} as readings for {piece.surface} —
-                  picking between them isn't supported within a compound yet. Use "Correct the reading" below
-                  for the whole word if this one is wrong.
+                  Sudachi also lists {piece.ambiguous_readings.join(', ')} as
+                  readings for {piece.surface} — picking between them isn't
+                  supported within a compound yet. Use "Correct the reading"
+                  below for the whole word if this one is wrong.
                 </div>
               )}
             </div>
@@ -914,7 +1087,9 @@ function GlossDetails({ token }: { token: Token }) {
       ) : (
         gloss && (
           <>
-            {!merged && <div className="gloss-popup-reading">{gloss.reading}</div>}
+            {!merged && (
+              <div className="gloss-popup-reading">{gloss.reading}</div>
+            )}
             <SenseBlock senses={gloss.senses} />
           </>
         )
@@ -1002,11 +1177,20 @@ type SelectionKind = 'group' | 'adjacent'
 // run of neighbors, which may have spaces between them but not a line
 // break — shown as a run only, since nothing acts on one yet. Null if
 // neither. `keys` holds each token's group key.
-function selectionKind(tokens: Token[], keys: string[], indices: number[]): SelectionKind | null {
+function selectionKind(
+  tokens: Token[],
+  keys: string[],
+  indices: number[],
+): SelectionKind | null {
   if (indices.every((i) => keys[i] === keys[indices[0]])) return 'group'
   for (let k = 1; k < indices.length; k++) {
     const between = tokens.slice(indices[k - 1] + 1, indices[k])
-    if (!between.every((t) => t.part_of_speech[0] === '空白' && !t.surface.includes('\n'))) return null
+    if (
+      !between.every(
+        (t) => t.part_of_speech[0] === '空白' && !t.surface.includes('\n'),
+      )
+    )
+      return null
   }
   return 'adjacent'
 }
@@ -1049,13 +1233,19 @@ function SelectionPanel({
             .map((t) => t.surface)
             .join('')}`
   // The selected tokens first, so theirs are the options offered.
-  const targets = applyToAll ? [...selected, ...instances.filter((t) => !selected.includes(t))] : selected
+  const targets = applyToAll
+    ? [...selected, ...instances.filter((t) => !selected.includes(t))]
+    : selected
 
   // Pinned to the top of the screen, and no taller than the page content
   // above the lyrics (see .selection-anchor). Clicks inside stop here, since
   // a click anywhere else ends the selection.
   return (
-    <div className="selection-panel" ref={panelRef} onClick={(e) => e.stopPropagation()}>
+    <div
+      className="selection-panel"
+      ref={panelRef}
+      onClick={(e) => e.stopPropagation()}
+    >
       <div className="lyrics-header">
         <span className="selection-panel-title">{title}</span>
         <button type="button" className="lyrics-edit-toggle" onClick={onClear}>
@@ -1069,8 +1259,9 @@ function SelectionPanel({
         <>
           {selected.length === 1 && (
             <div className="conflict-note">
-              Click the outlined instances of this word to decide for them together, or shift-click neighboring
-              words to mark a run. Click anywhere else to finish.
+              Click the outlined instances of this word to decide for them
+              together, or shift-click neighboring words to mark a run. Click
+              anywhere else to finish.
             </div>
           )}
           {instances.length > selected.length && (
@@ -1081,10 +1272,17 @@ function SelectionPanel({
               onChange={setApplyToAll}
             />
           )}
-          <TokenDecisions targets={targets} offerCorrection documentId={documentId} onTokensUpdated={onTokensUpdated} />
+          <TokenDecisions
+            targets={targets}
+            offerCorrection
+            documentId={documentId}
+            onTokensUpdated={onTokensUpdated}
+          />
         </>
       ) : (
-        <div className="conflict-note">Joining tokens into one gloss isn't supported yet.</div>
+        <div className="conflict-note">
+          Joining tokens into one gloss isn't supported yet.
+        </div>
       )}
     </div>
   )
@@ -1213,7 +1411,11 @@ const TokenizedText = memo(function TokenizedText({
       if (instances) instances.push(token)
       else instancesByKey.set(keys[index], [token])
     })
-    return { keys, instancesByKey, indexById: new Map(tokens.map((token, index) => [token.id, index])) }
+    return {
+      keys,
+      instancesByKey,
+      indexById: new Map(tokens.map((token, index) => [token.id, index])),
+    }
   }, [tokens])
 
   const panelRef = useRef<HTMLDivElement>(null)
@@ -1223,7 +1425,9 @@ const TokenizedText = memo(function TokenizedText({
   // little as possible: its first highlighted token, where it starts even
   // when it wraps.
   useEffect(() => {
-    boxRef.current?.querySelector('.token.playing')?.scrollIntoView({ block: 'nearest' })
+    boxRef.current
+      ?.querySelector('.token.playing')
+      ?.scrollIntoView({ block: 'nearest' })
   }, [playingLine])
 
   // Scrolls `element` out from under the selection panel, which is pinned to
@@ -1232,23 +1436,32 @@ const TokenizedText = memo(function TokenizedText({
     requestAnimationFrame(() => {
       const coveredTo = panelRef.current?.getBoundingClientRect().bottom ?? 0
       const top = element.getBoundingClientRect().top
-      if (top < coveredTo) element.closest('.content')?.scrollBy({ top: top - coveredTo - 8 })
+      if (top < coveredTo)
+        element.closest('.content')?.scrollBy({ top: top - coveredTo - 8 })
     })
   }
 
   function toggleSelected(index: number, element: HTMLElement) {
     const adding = !selected.includes(index)
-    const next = adding ? [...selected, index].sort((a, b) => a - b) : selected.filter((i) => i !== index)
+    const next = adding
+      ? [...selected, index].sort((a, b) => a - b)
+      : selected.filter((i) => i !== index)
     // A token that fits neither kind of selection starts a new one.
-    setSelected(next.length === 0 || selectionKind(tokens, keys, next) ? next : [index])
+    setSelected(
+      next.length === 0 || selectionKind(tokens, keys, next) ? next : [index],
+    )
     if (adding) {
       setLastAdded(index)
       revealBelowPanel(element)
     }
   }
 
-  const kind = selected.length > 0 ? selectionKind(tokens, keys, selected) : null
-  const focus = lastAdded !== null && selected.includes(lastAdded) ? lastAdded : selected[selected.length - 1]
+  const kind =
+    selected.length > 0 ? selectionKind(tokens, keys, selected) : null
+  const focus =
+    lastAdded !== null && selected.includes(lastAdded)
+      ? lastAdded
+      : selected[selected.length - 1]
   // Pinning and hovering outline independently, both at once: pinning a
   // token's gloss open shouldn't lose its own mirrors/token group just
   // because the mouse moves on to preview a different word (hover alone
@@ -1304,8 +1517,10 @@ const TokenizedText = memo(function TokenizedText({
   const activeSpanKeys = useMemo(() => {
     const active = new Set<string>()
     if (selected.length === 0) {
-      if (pinnedAt !== undefined) active.add(phraseSpanKey(tokens[pinnedAt], pinnedAt))
-      if (hoveredAt !== undefined) active.add(phraseSpanKey(tokens[hoveredAt], hoveredAt))
+      if (pinnedAt !== undefined)
+        active.add(phraseSpanKey(tokens[pinnedAt], pinnedAt))
+      if (hoveredAt !== undefined)
+        active.add(phraseSpanKey(tokens[hoveredAt], hoveredAt))
     }
     return active
   }, [tokens, selected.length, pinnedAt, hoveredAt])
@@ -1372,7 +1587,8 @@ const TokenizedText = memo(function TokenizedText({
     handleClickRef.current = handleClick
   })
   const onTokenClick = useCallback(
-    (index: number, event: React.MouseEvent<HTMLElement>) => handleClickRef.current(index, event),
+    (index: number, event: React.MouseEvent<HTMLElement>) =>
+      handleClickRef.current(index, event),
     [],
   )
 
@@ -1413,13 +1629,19 @@ const TokenizedText = memo(function TokenizedText({
           />
         </div>
       )}
-      <p ref={boxRef} className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}>
+      <p
+        ref={boxRef}
+        className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}
+      >
         {tokens.map((token, index) => {
           // Lines past the last timing (blank ones at the end) have none.
-          const lineStart = firstWithText.has(index) ? lineTimings?.[lineOf[index]]?.start : undefined
+          const lineStart = firstWithText.has(index)
+            ? lineTimings?.[lineOf[index]]?.start
+            : undefined
           const interactive = hasPopup(token)
           const isPinned = pinnedId === token.id
-          const isActive = isPinned || (pinnedId === null && hoveredId === token.id)
+          const isActive =
+            isPinned || (pinnedId === null && hoveredId === token.id)
 
           // Two independent signals, deliberately not the same underline:
           // - needs-correction (red): no dictionary entry under the current
@@ -1435,16 +1657,26 @@ const TokenizedText = memo(function TokenizedText({
           //   a composite piece with its own unresolved reading ambiguity
           //   (e.g. 女神 within 勝利の女神) — same "hasn't been reviewed yet"
           //   signal, just without a picker behind it yet.
-          const needsCorrection = interactive && hasMissingGloss(token) && !token.gloss_ignored
-          const needsReadingReview = (hasReadingOptions(token) && token.needs_review) || hasAmbiguousCompositePiece(token)
+          const needsCorrection =
+            interactive && hasMissingGloss(token) && !token.gloss_ignored
+          const needsReadingReview =
+            (hasReadingOptions(token) && token.needs_review) ||
+            hasAmbiguousCompositePiece(token)
 
           // An accepted phrase is underlined as one run (see .phrase-merged).
           // Predicate groups are too common to underline, so they're only
           // highlighted while one of their tokens is looked at.
           const inPhrase = isInAcceptedPhrase(token)
-          const mergedWithPrev = inPhrase && index > 0 && tokens[index - 1].phrase_start_position === token.phrase_start_position
+          const mergedWithPrev =
+            inPhrase &&
+            index > 0 &&
+            tokens[index - 1].phrase_start_position ===
+              token.phrase_start_position
           const mergedWithNext =
-            inPhrase && index < tokens.length - 1 && tokens[index + 1].phrase_start_position === token.phrase_start_position
+            inPhrase &&
+            index < tokens.length - 1 &&
+            tokens[index + 1].phrase_start_position ===
+              token.phrase_start_position
 
           const classNames = ['token']
           if (needsReadingReview) classNames.push('needs-review')
@@ -1457,21 +1689,31 @@ const TokenizedText = memo(function TokenizedText({
           if (inPhrase) classNames.push('phrase-merged')
           if (mergedWithPrev) classNames.push('phrase-merged-prev')
           if (mergedWithNext) classNames.push('phrase-merged-next')
-          if (!inPhrase && phraseSuggestion(token)) classNames.push('has-phrase-suggestion')
+          if (!inPhrase && phraseSuggestion(token))
+            classNames.push('has-phrase-suggestion')
           // One outline around the whole token group, not one per member: its
           // left/right caps only go on the span's first/last token (a
           // standalone token is both). See .phrase-outline in App.css.
           const spanKey = phraseSpanKey(token, index)
           if (activeSpanKeys.has(spanKey)) {
             classNames.push('phrase-outline')
-            if (index === 0 || phraseSpanKey(tokens[index - 1], index - 1) !== spanKey) classNames.push('phrase-outline-start')
-            if (index === tokens.length - 1 || phraseSpanKey(tokens[index + 1], index + 1) !== spanKey)
+            if (
+              index === 0 ||
+              phraseSpanKey(tokens[index - 1], index - 1) !== spanKey
+            )
+              classNames.push('phrase-outline-start')
+            if (
+              index === tokens.length - 1 ||
+              phraseSpanKey(tokens[index + 1], index + 1) !== spanKey
+            )
               classNames.push('phrase-outline-end')
           }
 
           return (
             <Fragment key={token.id}>
-              {lineStart !== undefined && <LinePlayButton start={lineStart} onPlayLine={onPlayLine} />}
+              {lineStart !== undefined && (
+                <LinePlayButton start={lineStart} onPlayLine={onPlayLine} />
+              )}
               <TokenSpan
                 token={token}
                 index={index}
@@ -1580,11 +1822,17 @@ function LrclibSource({
             <button type="submit" disabled={saving || !draft.trim()}>
               {saving ? 'Loading…' : 'Save'}
             </button>
-            <button type="button" disabled={saving} onClick={() => setEditing(false)}>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setEditing(false)}
+            >
               Cancel
             </button>
           </div>
-          <p className="lyrics-editor-note">{replaceText ? LRCLIB_LINK_NOTE : LRCLIB_KEEP_NOTE}</p>
+          <p className="lyrics-editor-note">
+            {replaceText ? LRCLIB_LINK_NOTE : LRCLIB_KEEP_NOTE}
+          </p>
         </form>
       ) : (
         <>
@@ -1605,7 +1853,9 @@ function LrclibSource({
                 " LRCLIB's lyrics for this track don't match these right now, so lines aren't highlighted."}
             </p>
           )}
-          {doc.lrclib_sync_error && <p className="form-error">{doc.lrclib_sync_error}</p>}
+          {doc.lrclib_sync_error && (
+            <p className="form-error">{doc.lrclib_sync_error}</p>
+          )}
         </>
       )}
       {error && <p className="form-error">{error}</p>}
@@ -1640,12 +1890,16 @@ function linesOf(tokens: Token[]): LyricsLine[] {
   }
   return lines.map((pieces) => ({
     pieces,
-    hasText: pieces.some(({ token, text }) => (text ?? token.surface).trim() !== ''),
+    hasText: pieces.some(
+      ({ token, text }) => (text ?? token.surface).trim() !== '',
+    ),
   }))
 }
 
 // A change to a line's timing that's confirmed first.
-type TimingAction = { kind: 'delete'; line: number } | { kind: 'overwrite'; line: number; start: number }
+type TimingAction =
+  | { kind: 'delete'; line: number }
+  | { kind: 'overwrite'; line: number; start: number }
 
 // The lyrics as one row per line while their timings are edited, `starts`
 // holding each line's start (null once its timing is deleted). The picked
@@ -1683,7 +1937,10 @@ const TimingEditor = memo(function TimingEditor({
   const [dontAskAgain, setDontAskAgain] = useState(false)
   // Set by "don't ask again": that kind of change skips its confirmation
   // until editing ends, which unmounts this.
-  const [skipConfirm, setSkipConfirm] = useState({ delete: false, overwrite: false })
+  const [skipConfirm, setSkipConfirm] = useState({
+    delete: false,
+    overwrite: false,
+  })
   const selectedRowRef = useRef<HTMLDivElement>(null)
   // The rows' container: row i is its child i.
   const rowsRef = useRef<HTMLDivElement>(null)
@@ -1695,7 +1952,12 @@ const TimingEditor = memo(function TimingEditor({
       lines.map(({ pieces }) => (
         <div className="timing-text">
           {pieces.map(({ token, text }) => (
-            <span key={token.id}>{text ?? renderFuriganaSpans(token.furigana_override ?? token.furigana_spans)}</span>
+            <span key={token.id}>
+              {text ??
+                renderFuriganaSpans(
+                  token.furigana_override ?? token.furigana_spans,
+                )}
+            </span>
           ))}
         </div>
       )),
@@ -1737,7 +1999,9 @@ const TimingEditor = memo(function TimingEditor({
     if (!rows || !row) return
     const next = rows[line + 1]
     const { top, height } = row.getBoundingClientRect()
-    row.closest('.content')?.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
+    row
+      .closest('.content')
+      ?.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
     // Timing that began with the next line off screen brings it on.
     next?.scrollIntoView({ block: 'nearest' })
   }
@@ -1758,7 +2022,11 @@ const TimingEditor = memo(function TimingEditor({
 
   // The start of the nearest timed line in `direction` (-1 or 1) from `line`.
   function startFrom(line: number, direction: number): number | null {
-    for (let i = line + direction; i >= 0 && i < starts.length; i += direction) {
+    for (
+      let i = line + direction;
+      i >= 0 && i < starts.length;
+      i += direction
+    ) {
       const start = starts[i]
       if (start !== null) return start
     }
@@ -1771,9 +2039,13 @@ const TimingEditor = memo(function TimingEditor({
     const before = startFrom(line, -1)
     const after = startFrom(line, 1)
     if (start < (before ?? 0)) {
-      return before === null ? "A line can't start before the song does." : "Can't overlap with the previous line."
+      return before === null
+        ? "A line can't start before the song does."
+        : "Can't overlap with the previous line."
     }
-    return after !== null && start > after ? "Can't overlap with the next line." : null
+    return after !== null && start > after
+      ? "Can't overlap with the next line."
+      : null
   }
 
   function nudge(direction: number) {
@@ -1813,13 +2085,18 @@ const TimingEditor = memo(function TimingEditor({
   function handleKeyDown(event: KeyboardEvent) {
     // / is typed with Shift on some layouts, so only the arrows rule it out.
     if (event.altKey || event.ctrlKey || event.metaKey) return
-    if (event.key !== '/' && (!ARROW_KEYS.has(event.key) || event.shiftKey)) return
+    if (event.key !== '/' && (!ARROW_KEYS.has(event.key) || event.shiftKey))
+      return
     const active = document.activeElement
     // A slider doesn't count as typing here, so the keys still work once
     // one's been dragged; an open dialog's controls do. (A closed one's
     // button keeps focus for a moment after it closes.)
     if (active?.closest('dialog[open]')) return
-    if (isTypingTarget(active) && !(active instanceof HTMLInputElement && active.type === 'range')) return
+    if (
+      isTypingTarget(active) &&
+      !(active instanceof HTMLInputElement && active.type === 'range')
+    )
+      return
     event.preventDefault()
     if (event.key === '/') {
       // Held down, it would time line after line at almost the same moment.
@@ -1847,12 +2124,13 @@ const TimingEditor = memo(function TimingEditor({
   return (
     <>
       <p className="lyrics-editor-note">
-        The picked line follows playback. ↑/↓ or a click pick another and play from it, ←/→ nudge the picked
-        line's start and play from there, and / starts the next line at the current playback time (the first
-        line, if none has started yet) and moves the page down a line. Outlined lines have no time yet, and
-        need one before saving. A blank
-        line between stanzas can be timed too, to end the line before it there (for an instrumental break), but
-        needn't be.
+        The picked line follows playback. ↑/↓ or a click pick another and play
+        from it, ←/→ nudge the picked line's start and play from there, and /
+        starts the next line at the current playback time (the first line, if
+        none has started yet) and moves the page down a line. Outlined lines
+        have no time yet, and need one before saving. A blank line between
+        stanzas can be timed too, to end the line before it there (for an
+        instrumental break), but needn't be.
       </p>
       <div ref={rowsRef} className="lyrics-box">
         {lines.map(({ hasText }, line) => {
@@ -1885,11 +2163,17 @@ const TimingEditor = memo(function TimingEditor({
                     }}
                   >
                     <svg viewBox="0 0 10 10" aria-hidden="true">
-                      <path d="M2 2 8 8M8 2 2 8" stroke="currentColor" strokeWidth="1.5" />
+                      <path
+                        d="M2 2 8 8M8 2 2 8"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                      />
                     </svg>
                   </button>
                 )}
-                <span>{start === null ? 'untimed' : formatTimestamp(start)}</span>
+                <span>
+                  {start === null ? 'untimed' : formatTimestamp(start)}
+                </span>
               </div>
               {lineTexts[line]}
             </div>
@@ -1907,16 +2191,23 @@ const TimingEditor = memo(function TimingEditor({
         confirmLabel={pending?.kind === 'overwrite' ? 'Overwrite' : 'Delete'}
         onConfirm={() => {
           if (!pending) return
-          if (dontAskAgain) setSkipConfirm({ ...skipConfirm, [pending.kind]: true })
+          if (dontAskAgain)
+            setSkipConfirm({ ...skipConfirm, [pending.kind]: true })
           apply(pending)
           setPending(null)
         }}
         onCancel={() => setPending(null)}
       >
         <label className="checkbox-option">
-          <input type="checkbox" checked={dontAskAgain} onChange={(e) => setDontAskAgain(e.target.checked)} />
-          {pending?.kind === 'overwrite' ? 'Overwrite without asking' : "Don't ask again"} until I stop editing
-          timings
+          <input
+            type="checkbox"
+            checked={dontAskAgain}
+            onChange={(e) => setDontAskAgain(e.target.checked)}
+          />
+          {pending?.kind === 'overwrite'
+            ? 'Overwrite without asking'
+            : "Don't ask again"}{' '}
+          until I stop editing timings
         </label>
       </ConfirmDialog>
     </>
@@ -1990,10 +2281,17 @@ export function DocumentViewPage() {
   const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
   const [seekSeconds, setSeekSeconds] = usePersistentState('seekSeconds', 3)
   // Defaults to the theme's accent, which is hex, as a color input needs.
-  const [highlightColor, setHighlightColor] = usePersistentState('highlightColor', () =>
-    getComputedStyle(document.documentElement).getPropertyValue('--accent').trim(),
+  const [highlightColor, setHighlightColor] = usePersistentState(
+    'highlightColor',
+    () =>
+      getComputedStyle(document.documentElement)
+        .getPropertyValue('--accent')
+        .trim(),
   )
-  const [highlightOpacity, setHighlightOpacity] = usePersistentState('highlightOpacity', 25)
+  const [highlightOpacity, setHighlightOpacity] = usePersistentState(
+    'highlightOpacity',
+    25,
+  )
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
   const [editingLyrics, setEditingLyrics] = useState(false)
@@ -2046,7 +2344,8 @@ export function DocumentViewPage() {
 
       if (event.code === 'Space') {
         const isNativeSpaceTarget =
-          active instanceof HTMLElement && SPACE_HANDLED_NATIVELY.has(active.tagName)
+          active instanceof HTMLElement &&
+          SPACE_HANDLED_NATIVELY.has(active.tagName)
         if (isNativeSpaceTarget || isTypingTarget(active)) return
         event.preventDefault()
         youtubePlayerRef.current?.togglePlay()
@@ -2056,7 +2355,9 @@ export function DocumentViewPage() {
       if (event.code === 'Comma' || event.code === 'Period') {
         if (isTypingTarget(active)) return
         event.preventDefault()
-        youtubePlayerRef.current?.seekBy(event.code === 'Comma' ? -seekSeconds : seekSeconds)
+        youtubePlayerRef.current?.seekBy(
+          event.code === 'Comma' ? -seekSeconds : seekSeconds,
+        )
       }
     }
 
@@ -2132,13 +2433,21 @@ export function DocumentViewPage() {
     setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
   }, [])
 
-  const handlePlayLine = useCallback((start: number) => youtubePlayerRef.current?.playFrom(start), [])
-  const getPlaybackTime = useCallback(() => youtubePlayerRef.current?.getCurrentTime() ?? null, [])
+  const handlePlayLine = useCallback(
+    (start: number) => youtubePlayerRef.current?.playFrom(start),
+    [],
+  )
+  const getPlaybackTime = useCallback(
+    () => youtubePlayerRef.current?.getCurrentTime() ?? null,
+    [],
+  )
   // Sets `line`'s start in the timings being edited, null to leave it
   // untimed.
   const handleStartChange = useCallback(
     (line: number, start: number | null) =>
-      setTimingDraft((draft) => draft && draft.map((s, i) => (i === line ? start : s))),
+      setTimingDraft(
+        (draft) => draft && draft.map((s, i) => (i === line ? start : s)),
+      ),
     [],
   )
 
@@ -2156,7 +2465,10 @@ export function DocumentViewPage() {
     // is read whenever a time is set, which takes the video playing.
     let songEnd = 0
     for (const timing of lineTimings ?? []) if (timing) songEnd = timing.end
-    return timingsFromStarts(timingDraft, songEnd || (youtubePlayerRef.current?.getDuration() ?? 0))
+    return timingsFromStarts(
+      timingDraft,
+      songEnd || (youtubePlayerRef.current?.getDuration() ?? 0),
+    )
   }, [timingDraft, lineTimings])
 
   useEffect(() => {
@@ -2185,18 +2497,24 @@ export function DocumentViewPage() {
 
   useEffect(() => {
     if (!headerEl) return
-    const observer = new ResizeObserver(() => setHeaderHeight(headerEl.offsetHeight))
+    const observer = new ResizeObserver(() =>
+      setHeaderHeight(headerEl.offsetHeight),
+    )
     observer.observe(headerEl)
     return () => observer.disconnect()
   }, [headerEl])
 
   // Whether the timings being edited differ from those saved, which leaving
   // them would lose.
-  const timingsChanged = timingDraft?.some((start, i) => start !== (lineTimings?.[i]?.start ?? null)) ?? false
+  const timingsChanged =
+    timingDraft?.some(
+      (start, i) => start !== (lineTimings?.[i]?.start ?? null),
+    ) ?? false
 
   // Asks before leaving them for another page or document of the app...
   const leaveBlocker = useBlocker(
-    ({ currentLocation, nextLocation }) => timingsChanged && nextLocation.pathname !== currentLocation.pathname,
+    ({ currentLocation, nextLocation }) =>
+      timingsChanged && nextLocation.pathname !== currentLocation.pathname,
   )
 
   // ...and has the browser ask before leaving the app: closing the tab,
@@ -2248,17 +2566,23 @@ export function DocumentViewPage() {
     setTimingsSaveError(null)
     // From the document's timings, or without any, every line untimed.
     setTimingDraft(
-      lineTimings ? lineTimings.map((timing) => timing?.start ?? null) : lyricsLines.map(() => null),
+      lineTimings
+        ? lineTimings.map((timing) => timing?.start ?? null)
+        : lyricsLines.map(() => null),
     )
   }
 
   function handleSaveTimings() {
     if (!doc || !timingDraft || !shownTimings || !lyricsLines) return
     // Only blank lines, between stanzas, may go untimed.
-    const untimed = lyricsLines.filter((line, i) => line.hasText && (timingDraft[i] ?? null) === null).length
+    const untimed = lyricsLines.filter(
+      (line, i) => line.hasText && (timingDraft[i] ?? null) === null,
+    ).length
     if (untimed > 0) {
       return showToast(
-        untimed === 1 ? 'A line still needs a time (outlined).' : `${untimed} lines still need times (outlined).`,
+        untimed === 1
+          ? 'A line still needs a time (outlined).'
+          : `${untimed} lines still need times (outlined).`,
       )
     }
     saveTimings(
@@ -2281,9 +2605,15 @@ export function DocumentViewPage() {
         <h1>{doc.title}</h1>
 
         <label htmlFor="title">Title</label>
-        <p id="title" className="readonly-text">{doc.title}</p>
+        <p id="title" className="readonly-text">
+          {doc.title}
+        </p>
 
-        <LrclibSource doc={doc} onDocumentUpdated={handleDocumentLinked} locked={editingTimings} />
+        <LrclibSource
+          doc={doc}
+          onDocumentUpdated={handleDocumentLinked}
+          locked={editingTimings}
+        />
 
         <div className="lyrics-header">
           <label htmlFor="lyrics">Lyrics</label>
@@ -2355,15 +2685,24 @@ export function DocumentViewPage() {
                   step={10}
                   hint={
                     <>
-                      (<kbd>←</kbd><kbd>→</kbd>)
+                      (<kbd>←</kbd>
+                      <kbd>→</kbd>)
                     </>
                   }
                 />
                 <div className="control-actions">
-                  <button type="button" disabled={savingTimings} onClick={handleSaveTimings}>
+                  <button
+                    type="button"
+                    disabled={savingTimings}
+                    onClick={handleSaveTimings}
+                  >
                     {savingTimings ? 'Saving…' : 'Save timings'}
                   </button>
-                  <button type="button" disabled={savingTimings} onClick={handleCancelTimings}>
+                  <button
+                    type="button"
+                    disabled={savingTimings}
+                    onClick={handleCancelTimings}
+                  >
                     Cancel
                   </button>
                 </div>
@@ -2416,16 +2755,25 @@ export function DocumentViewPage() {
           />
           {lyricsSaveError && <p className="form-error">{lyricsSaveError}</p>}
           <div className="lyrics-editor-actions">
-            <button type="button" disabled={savingLyrics || !lyricsDraft.trim()} onClick={handleSaveLyrics}>
+            <button
+              type="button"
+              disabled={savingLyrics || !lyricsDraft.trim()}
+              onClick={handleSaveLyrics}
+            >
               {savingLyrics ? 'Saving…' : 'Save'}
             </button>
-            <button type="button" disabled={savingLyrics} onClick={() => setEditingLyrics(false)}>
+            <button
+              type="button"
+              disabled={savingLyrics}
+              onClick={() => setEditingLyrics(false)}
+            >
               Cancel
             </button>
           </div>
           <p className="lyrics-editor-note">
-            Saving replaces the lyrics and re-processes furigana and glosses from scratch — any reading
-            corrections or reviewed alternatives for this document will be lost.
+            Saving replaces the lyrics and re-processes furigana and glosses
+            from scratch — any reading corrections or reviewed alternatives for
+            this document will be lost.
           </p>
         </div>
       ) : (
@@ -2467,7 +2815,9 @@ export function DocumentViewPage() {
             ))}
           {tokensError && (
             <>
-              <p className="form-error">{tokensError} Showing plain lyrics instead.</p>
+              <p className="form-error">
+                {tokensError} Showing plain lyrics instead.
+              </p>
               <p className="lyrics-box">{doc.text}</p>
             </>
           )}
@@ -2476,7 +2826,11 @@ export function DocumentViewPage() {
 
       <label htmlFor="youtube-video-id">YouTube video ID</label>
       {doc.youtube_video_id ? (
-        <YouTubePlayer ref={youtubePlayerRef} videoId={doc.youtube_video_id} onSeek={handleSeek} />
+        <YouTubePlayer
+          ref={youtubePlayerRef}
+          videoId={doc.youtube_video_id}
+          onSeek={handleSeek}
+        />
       ) : (
         <input type="text" value="—" readOnly />
       )}

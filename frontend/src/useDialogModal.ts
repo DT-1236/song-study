@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type MouseEvent, type SyntheticEvent } from 'react'
+import {
+  useEffect,
+  useRef,
+  useState,
+  type MouseEvent,
+  type SyntheticEvent,
+} from 'react'
 
 // Shared wiring for every reference modal built on a native <dialog>: syncs
 // showModal()/close() to the `open` prop, and returns the Escape/backdrop

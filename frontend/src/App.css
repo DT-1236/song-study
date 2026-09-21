@@ -1105,7 +1105,11 @@ label.apply-to-all {
 
 .token.playing::before,
 .timing-row.playing .timing-text > span::before {
-  background-color: color-mix(in srgb, var(--highlight-color) var(--highlight-opacity), transparent);
+  background-color: color-mix(
+    in srgb,
+    var(--highlight-color) var(--highlight-opacity),
+    transparent
+  );
 }
 
 .gloss-popup {
