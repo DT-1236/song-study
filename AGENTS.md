@@ -63,6 +63,12 @@
 - Ruff's *linter* (`ruff check`) is installed alongside its formatter but is
   not adopted yet — it reports findings across the existing code. Don't run
   `ruff check --fix` as part of an unrelated change; see `docs/backlog.md`.
+  That's also why `.pre-commit-config.yaml` runs `ruff-format` and not `ruff`:
+  a `--fix` hook would sweep the linter in a file at a time.
+- Both formatters also run as pre-commit hooks, which is belt and braces for
+  the line above rather than a replacement for it. They only run once you've
+  installed them: `.venv/bin/pre-commit install` in `backend/`, once per
+  clone. `pre-commit run --all-files` runs them over the whole repo.
 
 ## Testing
 

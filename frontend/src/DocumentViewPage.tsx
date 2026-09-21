@@ -177,9 +177,7 @@ function isPhraseConflict(
   return conflict.kind === 'phrase'
 }
 
-function isPhraseFuriganaConflict(
-  conflict: Conflict,
-): conflict is Conflict & {
+function isPhraseFuriganaConflict(conflict: Conflict): conflict is Conflict & {
   kind: 'phrase_furigana'
   value: PhraseFuriganaValue
 } {

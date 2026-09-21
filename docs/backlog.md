@@ -65,8 +65,10 @@ so it can be picked up without re-deriving the reasoning.
   `--fix` sweep is committed.
 
 - **No CI runs either formatter.**
-  `npm run format:check` and `ruff format --check` exist but nothing enforces
-  them, so the repo can drift back out of format. There's no CI workflow in
-  the repo at all yet, so this means adding one (or a pre-commit hook).
+  Pre-commit hooks now run both, but they're opt-in per clone (`pre-commit
+  install`) and skippable with `--no-verify`, so nothing enforces them for
+  everyone. The drift is not hypothetical: `DocumentViewPage.tsx` was already
+  out of Prettier format on main by the time the hooks were fixed. There's
+  still no CI workflow in the repo at all, so this means adding one.
   *Haiku 4.5, low* — a standard GitHub Actions workflow once someone decides
   that's the mechanism.
