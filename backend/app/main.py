@@ -4,6 +4,7 @@ import json
 import re
 from datetime import datetime
 from decimal import Decimal
+from itertools import pairwise
 from typing import Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
@@ -450,7 +451,7 @@ class LineTimingsUpdate(BaseModel):
             raise ValueError(
                 "A line can't start before the song does, or end before it starts."
             )
-        if any(later.start < earlier.start for earlier, later in zip(timed, timed[1:])):
+        if any(later.start < earlier.start for earlier, later in pairwise(timed)):
             raise ValueError("A line can't start before the line before it.")
         return lines
 

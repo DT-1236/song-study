@@ -136,7 +136,7 @@ def test_deciding_for_more_tokens_takes_no_more_statements(committed_engine, rea
         ids = [t.id for t in document_tokens(document_id, "今日")]
         sent = statements_sent(
             committed_engine,
-            lambda: apply_tokens_reading(
+            lambda document_id=document_id, ids=ids: apply_tokens_reading(
                 document_id, TokensReading(token_ids=ids, reading=reading)
             ),
         )

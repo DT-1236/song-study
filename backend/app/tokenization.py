@@ -576,7 +576,11 @@ def heteronym_readings(surface: str, pos: tuple) -> list[str]:
     counter-suffix にん)."""
     try:
         candidates = _get_dictionary().lookup(surface)
-    except Exception:
+    except Exception:  # noqa: BLE001
+        # A lookup that fails means "no heteronym readings to offer", not a
+        # failed request: this runs per token while tokenizing a document, and
+        # the dictionary raises on surfaces it can't handle. Narrow this only
+        # with a list of what SudachiPy actually raises.
         return []
     readings: list[str] = []
     for m in candidates:
