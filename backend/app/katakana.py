@@ -9,7 +9,12 @@ from __future__ import annotations
 import re
 from typing import Optional, Union
 
-from app.glosses import GroupGlossRequest, GroupPart, citation_key, predicate_group_request
+from app.glosses import (
+    GroupGlossRequest,
+    GroupPart,
+    citation_key,
+    predicate_group_request,
+)
 from app.grammar import find_predicate_groups
 from app.phrase_merge import find_phrase_suggestions
 from app.tokenization import tokenize_document, to_hiragana
@@ -24,7 +29,9 @@ def is_katakana_word(text: str) -> bool:
     return bool(_KATAKANA_WORD_RE.match(text))
 
 
-def hiragana_units(katakana: str) -> Optional[list[Union[GroupGlossRequest, GroupPart]]]:
+def hiragana_units(
+    katakana: str,
+) -> Optional[list[Union[GroupGlossRequest, GroupPart]]]:
     """The words of `katakana` looked up as hiragana, in order: a gloss
     request for each word, phrase, or predicate group, and a bare part for
     each grammar word between them. None when the hiragana doesn't split
@@ -50,18 +57,26 @@ def hiragana_units(katakana: str) -> Optional[list[Union[GroupGlossRequest, Grou
                     base_key=(suggestion["lookup_form"], suggestion["reading"]),
                     base_alt=None,
                     base_part_of_speech=("*",) * 6,
-                    attached=tuple(GroupPart.of(r, to_hiragana(r.reading_katakana)) for r in attached),
+                    attached=tuple(
+                        GroupPart.of(r, to_hiragana(r.reading_katakana))
+                        for r in attached
+                    ),
                     reading=suggestion["surface"],
                 )
             )
         elif record.phrase_start_position == record.position:
             end = i + 1
-            while end < len(records) and records[end].phrase_start_position == record.position:
+            while (
+                end < len(records)
+                and records[end].phrase_start_position == record.position
+            ):
                 end += 1
             members = records[i:end]
             units.append(
                 predicate_group_request(
-                    members, [to_hiragana(r.reading_katakana) for r in members], citation_key(record.normalized_form)
+                    members,
+                    [to_hiragana(r.reading_katakana) for r in members],
+                    citation_key(record.normalized_form),
                 )
             )
         elif record.part_of_speech[0] in _GRAMMAR_POS:
@@ -74,7 +89,11 @@ def hiragana_units(katakana: str) -> Optional[list[Union[GroupGlossRequest, Grou
                 return None
             end = i + 1
             units.append(
-                predicate_group_request([record], [to_hiragana(record.reading_katakana)], citation_key(record.normalized_form))
+                predicate_group_request(
+                    [record],
+                    [to_hiragana(record.reading_katakana)],
+                    citation_key(record.normalized_form),
+                )
             )
         i = end
     return units

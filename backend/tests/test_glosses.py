@@ -47,7 +47,9 @@ class TestRankSenses:
                 "idseq": 1,
                 "kanji_forms": [],
                 "senses": [
-                    self._sense("noun (common) (futsuumeishi)", "an unrelated noun sense"),
+                    self._sense(
+                        "noun (common) (futsuumeishi)", "an unrelated noun sense"
+                    ),
                     self._sense("particle", "the particle sense"),
                 ],
             }
@@ -57,8 +59,18 @@ class TestRankSenses:
 
     def test_entry_priority_is_the_tiebreaker_when_pos_ties(self):
         entries = [
-            {"idseq": 1, "kanji_forms": [{"text": "a", "pri": []}], "senses": [self._sense("noun (common) (futsuumeishi)", "uncommon entry")]},
-            {"idseq": 2, "kanji_forms": [{"text": "b", "pri": ["ichi1"]}], "senses": [self._sense("noun (common) (futsuumeishi)", "common entry")]},
+            {
+                "idseq": 1,
+                "kanji_forms": [{"text": "a", "pri": []}],
+                "senses": [
+                    self._sense("noun (common) (futsuumeishi)", "uncommon entry")
+                ],
+            },
+            {
+                "idseq": 2,
+                "kanji_forms": [{"text": "b", "pri": ["ichi1"]}],
+                "senses": [self._sense("noun (common) (futsuumeishi)", "common entry")],
+            },
         ]
         ranked = rank_senses(entries, "名詞")
         assert ranked[0]["gloss"] == ["common entry"]
@@ -83,7 +95,9 @@ class TestAlternateReadingOptions:
         options = alternate_reading_options("期", "キ", "期", "期")
         assert [o["reading"] for o in options] == ["ご"]
         assert options[0]["citation_reading"] == "ご"
-        assert options[0]["furigana_spans"] == [{"start": 0, "end": 1, "text": "期", "reading": "ご"}]
+        assert options[0]["furigana_spans"] == [
+            {"start": 0, "end": 1, "text": "期", "reading": "ご"}
+        ]
 
     def test_projects_an_alternate_citation_reading_onto_an_inflected_surface(self):
         # 開い is read ひらい here; JMDict's other reading of 開く, あく, has
@@ -141,7 +155,9 @@ class TestGetOrCreateGlossLookup:
         assert row.source == "jmdict"
         assert row.entries != []
 
-    def test_english_word_is_routed_to_the_stub_not_queried_against_jmdict(self, db_conn):
+    def test_english_word_is_routed_to_the_stub_not_queried_against_jmdict(
+        self, db_conn
+    ):
         gloss_id = get_or_create_gloss_lookup(db_conn, "gifted", "gifted")
         row = db_conn.execute(
             text("SELECT source, entries FROM gloss_lookups WHERE id=:id"),

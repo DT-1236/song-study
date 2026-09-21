@@ -14,7 +14,12 @@ from app.main import (
     LineTimingsUpdate,
 )
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
-from tests.support import create_document, get_document, save_line_timings, update_document_text
+from tests.support import (
+    create_document,
+    get_document,
+    save_line_timings,
+    update_document_text,
+)
 
 # One timing per line of a two-stanza document, the blank line between them
 # untimed.
@@ -22,7 +27,9 @@ LINES = [LineTiming(start=1.0, end=4.0), None, LineTiming(start=4.0, end=9.5)]
 
 
 def _document() -> tuple[int, str]:
-    document = create_document(DocumentCreate(title="test", text=f"{FIRST_SENTENCE}\n\n{SECOND_SENTENCE}"))
+    document = create_document(
+        DocumentCreate(title="test", text=f"{FIRST_SENTENCE}\n\n{SECOND_SENTENCE}")
+    )
     return document.id, document.text
 
 
@@ -45,7 +52,9 @@ def test_timings_made_for_other_lyrics_are_refused(committed_engine):
     document_id, _ = _document()
 
     with pytest.raises(HTTPException) as refused:
-        save_line_timings(document_id, LineTimingsUpdate(text=FIRST_SENTENCE, lines=LINES[:1]))
+        save_line_timings(
+            document_id, LineTimingsUpdate(text=FIRST_SENTENCE, lines=LINES[:1])
+        )
 
     assert refused.value.status_code == 409
     assert get_document(document_id).edited_lines is None
@@ -55,7 +64,12 @@ def test_more_timings_than_lines_are_refused(committed_engine):
     document_id, text = _document()
 
     with pytest.raises(HTTPException) as refused:
-        save_line_timings(document_id, LineTimingsUpdate(text=text, lines=[*LINES, LineTiming(start=9.5, end=12.0)]))
+        save_line_timings(
+            document_id,
+            LineTimingsUpdate(
+                text=text, lines=[*LINES, LineTiming(start=9.5, end=12.0)]
+            ),
+        )
 
     assert refused.value.status_code == 422
 

@@ -18,7 +18,16 @@ from app.main import (
 )
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
-from tests.support import BackgroundCall, create_document, get_document_tokens, pick_reading, round_trips, statements_sent, update_document_text, wait_for_lock_wait
+from tests.support import (
+    BackgroundCall,
+    create_document,
+    get_document_tokens,
+    pick_reading,
+    round_trips,
+    statements_sent,
+    update_document_text,
+    wait_for_lock_wait,
+)
 
 
 def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
@@ -74,7 +83,9 @@ def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeyp
     assert [t.id for t in second_tokens] == [t.id for t in first_tokens]
 
 
-def test_text_edited_mid_processing_gets_tokens_for_the_new_text(committed_engine, monkeypatch):
+def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
+    committed_engine, monkeypatch
+):
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
     texts_processed = []
 
@@ -91,19 +102,30 @@ def test_text_edited_mid_processing_gets_tokens_for_the_new_text(committed_engin
     tokens = get_document_tokens(document_id)
 
     assert texts_processed == [FIRST_SENTENCE, SECOND_SENTENCE]
-    assert [t.surface for t in tokens] == [r.surface for r in tokenize_document(SECOND_SENTENCE)]
+    assert [t.surface for t in tokens] == [
+        r.surface for r in tokenize_document(SECOND_SENTENCE)
+    ]
 
 
 def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_engine):
     """Tokens with no gloss link (tokenized before gloss support existed) get
     one on the next fetch, and a token whose reading was picked from its
     conflicts keeps that reading's gloss rather than Sudachi's default."""
-    document_id = create_document(DocumentCreate(title="test", text="今日は良い天気です。")).id
+    document_id = create_document(
+        DocumentCreate(title="test", text="今日は良い天気です。")
+    ).id
     pick_reading(document_id, "今日", "こんにち")
     with committed_engine.begin() as conn:
-        conn.execute(text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :id"), {"id": document_id})
+        conn.execute(
+            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :id"),
+            {"id": document_id},
+        )
 
     tokens = get_document_tokens(document_id)
 
-    assert all(t.gloss is not None for t in tokens if is_glossable(t.part_of_speech, bool(t.conflicts)))
+    assert all(
+        t.gloss is not None
+        for t in tokens
+        if is_glossable(t.part_of_speech, bool(t.conflicts))
+    )
     assert next(t for t in tokens if t.surface == "今日").gloss.reading == "こんにち"

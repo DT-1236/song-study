@@ -54,14 +54,25 @@ from app.lrclib import (
 )
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
-from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
+from app.tokenization import (
+    TokenRecord,
+    dictionary_form_note,
+    mixed_reading,
+    to_hiragana,
+    tokenize_document,
+)
 from app.users import CurrentUser
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
 # The API is served under /api on the app's own origin, so there's no CORS.
 # Its cookie is Secure exactly when the app is served over https.
-app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="lax", https_only=APP_URL.startswith("https://"))
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=session_secret(),
+    same_site="lax",
+    https_only=APP_URL.startswith("https://"),
+)
 
 api = APIRouter(prefix="/api")
 api.include_router(auth_router)
@@ -183,7 +194,10 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
                     text(
                         "SELECT title FROM documents WHERE owner_id = :owner_id AND youtube_video_id = :youtube_video_id"
                     ),
-                    {"owner_id": user_id, "youtube_video_id": document.youtube_video_id},
+                    {
+                        "owner_id": user_id,
+                        "youtube_video_id": document.youtube_video_id,
+                    },
                 ).one_or_none()
 
             detail = (
@@ -202,7 +216,9 @@ def get_document(document_id: int, user_id: CurrentUser) -> Document:
     to a track there."""
     with engine.connect() as conn:
         row = conn.execute(
-            text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id"),
+            text(
+                f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id"
+            ),
             {"id": document_id, "owner_id": user_id},
         ).one_or_none()
 
@@ -218,8 +234,15 @@ def get_document(document_id: int, user_id: CurrentUser) -> Document:
     try:
         lyrics = fetch_lyrics(document.lrclib_uri)
     except LrclibError as exc:
-        return document.model_copy(update={"lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."})
-    if _linked_lyrics(row.text, row.lrclib_replaces_text, lyrics) == (row.text, row.lrclib_lines):
+        return document.model_copy(
+            update={
+                "lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."
+            }
+        )
+    if _linked_lyrics(row.text, row.lrclib_replaces_text, lyrics) == (
+        row.text,
+        row.lrclib_lines,
+    ):
         return document
 
     with engine.begin() as conn:
@@ -228,7 +251,9 @@ def get_document(document_id: int, user_id: CurrentUser) -> Document:
         # was fetched.
         if current.lrclib_uri != document.lrclib_uri:
             return Document(**current._mapping)
-        return _store_lrclib_lyrics(conn, current, document.lrclib_uri, lyrics, current.lrclib_replaces_text)
+        return _store_lrclib_lyrics(
+            conn, current, document.lrclib_uri, lyrics, current.lrclib_replaces_text
+        )
 
 
 def _require_owned_document(conn, document_id: int, user_id: int) -> None:
@@ -236,7 +261,9 @@ def _require_owned_document(conn, document_id: int, user_id: int) -> None:
     the routes on a document's tokens, which are otherwise keyed by
     document id alone."""
     owned = conn.execute(
-        text("SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"),
+        text(
+            "SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"
+        ),
         {"id": document_id, "owner_id": user_id},
     ).scalar_one()
     if not owned:
@@ -255,10 +282,14 @@ def _delete_tokens(conn, document_id: int) -> None:
         ),
         {"id": document_id},
     )
-    conn.execute(text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id})
+    conn.execute(
+        text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id}
+    )
 
 
-def _linked_lyrics(document_text: str, replaces_text: bool, lyrics: LrclibLyrics) -> tuple[str, Optional[list[dict]]]:
+def _linked_lyrics(
+    document_text: str, replaces_text: bool, lyrics: LrclibLyrics
+) -> tuple[str, Optional[list[dict]]]:
     """The text and line timings a document linked to LRCLIB takes from
     `lyrics`: LRCLIB's, if they replace its own; otherwise its own text,
     timed by LRCLIB only while LRCLIB's lyrics match it line for line."""
@@ -266,7 +297,9 @@ def _linked_lyrics(document_text: str, replaces_text: bool, lyrics: LrclibLyrics
         return lyrics.text, lyrics.lines
     # Blank lines at the end of the document, which synced lyrics can't
     # carry, just go untimed.
-    return document_text, lyrics.lines if document_text.rstrip("\n") == lyrics.text else None
+    return document_text, lyrics.lines if document_text.rstrip(
+        "\n"
+    ) == lyrics.text else None
 
 
 def _lock_document(conn, document_id: int, user_id: int):
@@ -275,7 +308,9 @@ def _lock_document(conn, document_id: int, user_id: int):
     # The same lock a first tokens request takes to write, so writes to the
     # document can't interleave with one.
     current = conn.execute(
-        text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id FOR UPDATE"),
+        text(
+            f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id FOR UPDATE"
+        ),
         {"id": document_id, "owner_id": user_id},
     ).one_or_none()
     if current is None:
@@ -283,7 +318,9 @@ def _lock_document(conn, document_id: int, user_id: int):
     return current
 
 
-def _store_lrclib_lyrics(conn, current, uri: str, lyrics: LrclibLyrics, replace_text: bool) -> Document:
+def _store_lrclib_lyrics(
+    conn, current, uri: str, lyrics: LrclibLyrics, replace_text: bool
+) -> Document:
     """Link the document whose locked row is `current` to `uri`, taking
     `lyrics`, just fetched from there, in place of its own if
     `replace_text` or else keeping its own, and return it. Tokens are only
@@ -325,7 +362,9 @@ class DocumentTextUpdate(BaseModel):
 
 
 @api.patch("/documents/{document_id}", response_model=Document)
-def update_document_text(document_id: int, body: DocumentTextUpdate, user_id: CurrentUser) -> Document:
+def update_document_text(
+    document_id: int, body: DocumentTextUpdate, user_id: CurrentUser
+) -> Document:
     """Editing the lyrics invalidates every token derived from the old text
     — furigana, gloss links, conflicts, all of it no longer corresponds to
     anything real. No version history is kept (not asked for), so this just
@@ -353,7 +392,8 @@ def update_document_text(document_id: int, body: DocumentTextUpdate, user_id: Cu
         if row is None:
             _require_owned_document(conn, document_id, user_id)
             raise HTTPException(
-                status_code=409, detail="This document's lyrics come from LRCLIB — unlink it to edit them."
+                status_code=409,
+                detail="This document's lyrics come from LRCLIB — unlink it to edit them.",
             )
         _delete_tokens(conn, document_id)
 
@@ -374,7 +414,13 @@ def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Doc
     the same) or keeping its lyrics and readings as they are."""
     uri, lyrics = _fetch_lrclib_for_link(body.uri)
     with engine.begin() as conn:
-        return _store_lrclib_lyrics(conn, _lock_document(conn, document_id, user_id), uri, lyrics, body.replace_text)
+        return _store_lrclib_lyrics(
+            conn,
+            _lock_document(conn, document_id, user_id),
+            uri,
+            lyrics,
+            body.replace_text,
+        )
 
 
 @api.delete("/documents/{document_id}/lrclib", response_model=Document)
@@ -411,14 +457,18 @@ class LineTimingsUpdate(BaseModel):
     def in_order(cls, lines: list[Optional[LineTiming]]) -> list[Optional[LineTiming]]:
         timed = [line for line in lines if line is not None]
         if any(line.start < 0 or line.end < line.start for line in timed):
-            raise ValueError("A line can't start before the song does, or end before it starts.")
+            raise ValueError(
+                "A line can't start before the song does, or end before it starts."
+            )
         if any(later.start < earlier.start for earlier, later in zip(timed, timed[1:])):
             raise ValueError("A line can't start before the line before it.")
         return lines
 
 
 @api.put("/documents/{document_id}/timings", response_model=Document)
-def save_line_timings(document_id: int, body: LineTimingsUpdate, user_id: CurrentUser) -> Document:
+def save_line_timings(
+    document_id: int, body: LineTimingsUpdate, user_id: CurrentUser
+) -> Document:
     """Save `body.lines` as the document's line timings, used in place of
     LRCLIB's for as long as its lyrics stay `body.text`."""
     with engine.begin() as conn:
@@ -430,10 +480,17 @@ def save_line_timings(document_id: int, body: LineTimingsUpdate, user_id: Curren
             )
         text_lines = current.text.split("\n")
         if len(body.lines) > len(text_lines):
-            raise HTTPException(status_code=422, detail="There are more timings than lines.")
+            raise HTTPException(
+                status_code=422, detail="There are more timings than lines."
+            )
         # Blank lines, between stanzas, are the only ones that may go untimed.
-        if any(line.strip() and (i >= len(body.lines) or body.lines[i] is None) for i, line in enumerate(text_lines)):
-            raise HTTPException(status_code=422, detail="Every line with lyrics needs a timing.")
+        if any(
+            line.strip() and (i >= len(body.lines) or body.lines[i] is None)
+            for i, line in enumerate(text_lines)
+        ):
+            raise HTTPException(
+                status_code=422, detail="Every line with lyrics needs a timing."
+            )
         row = conn.execute(
             text(
                 f"""
@@ -444,7 +501,9 @@ def save_line_timings(document_id: int, body: LineTimingsUpdate, user_id: Curren
             ),
             {
                 "id": document_id,
-                "lines": json_param([line.model_dump() if line else None for line in body.lines]),
+                "lines": json_param(
+                    [line.model_dump() if line else None for line in body.lines]
+                ),
                 "text": current.text,
             },
         ).one()
@@ -527,7 +586,10 @@ def jmdict_search(
     q: str = Query(min_length=1),
     max_results_per_tier: int = Query(default=3, ge=1, le=20),
 ) -> list[JmdictEntry]:
-    return [JmdictEntry(**entry) for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)]
+    return [
+        JmdictEntry(**entry)
+        for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)
+    ]
 
 
 class GlossSense(JmdictSense):
@@ -600,7 +662,9 @@ class Token(BaseModel):
     end_time: Optional[Decimal]
 
 
-def _fetch_tokens(conn, document_id: int, token_ids: Optional[list[int]] = None) -> list[Token]:
+def _fetch_tokens(
+    conn, document_id: int, token_ids: Optional[list[int]] = None
+) -> list[Token]:
     token_filter = "AND t.id = ANY(:token_ids)" if token_ids is not None else ""
     rows = conn.execute(
         text(
@@ -714,7 +778,9 @@ def _process_document(document_text: str) -> _ProcessedDocument:
     for group in groups:
         members = records[group.start : group.stop]
         request = predicate_group_request(
-            members, [to_hiragana(member.reading_katakana) for member in members], gloss_keys[group.start]
+            members,
+            [to_hiragana(member.reading_katakana) for member in members],
+            gloss_keys[group.start],
         )
         group_requests.append(request)
         for i in group:
@@ -729,10 +795,14 @@ def _process_document(document_text: str) -> _ProcessedDocument:
     # Autocommit, so no transaction is held open through the dictionary
     # lookups.
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        return _ProcessedDocument(records, groups, gloss_keys, plan_glosses(conn, requests, group_requests))
+        return _ProcessedDocument(
+            records, groups, gloss_keys, plan_glosses(conn, requests, group_requests)
+        )
 
 
-def _write_processed_document(conn, document_id: int, processed: _ProcessedDocument) -> None:
+def _write_processed_document(
+    conn, document_id: int, processed: _ProcessedDocument
+) -> None:
     """Insert a processed document's new gloss rows, its tokens (already
     linked to their glosses), and its conflicts, one statement each."""
     gloss_ids = store_glosses(conn, processed.gloss_plan)
@@ -794,7 +864,11 @@ def get_document_tokens(document_id: int, user_id: CurrentUser) -> list[Token]:
                 ).scalar_one_or_none()
 
         if existing:
-            if all(t.gloss is not None or not is_glossable(t.part_of_speech, bool(t.conflicts)) for t in existing):
+            if all(
+                t.gloss is not None
+                or not is_glossable(t.part_of_speech, bool(t.conflicts))
+                for t in existing
+            ):
                 return existing
             # Tokens missing their gloss link: tokenized before gloss support
             # existed, or unlinked by a migration that reset the gloss cache
@@ -840,13 +914,17 @@ class ConflictResolution(BaseModel):
 
 
 @api.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
-def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser) -> Token:
+def resolve_token_conflict(
+    document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser
+) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
         try:
             resolve_conflict(conn, document_id, token_id, body.conflict_id)
         except ConflictNotFound:
-            raise HTTPException(status_code=404, detail="Conflict option not found for this token.")
+            raise HTTPException(
+                status_code=404, detail="Conflict option not found for this token."
+            )
 
         return _fetch_token(conn, document_id, token_id)
 
@@ -856,7 +934,9 @@ class PhraseAcceptance(BaseModel):
 
 
 @api.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
-def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance, user_id: CurrentUser) -> list[Token]:
+def accept_phrase_suggestions_endpoint(
+    document_id: int, body: PhraseAcceptance, user_id: CurrentUser
+) -> list[Token]:
     """Apply each of `conflict_ids` — phrase suggestions, or split predicate
     groups to merge again — as accept_phrase_suggestions does. Returns every
     token they changed."""
@@ -865,13 +945,17 @@ def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance,
         try:
             affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
         except ConflictNotFound:
-            raise HTTPException(status_code=404, detail="Conflict option not found for this token.")
+            raise HTTPException(
+                status_code=404, detail="Conflict option not found for this token."
+            )
 
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
 @api.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
-def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution, user_id: CurrentUser) -> list[Token]:
+def resolve_phrase_furigana_endpoint(
+    document_id: int, body: ConflictResolution, user_id: CurrentUser
+) -> list[Token]:
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
     with engine.begin() as conn:
@@ -879,13 +963,20 @@ def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution,
         try:
             affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
         except ConflictNotFound:
-            raise HTTPException(status_code=404, detail="Conflict option not found for this document.")
+            raise HTTPException(
+                status_code=404, detail="Conflict option not found for this document."
+            )
 
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@api.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
-def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser) -> list[Token]:
+@api.post(
+    "/documents/{document_id}/tokens/{token_id}/unmerge-phrase",
+    response_model=list[Token],
+)
+def unmerge_phrase_tokens(
+    document_id: int, token_id: int, user_id: CurrentUser
+) -> list[Token]:
     """Split the group token_id is merged into, found from any member of it.
     Returns the tokens it changed."""
     with engine.begin() as conn:
@@ -893,15 +984,22 @@ def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser)
         try:
             affected = unmerge_phrase(conn, document_id, token_id)
         except TokenNotFound:
-            raise HTTPException(status_code=404, detail="Token not found for this document.")
+            raise HTTPException(
+                status_code=404, detail="Token not found for this document."
+            )
 
         if not affected:
             return []
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@api.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
-def get_alternate_readings(document_id: int, token_id: int, user_id: CurrentUser) -> list[dict]:
+@api.get(
+    "/documents/{document_id}/tokens/{token_id}/alternate-readings",
+    response_model=list[dict],
+)
+def get_alternate_readings(
+    document_id: int, token_id: int, user_id: CurrentUser
+) -> list[dict]:
     """Every other reading JMDict has for token_id's dictionary form, as
     reading options to apply through /tokens/reading."""
     with engine.connect() as conn:
@@ -914,8 +1012,12 @@ def get_alternate_readings(document_id: int, token_id: int, user_id: CurrentUser
             {"token_id": token_id, "document_id": document_id},
         ).one_or_none()
         if row is None:
-            raise HTTPException(status_code=404, detail="Token not found for this document.")
-        return alternate_reading_options(row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form)
+            raise HTTPException(
+                status_code=404, detail="Token not found for this document."
+            )
+        return alternate_reading_options(
+            row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
+        )
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")
@@ -933,13 +1035,17 @@ class ReadingCorrection(BaseModel):
 
 
 @api.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
-def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser) -> Token:
+def correct_token_reading(
+    document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser
+) -> Token:
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
         try:
             correct_reading(conn, document_id, token_id, body.reading)
         except TokenNotFound:
-            raise HTTPException(status_code=404, detail="Token not found for this document.")
+            raise HTTPException(
+                status_code=404, detail="Token not found for this document."
+            )
 
         return _fetch_token(conn, document_id, token_id)
 
@@ -960,7 +1066,9 @@ def _token_group_errors():
     try:
         yield
     except TokenNotFound:
-        raise HTTPException(status_code=404, detail="Token not found for this document.")
+        raise HTTPException(
+            status_code=404, detail="Token not found for this document."
+        )
     except TokensNotGroupable:
         raise HTTPException(
             status_code=422,
@@ -974,7 +1082,9 @@ class TokensReading(ReadingCorrection, TokenIds):
 
 
 @api.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
-def apply_tokens_reading(document_id: int, body: TokensReading, user_id: CurrentUser) -> list[Token]:
+def apply_tokens_reading(
+    document_id: int, body: TokensReading, user_id: CurrentUser
+) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
     does. Returns every token whose gloss changed, which includes the rest
@@ -982,7 +1092,9 @@ def apply_tokens_reading(document_id: int, body: TokensReading, user_id: Current
     with engine.begin() as conn:
         _require_owned_document(conn, document_id, user_id)
         with _token_group_errors():
-            affected = select_reading(conn, document_id, body.token_ids, body.reading, body.furigana_spans)
+            affected = select_reading(
+                conn, document_id, body.token_ids, body.reading, body.furigana_spans
+            )
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
@@ -991,7 +1103,9 @@ class TokensIgnored(TokenIds):
 
 
 @api.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
-def set_tokens_ignored(document_id: int, body: TokensIgnored, user_id: CurrentUser) -> list[Token]:
+def set_tokens_ignored(
+    document_id: int, body: TokensIgnored, user_id: CurrentUser
+) -> list[Token]:
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""
     with engine.begin() as conn:
@@ -999,7 +1113,9 @@ def set_tokens_ignored(document_id: int, body: TokensIgnored, user_id: CurrentUs
         with _token_group_errors():
             lock_token_group(conn, document_id, body.token_ids)
         conn.execute(
-            text("UPDATE tokens SET gloss_ignored = :ignored WHERE id = ANY(:token_ids)"),
+            text(
+                "UPDATE tokens SET gloss_ignored = :ignored WHERE id = ANY(:token_ids)"
+            ),
             {"token_ids": body.token_ids, "ignored": body.ignored},
         )
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)

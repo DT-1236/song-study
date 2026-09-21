@@ -9,6 +9,7 @@ Revises: 0012
 Create Date: 2026-09-16 00:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -16,8 +17,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '0013'
-down_revision: Union[str, Sequence[str], None] = '0012'
+revision: str = "0013"
+down_revision: Union[str, Sequence[str], None] = "0012"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
@@ -30,7 +31,9 @@ _EMPTY_KATAKANA_GLOSSES = """
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.execute(f"UPDATE tokens SET gloss_lookup_id = NULL WHERE gloss_lookup_id IN ({_EMPTY_KATAKANA_GLOSSES});")
+    op.execute(
+        f"UPDATE tokens SET gloss_lookup_id = NULL WHERE gloss_lookup_id IN ({_EMPTY_KATAKANA_GLOSSES});"
+    )
     op.execute(f"DELETE FROM gloss_lookups WHERE id IN ({_EMPTY_KATAKANA_GLOSSES});")
 
 

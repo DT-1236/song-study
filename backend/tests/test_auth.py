@@ -32,7 +32,9 @@ def test_first_login_creates_a_user_and_later_ones_reuse_it(db_conn):
 
     assert again == first
     assert other != first
-    row = db_conn.execute(text("SELECT email, name FROM users WHERE id = :id"), {"id": first}).one()
+    row = db_conn.execute(
+        text("SELECT email, name FROM users WHERE id = :id"), {"id": first}
+    ).one()
     assert (row.email, row.name) == ("new@example.com", "A B")
 
 

@@ -9,6 +9,7 @@ Revises: 0004
 Create Date: 2026-09-07 09:00:00.000000
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -16,15 +17,17 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '0005'
-down_revision: Union[str, Sequence[str], None] = '0004'
+revision: str = "0005"
+down_revision: Union[str, Sequence[str], None] = "0004"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
     """Upgrade schema."""
-    op.execute("ALTER TABLE gloss_lookups RENAME COLUMN dictionary_form TO lookup_form;")
+    op.execute(
+        "ALTER TABLE gloss_lookups RENAME COLUMN dictionary_form TO lookup_form;"
+    )
     op.execute(
         """
         ALTER TABLE gloss_lookups
@@ -46,4 +49,6 @@ def downgrade() -> None:
             TO gloss_lookups_dictionary_form_reading_key;
         """
     )
-    op.execute("ALTER TABLE gloss_lookups RENAME COLUMN lookup_form TO dictionary_form;")
+    op.execute(
+        "ALTER TABLE gloss_lookups RENAME COLUMN lookup_form TO dictionary_form;"
+    )

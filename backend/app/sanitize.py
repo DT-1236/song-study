@@ -46,4 +46,6 @@ def sanitize_text(text: str) -> str:
     # が), which Sudachi can't read.
     text = unicodedata.normalize("NFC", text)
     text = "".join(map(_fold_latin_lookalike, _INVISIBLE_RE.sub("", text)))
-    return "\n".join(_SPACE_RUN_RE.sub(" ", line).strip(" ") for line in _LINE_BREAK_RE.split(text))
+    return "\n".join(
+        _SPACE_RUN_RE.sub(" ", line).strip(" ") for line in _LINE_BREAK_RE.split(text)
+    )

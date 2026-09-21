@@ -10,7 +10,10 @@ from app.tokenization import tokenize_document
 
 def _groups(text: str) -> list[str]:
     records = tokenize_document(text)
-    return ["".join(records[i].surface for i in group) for group in find_predicate_groups(records)]
+    return [
+        "".join(records[i].surface for i in group)
+        for group in find_predicate_groups(records)
+    ]
 
 
 class TestFindPredicateGroups:
@@ -85,10 +88,19 @@ class TestFindPredicateGroups:
 
 class TestGrammarNote:
     def test_notes_a_known_grammar_word_by_normalized_form(self):
-        assert grammar_note("てる", ["助動詞", "*", "*", "*", "*", "*"]).startswith("short for ている")
+        assert grammar_note("てる", ["助動詞", "*", "*", "*", "*", "*"]).startswith(
+            "short for ている"
+        )
         # ん as a negative is normalized to ず.
-        assert grammar_note("ず", ["助動詞", "*", "*", "*", "*", "*"]).startswith("negation")
+        assert grammar_note("ず", ["助動詞", "*", "*", "*", "*", "*"]).startswith(
+            "negation"
+        )
 
     def test_falls_back_by_part_of_speech(self):
-        assert grammar_note("かしら", ["助詞", "終助詞", "*", "*", "*", "*"]) == "particle"
-        assert grammar_note("未知", ["助動詞", "*", "*", "*", "*", "*"]) == "grammatical ending"
+        assert (
+            grammar_note("かしら", ["助詞", "終助詞", "*", "*", "*", "*"]) == "particle"
+        )
+        assert (
+            grammar_note("未知", ["助動詞", "*", "*", "*", "*", "*"])
+            == "grammatical ending"
+        )

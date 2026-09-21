@@ -38,7 +38,11 @@ def _test_database_url() -> str:
         )
     test_db = make_url(url).database
     app_url = os.environ.get("DATABASE_URL")
-    if not test_db or not test_db.endswith("_test") or (app_url and make_url(app_url).database == test_db):
+    if (
+        not test_db
+        or not test_db.endswith("_test")
+        or (app_url and make_url(app_url).database == test_db)
+    ):
         raise RuntimeError(
             f"Refusing to use {test_db!r} as the test database: its name must end in '_test' "
             "and differ from DATABASE_URL's."
@@ -71,10 +75,15 @@ def recreate_test_database() -> None:
     engine.dispose()
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     # Config values go through configparser interpolation, so % is escaped.
-    config.set_main_option("sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%"))
+    config.set_main_option(
+        "sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%")
+    )
     command.upgrade(config, "head")
     with engine.begin() as conn:
-        conn.execute(text("INSERT INTO users (id, name) VALUES (:id, 'test')"), {"id": TEST_USER_ID})
+        conn.execute(
+            text("INSERT INTO users (id, name) VALUES (:id, 'test')"),
+            {"id": TEST_USER_ID},
+        )
 
 
 def statements_sent(engine, fn) -> list[tuple[str, int]]:
@@ -196,7 +205,11 @@ def make_token(conn, **overrides) -> int:
             RETURNING id
             """
         ),
-        {**defaults, "part_of_speech": json.dumps(defaults["part_of_speech"]), "furigana_spans": json.dumps(defaults["furigana_spans"])},
+        {
+            **defaults,
+            "part_of_speech": json.dumps(defaults["part_of_speech"]),
+            "furigana_spans": json.dumps(defaults["furigana_spans"]),
+        },
     ).scalar_one()
 
 
@@ -213,7 +226,9 @@ def pick_reading(document_id: int, surface: str, reading: str) -> None:
 
     token = document_tokens(document_id, surface)[0]
     option = next(c for c in token.conflicts if c.value["reading"] == reading)
-    resolve_token_conflict(document_id, token.id, ConflictResolution(conflict_id=option.id))
+    resolve_token_conflict(
+        document_id, token.id, ConflictResolution(conflict_id=option.id)
+    )
 
 
 def selected_reading(token) -> str:
@@ -243,7 +258,9 @@ link_lrclib = _as_test_user(main.link_lrclib)
 unlink_lrclib = _as_test_user(main.unlink_lrclib)
 save_line_timings = _as_test_user(main.save_line_timings)
 resolve_token_conflict = _as_test_user(main.resolve_token_conflict)
-accept_phrase_suggestions_endpoint = _as_test_user(main.accept_phrase_suggestions_endpoint)
+accept_phrase_suggestions_endpoint = _as_test_user(
+    main.accept_phrase_suggestions_endpoint
+)
 resolve_phrase_furigana_endpoint = _as_test_user(main.resolve_phrase_furigana_endpoint)
 unmerge_phrase_tokens = _as_test_user(main.unmerge_phrase_tokens)
 get_alternate_readings = _as_test_user(main.get_alternate_readings)
