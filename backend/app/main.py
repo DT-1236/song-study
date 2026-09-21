@@ -61,7 +61,7 @@ from app.tokenization import (
     to_hiragana,
     tokenize_document,
 )
-from app.users import CurrentUser
+from app.users import CurrentUser, OwnedDocument
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
@@ -211,7 +211,7 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
 
 
 @api.get("/documents/{document_id}", response_model=Document)
-def get_document(document_id: int, user_id: CurrentUser) -> Document:
+def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there."""
     with engine.connect() as conn:
@@ -254,20 +254,6 @@ def get_document(document_id: int, user_id: CurrentUser) -> Document:
         return _store_lrclib_lyrics(
             conn, current, document.lrclib_uri, lyrics, current.lrclib_replaces_text
         )
-
-
-def _require_owned_document(conn, document_id: int, user_id: int) -> None:
-    """Raise a 404 unless the document exists and belongs to the user, for
-    the routes on a document's tokens, which are otherwise keyed by
-    document id alone."""
-    owned = conn.execute(
-        text(
-            "SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"
-        ),
-        {"id": document_id, "owner_id": user_id},
-    ).scalar_one()
-    if not owned:
-        raise HTTPException(status_code=404, detail="Document not found.")
 
 
 def _delete_tokens(conn, document_id: int) -> None:
@@ -363,7 +349,7 @@ class DocumentTextUpdate(BaseModel):
 
 @api.patch("/documents/{document_id}", response_model=Document)
 def update_document_text(
-    document_id: int, body: DocumentTextUpdate, user_id: CurrentUser
+    document_id: OwnedDocument, body: DocumentTextUpdate, user_id: CurrentUser
 ) -> Document:
     """Editing the lyrics invalidates every token derived from the old text
     — furigana, gloss links, conflicts, all of it no longer corresponds to
@@ -390,7 +376,9 @@ def update_document_text(
         ).one_or_none()
 
         if row is None:
-            _require_owned_document(conn, document_id, user_id)
+            # The document is the caller's, or OwnedDocument would have
+            # 404'd, so the only row the UPDATE can have missed is a linked
+            # one.
             raise HTTPException(
                 status_code=409,
                 detail="This document's lyrics come from LRCLIB — unlink it to edit them.",
@@ -408,7 +396,9 @@ class LrclibLink(BaseModel):
 
 
 @api.put("/documents/{document_id}/lrclib", response_model=Document)
-def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Document:
+def link_lrclib(
+    document_id: OwnedDocument, body: LrclibLink, user_id: CurrentUser
+) -> Document:
     """Link the document to an LRCLIB track, either replacing its lyrics
     with the track's (readings picked for it are reset unless the text is
     the same) or keeping its lyrics and readings as they are."""
@@ -424,7 +414,7 @@ def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Doc
 
 
 @api.delete("/documents/{document_id}/lrclib", response_model=Document)
-def unlink_lrclib(document_id: int, user_id: CurrentUser) -> Document:
+def unlink_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """Stop loading the document's lyrics from LRCLIB, keeping the ones it
     has, which become editable."""
     # Its line timings are kept, since they still match its unchanged text.
@@ -467,7 +457,7 @@ class LineTimingsUpdate(BaseModel):
 
 @api.put("/documents/{document_id}/timings", response_model=Document)
 def save_line_timings(
-    document_id: int, body: LineTimingsUpdate, user_id: CurrentUser
+    document_id: OwnedDocument, body: LineTimingsUpdate, user_id: CurrentUser
 ) -> Document:
     """Save `body.lines` as the document's line timings, used in place of
     LRCLIB's for as long as its lyrics stay `body.text`."""
@@ -850,10 +840,11 @@ def _write_processed_document(
 
 
 @api.get("/documents/{document_id}/tokens", response_model=list[Token])
-def get_document_tokens(document_id: int, user_id: CurrentUser) -> list[Token]:
+def get_document_tokens(
+    document_id: OwnedDocument, user_id: CurrentUser
+) -> list[Token]:
     while True:
         with engine.connect() as conn:
-            _require_owned_document(conn, document_id, user_id)
             existing = _fetch_tokens(conn, document_id)
             if not existing:
                 # Tokens only exist for a document that does, so the document
@@ -915,10 +906,12 @@ class ConflictResolution(BaseModel):
 
 @api.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
 def resolve_token_conflict(
-    document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser
+    document_id: OwnedDocument,
+    token_id: int,
+    body: ConflictResolution,
+    user_id: CurrentUser,
 ) -> Token:
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         try:
             resolve_conflict(conn, document_id, token_id, body.conflict_id)
         except ConflictNotFound:
@@ -935,13 +928,12 @@ class PhraseAcceptance(BaseModel):
 
 @api.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
 def accept_phrase_suggestions_endpoint(
-    document_id: int, body: PhraseAcceptance, user_id: CurrentUser
+    document_id: OwnedDocument, body: PhraseAcceptance, user_id: CurrentUser
 ) -> list[Token]:
     """Apply each of `conflict_ids` — phrase suggestions, or split predicate
     groups to merge again — as accept_phrase_suggestions does. Returns every
     token they changed."""
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         try:
             affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
         except ConflictNotFound:
@@ -954,12 +946,11 @@ def accept_phrase_suggestions_endpoint(
 
 @api.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
 def resolve_phrase_furigana_endpoint(
-    document_id: int, body: ConflictResolution, user_id: CurrentUser
+    document_id: OwnedDocument, body: ConflictResolution, user_id: CurrentUser
 ) -> list[Token]:
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         try:
             affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
         except ConflictNotFound:
@@ -975,12 +966,11 @@ def resolve_phrase_furigana_endpoint(
     response_model=list[Token],
 )
 def unmerge_phrase_tokens(
-    document_id: int, token_id: int, user_id: CurrentUser
+    document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[Token]:
     """Split the group token_id is merged into, found from any member of it.
     Returns the tokens it changed."""
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         try:
             affected = unmerge_phrase(conn, document_id, token_id)
         except TokenNotFound:
@@ -998,12 +988,11 @@ def unmerge_phrase_tokens(
     response_model=list[dict],
 )
 def get_alternate_readings(
-    document_id: int, token_id: int, user_id: CurrentUser
+    document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[dict]:
     """Every other reading JMDict has for token_id's dictionary form, as
     reading options to apply through /tokens/reading."""
     with engine.connect() as conn:
-        _require_owned_document(conn, document_id, user_id)
         row = conn.execute(
             text(
                 "SELECT surface, reading_katakana, dictionary_form, normalized_form "
@@ -1036,10 +1025,12 @@ class ReadingCorrection(BaseModel):
 
 @api.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
 def correct_token_reading(
-    document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser
+    document_id: OwnedDocument,
+    token_id: int,
+    body: ReadingCorrection,
+    user_id: CurrentUser,
 ) -> Token:
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         try:
             correct_reading(conn, document_id, token_id, body.reading)
         except TokenNotFound:
@@ -1083,14 +1074,13 @@ class TokensReading(ReadingCorrection, TokenIds):
 
 @api.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
 def apply_tokens_reading(
-    document_id: int, body: TokensReading, user_id: CurrentUser
+    document_id: OwnedDocument, body: TokensReading, user_id: CurrentUser
 ) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
     does. Returns every token whose gloss changed, which includes the rest
     of any group one of them is in."""
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         with _token_group_errors():
             affected = select_reading(
                 conn, document_id, body.token_ids, body.reading, body.furigana_spans
@@ -1104,12 +1094,11 @@ class TokensIgnored(TokenIds):
 
 @api.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
 def set_tokens_ignored(
-    document_id: int, body: TokensIgnored, user_id: CurrentUser
+    document_id: OwnedDocument, body: TokensIgnored, user_id: CurrentUser
 ) -> list[Token]:
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""
     with engine.begin() as conn:
-        _require_owned_document(conn, document_id, user_id)
         with _token_group_errors():
             lock_token_group(conn, document_id, body.token_ids)
         conn.execute(

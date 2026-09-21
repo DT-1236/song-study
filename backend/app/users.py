@@ -1,9 +1,12 @@
 """Who a request acts as: the user its session cookie says logged in (see
-app/auth.py)."""
+app/auth.py), and which documents that lets it reach."""
 
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
+from sqlalchemy import text
+
+from app.db import engine
 
 
 def current_user_id(request: Request) -> int:
@@ -15,3 +18,27 @@ def current_user_id(request: Request) -> int:
 
 
 CurrentUser = Annotated[int, Depends(current_user_id)]
+
+
+def owned_document_id(document_id: int, user_id: CurrentUser) -> int:
+    """The path's document id, once the document is known to belong to the
+    logged-in user; a 404 otherwise, since one user must not learn which of
+    another's documents exist. Routes keyed by document id take it as
+    OwnedDocument rather than int, so the check is part of the signature and
+    can't be left out of a new one."""
+    # Its own connection, before the route opens its transaction: a document
+    # can't change hands (nothing transfers or deletes one), and the routes
+    # that go on to write still re-scope by owner_id under their own lock.
+    with engine.connect() as conn:
+        owned = conn.execute(
+            text(
+                "SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"
+            ),
+            {"id": document_id, "owner_id": user_id},
+        ).scalar_one()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Document not found.")
+    return document_id
+
+
+OwnedDocument = Annotated[int, Depends(owned_document_id)]
