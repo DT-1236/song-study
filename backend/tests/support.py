@@ -158,7 +158,10 @@ class BackgroundCall(threading.Thread):
     def run(self):
         try:
             self._result = self._fn(*self._args)
-        except BaseException as exc:
+        except BaseException as exc:  # noqa: BLE001
+            # Deliberately everything: whatever the thread raised is re-raised
+            # on the caller's thread by outcome(), and a KeyboardInterrupt or a
+            # timeout that vanished here would hang the test instead.
             self._error = exc
 
     def outcome(self, timeout: float = 60.0):

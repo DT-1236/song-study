@@ -50,12 +50,12 @@ def normalize_lrclib_uri(value: str) -> str:
     if _TRACK_ID_RE.fullmatch(value):
         return f"{_API_GET}/{value}"
     parsed = urllib.parse.urlsplit(value if "://" in value else f"https://{value}")
-    if parsed.scheme in ("http", "https") and parsed.hostname in (
-        "lrclib.net",
-        "www.lrclib.net",
+    if (
+        parsed.scheme in ("http", "https")
+        and parsed.hostname in ("lrclib.net", "www.lrclib.net")
+        and (match := _GET_BY_ID_PATH_RE.fullmatch(parsed.path))
     ):
-        if match := _GET_BY_ID_PATH_RE.fullmatch(parsed.path):
-            return f"{_API_GET}/{match.group(1)}"
+        return f"{_API_GET}/{match.group(1)}"
     raise LrclibError(
         "Enter an LRCLIB track ID, or its https://lrclib.net/api/get/… address."
     )

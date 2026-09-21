@@ -31,6 +31,8 @@ fixed this session, grounded in real Sudachi/JMDict behavior verified by
 hand at the time (see the case comments), not invented examples.
 """
 
+from itertools import pairwise
+
 from app.tokenization import (
     _is_regular_potential_form,
     _reconstruct_citation_reading,
@@ -600,7 +602,7 @@ def test_spans_are_contiguous_and_cover_the_full_surface():
         for surface, _reading, _review_reason, spans in expected:
             assert spans[0]["start"] == 0
             assert spans[-1]["end"] == len(surface)
-            for a, b in zip(spans, spans[1:]):
+            for a, b in pairwise(spans):
                 assert a["end"] == b["start"]
             assert "".join(s["text"] for s in spans) == surface
 
