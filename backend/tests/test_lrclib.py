@@ -28,16 +28,10 @@ from app.main import (
     DocumentTextUpdate,
     LineTiming,
     LrclibLink,
-    create_document,
-    get_document,
-    get_document_tokens,
-    link_lrclib,
-    unlink_lrclib,
-    update_document_text,
 )
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
-from tests.support import document_tokens, pick_reading
+from tests.support import create_document, document_tokens, get_document, get_document_tokens, link_lrclib, pick_reading, unlink_lrclib, update_document_text
 
 URI = "https://lrclib.net/api/get/1"
 WEATHER = "今日は良い天気です。"

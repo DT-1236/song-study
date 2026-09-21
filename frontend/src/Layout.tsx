@@ -1,5 +1,7 @@
 import { useState } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
+import { logout } from './api'
+import { useCurrentUser } from './AuthGate'
 import { GrammarLegendModal } from './GrammarLegend'
 import { JmdictSearch } from './JmdictSearch'
 import { PosLegendModal } from './PosLegend'
@@ -7,6 +9,7 @@ import { useTabs } from './TabsContext'
 
 export function Layout() {
   const { tabs } = useTabs()
+  const user = useCurrentUser()
   const [showPosLegend, setShowPosLegend] = useState(false)
   const [showGrammarLegend, setShowGrammarLegend] = useState(false)
 
@@ -44,6 +47,10 @@ export function Layout() {
           </button>
           <button type="button" onClick={() => setShowGrammarLegend(true)}>
             Grammar Rules
+          </button>
+          <div className="sidebar-section-title">{user.name}</div>
+          <button type="button" onClick={() => logout().then(() => window.location.reload())}>
+            Log out
           </button>
         </div>
       </nav>

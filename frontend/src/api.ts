@@ -1,4 +1,6 @@
-const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:8000'
+// The API is served under /api on the app's own origin (the Vite dev server
+// proxies it; a deployment's reverse proxy does the same).
+const API_URL = '/api'
 
 export type LineTiming = {
   start: number
@@ -28,6 +30,28 @@ export type Document = {
 }
 
 export class ApiError extends Error {}
+
+export type CurrentUser = {
+  id: number
+  name: string
+  email: string | null
+}
+
+// Where the browser goes to log in with Google; it comes back to the app.
+export const LOGIN_URL = `${API_URL}/auth/login`
+
+// The logged-in user, or null if nobody is.
+export async function fetchCurrentUser(): Promise<CurrentUser | null> {
+  const response = await fetch(`${API_URL}/auth/me`)
+  if (response.status === 401) return null
+  await assertOk(response)
+  return response.json()
+}
+
+export async function logout(): Promise<void> {
+  const response = await fetch(`${API_URL}/auth/logout`, { method: 'POST' })
+  await assertOk(response)
+}
 
 // The message to show for a failed request: the server's own, from an
 // ApiError, or `fallback` for anything else (a network failure, say).
@@ -386,7 +410,7 @@ export type JmdictEntry = {
 }
 
 export async function searchJmdict(query: string, maxResultsPerTier = 3): Promise<JmdictEntry[]> {
-  const url = new URL(`${API_URL}/jmdict/search`)
+  const url = new URL(`${API_URL}/jmdict/search`, window.location.origin)
   url.searchParams.set('q', query)
   url.searchParams.set('max_results_per_tier', String(maxResultsPerTier))
 
@@ -403,7 +427,7 @@ export async function fetchDocuments(params: {
   sortBy: SortField
   sortDir: SortDir
 }): Promise<DocumentPage> {
-  const url = new URL(`${API_URL}/documents`)
+  const url = new URL(`${API_URL}/documents`, window.location.origin)
   url.searchParams.set('page', String(params.page))
   url.searchParams.set('page_size', String(params.pageSize))
   url.searchParams.set('sort_by', params.sortBy)

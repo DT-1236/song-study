@@ -8,11 +8,15 @@ import pytest
 from pydantic import ValidationError
 
 from app.lrclib import parse_synced_lyrics
-from app.main import DocumentCreate, DocumentTextUpdate, create_document, get_document_tokens
+from app.main import (
+    DocumentCreate,
+    DocumentTextUpdate,
+)
 from app.sanitize import sanitize_text
 
 # SMALL ROMAN NUMERAL ONE THOUSAND, which looks exactly like m.
 ROMAN_M = "\u217f"
+from tests.support import create_document, get_document_tokens
 
 
 def test_latin_lookalikes_become_the_letters_they_stand_for():

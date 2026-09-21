@@ -7,7 +7,10 @@ from sqlalchemy import text
 
 from app.glosses import GroupGlossRequest, GroupPart, get_or_create_gloss_lookup
 from app.katakana import hiragana_units, is_katakana_word
-from app.main import DocumentCreate, create_document, get_document_tokens
+from app.main import (
+    DocumentCreate,
+)
+from tests.support import create_document, get_document_tokens
 
 
 def _gloss(conn, gloss_id):

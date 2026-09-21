@@ -7,12 +7,13 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Literal, Optional
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from starlette.middleware.sessions import SessionMiddleware
 
+from app.auth import APP_URL, router as auth_router, session_secret
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
@@ -54,21 +55,16 @@ from app.lrclib import (
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
 from app.tokenization import TokenRecord, dictionary_form_note, mixed_reading, to_hiragana, tokenize_document
+from app.users import CurrentUser
 
-app = FastAPI()
+app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
-allowed_origins = [
-    origin.strip()
-    for origin in os.environ.get("ALLOWED_ORIGINS", "http://localhost:5173").split(",")
-    if origin.strip()
-]
+# The API is served under /api on the app's own origin, so there's no CORS.
+# Its cookie is Secure exactly when the app is served over https.
+app.add_middleware(SessionMiddleware, secret_key=session_secret(), same_site="lax", https_only=APP_URL.startswith("https://"))
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=allowed_origins,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+api = APIRouter(prefix="/api")
+api.include_router(auth_router)
 
 
 def _sanitize_lyrics(value: str) -> Optional[str]:
@@ -148,8 +144,8 @@ def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@app.post("/documents", response_model=Document, status_code=201)
-def create_document(document: DocumentCreate) -> Document:
+@api.post("/documents", response_model=Document, status_code=201)
+def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
     """Create a document; given an LRCLIB track, its lyrics are used in
     place of `text`."""
     lrclib_uri = lyrics = None
@@ -162,16 +158,17 @@ def create_document(document: DocumentCreate) -> Document:
                 text(
                     f"""
                     INSERT INTO documents (
-                        title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines
+                        owner_id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines
                     )
                     VALUES (
-                        :title, :text, :youtube_video_id, :lrclib_uri, :lrclib_replaces_text,
+                        :owner_id, :title, :text, :youtube_video_id, :lrclib_uri, :lrclib_replaces_text,
                         CAST(:lrclib_lines AS JSONB)
                     )
                     RETURNING {_DOCUMENT_COLUMNS}
                     """
                 ),
                 {
+                    "owner_id": user_id,
                     "title": document.title,
                     "text": lyrics.text if lyrics else document.text,
                     "youtube_video_id": document.youtube_video_id,
@@ -183,8 +180,10 @@ def create_document(document: DocumentCreate) -> Document:
         except IntegrityError as exc:
             with engine.connect() as lookup_conn:
                 existing = lookup_conn.execute(
-                    text("SELECT title FROM documents WHERE youtube_video_id = :youtube_video_id"),
-                    {"youtube_video_id": document.youtube_video_id},
+                    text(
+                        "SELECT title FROM documents WHERE owner_id = :owner_id AND youtube_video_id = :youtube_video_id"
+                    ),
+                    {"owner_id": user_id, "youtube_video_id": document.youtube_video_id},
                 ).one_or_none()
 
             detail = (
@@ -197,14 +196,14 @@ def create_document(document: DocumentCreate) -> Document:
     return Document(**row._mapping)
 
 
-@app.get("/documents/{document_id}", response_model=Document)
-def get_document(document_id: int) -> Document:
+@api.get("/documents/{document_id}", response_model=Document)
+def get_document(document_id: int, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there."""
     with engine.connect() as conn:
         row = conn.execute(
-            text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id"),
-            {"id": document_id},
+            text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id"),
+            {"id": document_id, "owner_id": user_id},
         ).one_or_none()
 
     if row is None:
@@ -224,12 +223,24 @@ def get_document(document_id: int) -> Document:
         return document
 
     with engine.begin() as conn:
-        current = _lock_document(conn, document_id)
+        current = _lock_document(conn, document_id, user_id)
         # Left alone if it was unlinked, or linked elsewhere, since `lyrics`
         # was fetched.
         if current.lrclib_uri != document.lrclib_uri:
             return Document(**current._mapping)
         return _store_lrclib_lyrics(conn, current, document.lrclib_uri, lyrics, current.lrclib_replaces_text)
+
+
+def _require_owned_document(conn, document_id: int, user_id: int) -> None:
+    """Raise a 404 unless the document exists and belongs to the user, for
+    the routes on a document's tokens, which are otherwise keyed by
+    document id alone."""
+    owned = conn.execute(
+        text("SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"),
+        {"id": document_id, "owner_id": user_id},
+    ).scalar_one()
+    if not owned:
+        raise HTTPException(status_code=404, detail="Document not found.")
 
 
 def _delete_tokens(conn, document_id: int) -> None:
@@ -258,14 +269,14 @@ def _linked_lyrics(document_text: str, replaces_text: bool, lyrics: LrclibLyrics
     return document_text, lyrics.lines if document_text.rstrip("\n") == lyrics.text else None
 
 
-def _lock_document(conn, document_id: int):
-    """The document's row, locked for the rest of the transaction; a 404 if
-    there's no such document."""
+def _lock_document(conn, document_id: int, user_id: int):
+    """The row of the user's document, locked for the rest of the
+    transaction; a 404 if they have no such document."""
     # The same lock a first tokens request takes to write, so writes to the
     # document can't interleave with one.
     current = conn.execute(
-        text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id FOR UPDATE"),
-        {"id": document_id},
+        text(f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id FOR UPDATE"),
+        {"id": document_id, "owner_id": user_id},
     ).one_or_none()
     if current is None:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -313,8 +324,8 @@ class DocumentTextUpdate(BaseModel):
         return sanitized
 
 
-@app.patch("/documents/{document_id}", response_model=Document)
-def update_document_text(document_id: int, body: DocumentTextUpdate) -> Document:
+@api.patch("/documents/{document_id}", response_model=Document)
+def update_document_text(document_id: int, body: DocumentTextUpdate, user_id: CurrentUser) -> Document:
     """Editing the lyrics invalidates every token derived from the old text
     — furigana, gloss links, conflicts, all of it no longer corresponds to
     anything real. No version history is kept (not asked for), so this just
@@ -332,19 +343,15 @@ def update_document_text(document_id: int, body: DocumentTextUpdate) -> Document
             text(
                 f"""
                 UPDATE documents SET text = :text, lrclib_lines = NULL
-                WHERE id = :id AND lrclib_replaces_text IS NOT TRUE
+                WHERE id = :id AND owner_id = :owner_id AND lrclib_replaces_text IS NOT TRUE
                 RETURNING {_DOCUMENT_COLUMNS}
                 """
             ),
-            {"id": document_id, "text": body.text},
+            {"id": document_id, "owner_id": user_id, "text": body.text},
         ).one_or_none()
 
         if row is None:
-            exists = conn.execute(
-                text("SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id)"), {"id": document_id}
-            ).scalar_one()
-            if not exists:
-                raise HTTPException(status_code=404, detail="Document not found.")
+            _require_owned_document(conn, document_id, user_id)
             raise HTTPException(
                 status_code=409, detail="This document's lyrics come from LRCLIB — unlink it to edit them."
             )
@@ -360,18 +367,18 @@ class LrclibLink(BaseModel):
     replace_text: bool = True
 
 
-@app.put("/documents/{document_id}/lrclib", response_model=Document)
-def link_lrclib(document_id: int, body: LrclibLink) -> Document:
+@api.put("/documents/{document_id}/lrclib", response_model=Document)
+def link_lrclib(document_id: int, body: LrclibLink, user_id: CurrentUser) -> Document:
     """Link the document to an LRCLIB track, either replacing its lyrics
     with the track's (readings picked for it are reset unless the text is
     the same) or keeping its lyrics and readings as they are."""
     uri, lyrics = _fetch_lrclib_for_link(body.uri)
     with engine.begin() as conn:
-        return _store_lrclib_lyrics(conn, _lock_document(conn, document_id), uri, lyrics, body.replace_text)
+        return _store_lrclib_lyrics(conn, _lock_document(conn, document_id, user_id), uri, lyrics, body.replace_text)
 
 
-@app.delete("/documents/{document_id}/lrclib", response_model=Document)
-def unlink_lrclib(document_id: int) -> Document:
+@api.delete("/documents/{document_id}/lrclib", response_model=Document)
+def unlink_lrclib(document_id: int, user_id: CurrentUser) -> Document:
     """Stop loading the document's lyrics from LRCLIB, keeping the ones it
     has, which become editable."""
     # Its line timings are kept, since they still match its unchanged text.
@@ -380,11 +387,11 @@ def unlink_lrclib(document_id: int) -> Document:
             text(
                 f"""
                 UPDATE documents SET lrclib_uri = NULL, lrclib_replaces_text = NULL
-                WHERE id = :id
+                WHERE id = :id AND owner_id = :owner_id
                 RETURNING {_DOCUMENT_COLUMNS}
                 """
             ),
-            {"id": document_id},
+            {"id": document_id, "owner_id": user_id},
         ).one_or_none()
 
     if row is None:
@@ -410,12 +417,12 @@ class LineTimingsUpdate(BaseModel):
         return lines
 
 
-@app.put("/documents/{document_id}/timings", response_model=Document)
-def save_line_timings(document_id: int, body: LineTimingsUpdate) -> Document:
+@api.put("/documents/{document_id}/timings", response_model=Document)
+def save_line_timings(document_id: int, body: LineTimingsUpdate, user_id: CurrentUser) -> Document:
     """Save `body.lines` as the document's line timings, used in place of
     LRCLIB's for as long as its lyrics stay `body.text`."""
     with engine.begin() as conn:
-        current = _lock_document(conn, document_id)
+        current = _lock_document(conn, document_id, user_id)
         if current.text != body.text:
             raise HTTPException(
                 status_code=409,
@@ -461,8 +468,9 @@ class DocumentPage(BaseModel):
     page_size: int
 
 
-@app.get("/documents", response_model=DocumentPage)
+@api.get("/documents", response_model=DocumentPage)
 def list_documents(
+    user_id: CurrentUser,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     sort_by: SortField = "created_at",
@@ -478,11 +486,12 @@ def list_documents(
                 SELECT id, title, youtube_video_id, created_at,
                        COUNT(*) OVER() AS total
                 FROM documents
+                WHERE owner_id = :owner_id
                 ORDER BY {sort_by} {direction}, id {direction}
                 LIMIT :limit OFFSET :offset
                 """
             ),
-            {"limit": page_size, "offset": offset},
+            {"owner_id": user_id, "limit": page_size, "offset": offset},
         ).all()
 
     total = rows[0].total if rows else 0
@@ -513,7 +522,7 @@ class JmdictEntry(BaseModel):
     senses: list[JmdictSense]
 
 
-@app.get("/jmdict/search", response_model=list[JmdictEntry])
+@api.get("/jmdict/search", response_model=list[JmdictEntry])
 def jmdict_search(
     q: str = Query(min_length=1),
     max_results_per_tier: int = Query(default=3, ge=1, le=20),
@@ -770,10 +779,11 @@ def _write_processed_document(conn, document_id: int, processed: _ProcessedDocum
     create_phrase_conflicts(conn, document_id, processed.records, processed.groups)
 
 
-@app.get("/documents/{document_id}/tokens", response_model=list[Token])
-def get_document_tokens(document_id: int) -> list[Token]:
+@api.get("/documents/{document_id}/tokens", response_model=list[Token])
+def get_document_tokens(document_id: int, user_id: CurrentUser) -> list[Token]:
     while True:
         with engine.connect() as conn:
+            _require_owned_document(conn, document_id, user_id)
             existing = _fetch_tokens(conn, document_id)
             if not existing:
                 # Tokens only exist for a document that does, so the document
@@ -829,9 +839,10 @@ class ConflictResolution(BaseModel):
     conflict_id: int
 
 
-@app.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
-def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolution) -> Token:
+@api.post("/documents/{document_id}/tokens/{token_id}/resolve", response_model=Token)
+def resolve_token_conflict(document_id: int, token_id: int, body: ConflictResolution, user_id: CurrentUser) -> Token:
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         try:
             resolve_conflict(conn, document_id, token_id, body.conflict_id)
         except ConflictNotFound:
@@ -844,12 +855,13 @@ class PhraseAcceptance(BaseModel):
     conflict_ids: list[int] = Field(min_length=1)
 
 
-@app.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
-def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance) -> list[Token]:
+@api.post("/documents/{document_id}/tokens/accept-phrases", response_model=list[Token])
+def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance, user_id: CurrentUser) -> list[Token]:
     """Apply each of `conflict_ids` — phrase suggestions, or split predicate
     groups to merge again — as accept_phrase_suggestions does. Returns every
     token they changed."""
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         try:
             affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
         except ConflictNotFound:
@@ -858,11 +870,12 @@ def accept_phrase_suggestions_endpoint(document_id: int, body: PhraseAcceptance)
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@app.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
-def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution) -> list[Token]:
+@api.post("/documents/{document_id}/tokens/phrase-furigana", response_model=list[Token])
+def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution, user_id: CurrentUser) -> list[Token]:
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         try:
             affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
         except ConflictNotFound:
@@ -871,11 +884,12 @@ def resolve_phrase_furigana_endpoint(document_id: int, body: ConflictResolution)
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@app.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
-def unmerge_phrase_tokens(document_id: int, token_id: int) -> list[Token]:
+@api.post("/documents/{document_id}/tokens/{token_id}/unmerge-phrase", response_model=list[Token])
+def unmerge_phrase_tokens(document_id: int, token_id: int, user_id: CurrentUser) -> list[Token]:
     """Split the group token_id is merged into, found from any member of it.
     Returns the tokens it changed."""
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         try:
             affected = unmerge_phrase(conn, document_id, token_id)
         except TokenNotFound:
@@ -886,11 +900,12 @@ def unmerge_phrase_tokens(document_id: int, token_id: int) -> list[Token]:
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
-@app.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
-def get_alternate_readings(document_id: int, token_id: int) -> list[dict]:
+@api.get("/documents/{document_id}/tokens/{token_id}/alternate-readings", response_model=list[dict])
+def get_alternate_readings(document_id: int, token_id: int, user_id: CurrentUser) -> list[dict]:
     """Every other reading JMDict has for token_id's dictionary form, as
     reading options to apply through /tokens/reading."""
     with engine.connect() as conn:
+        _require_owned_document(conn, document_id, user_id)
         row = conn.execute(
             text(
                 "SELECT surface, reading_katakana, dictionary_form, normalized_form "
@@ -917,9 +932,10 @@ class ReadingCorrection(BaseModel):
         return value
 
 
-@app.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
-def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrection) -> Token:
+@api.post("/documents/{document_id}/tokens/{token_id}/correct", response_model=Token)
+def correct_token_reading(document_id: int, token_id: int, body: ReadingCorrection, user_id: CurrentUser) -> Token:
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         try:
             correct_reading(conn, document_id, token_id, body.reading)
         except TokenNotFound:
@@ -957,13 +973,14 @@ class TokensReading(ReadingCorrection, TokenIds):
     furigana_spans: Optional[list[dict]] = None
 
 
-@app.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
-def apply_tokens_reading(document_id: int, body: TokensReading) -> list[Token]:
+@api.post("/documents/{document_id}/tokens/reading", response_model=list[Token])
+def apply_tokens_reading(document_id: int, body: TokensReading, user_id: CurrentUser) -> list[Token]:
     """Select `reading` for each of the document's tokens in `token_ids`,
     which must be one word read and parsed the same way, as select_reading
     does. Returns every token whose gloss changed, which includes the rest
     of any group one of them is in."""
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         with _token_group_errors():
             affected = select_reading(conn, document_id, body.token_ids, body.reading, body.furigana_spans)
         return _fetch_tokens(conn, document_id, token_ids=affected)
@@ -973,11 +990,12 @@ class TokensIgnored(TokenIds):
     ignored: bool
 
 
-@app.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
-def set_tokens_ignored(document_id: int, body: TokensIgnored) -> list[Token]:
+@api.post("/documents/{document_id}/tokens/ignored", response_model=list[Token])
+def set_tokens_ignored(document_id: int, body: TokensIgnored, user_id: CurrentUser) -> list[Token]:
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""
     with engine.begin() as conn:
+        _require_owned_document(conn, document_id, user_id)
         with _token_group_errors():
             lock_token_group(conn, document_id, body.token_ids)
         conn.execute(
@@ -985,3 +1003,7 @@ def set_tokens_ignored(document_id: int, body: TokensIgnored) -> list[Token]:
             {"token_ids": body.token_ids, "ignored": body.ignored},
         )
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
+
+
+# After every route above is registered, since including a router copies its routes.
+app.include_router(api)

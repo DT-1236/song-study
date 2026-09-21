@@ -4,7 +4,11 @@ dictionary form."""
 
 from __future__ import annotations
 
-from app.main import DocumentCreate, PhraseAcceptance, accept_phrase_suggestions_endpoint, create_document, get_document_tokens
+from app.main import (
+    DocumentCreate,
+    PhraseAcceptance,
+)
+from tests.support import accept_phrase_suggestions_endpoint, create_document, get_document_tokens
 
 
 def test_merged_tokens_gloss_reports_the_phrase_headword(committed_engine):

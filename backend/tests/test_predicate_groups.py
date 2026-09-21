@@ -10,13 +10,8 @@ from app.main import (
     DocumentCreate,
     PhraseAcceptance,
     TokensReading,
-    accept_phrase_suggestions_endpoint,
-    apply_tokens_reading,
-    create_document,
-    get_document_tokens,
-    resolve_token_conflict,
-    unmerge_phrase_tokens,
 )
+from tests.support import accept_phrase_suggestions_endpoint, apply_tokens_reading, create_document, get_document_tokens, resolve_token_conflict, unmerge_phrase_tokens
 
 
 def _tokens(text):

@@ -6,7 +6,10 @@ from __future__ import annotations
 import pytest
 from fastapi import HTTPException
 
-from app.main import DocumentCreate, create_document, get_alternate_readings, get_document_tokens
+from app.main import (
+    DocumentCreate,
+)
+from tests.support import create_document, get_alternate_readings, get_document_tokens
 
 
 def test_finds_a_reading_a_heteronym_flag_would_miss(committed_engine):
