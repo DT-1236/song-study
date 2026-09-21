@@ -1,0 +1,4 @@
+# Formatting and linting for the backend, the counterpart to the frontend's
+# Prettier config. `ruff format` is Black-compatible, so the defaults (88-column
+# lines, double quotes) are left as they are.
+target-version = "py311"
