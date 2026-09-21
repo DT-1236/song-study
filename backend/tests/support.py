@@ -5,19 +5,30 @@ TEST_DATABASE_URL (see .env.example). Importing this module overrides
 DATABASE_URL with it before anything imports app.db, so no test can reach
 the app's own database — import it (conftest.py does) before anything that
 imports app.db.
+
+The routes it re-exports are called over HTTP through a TestClient, so a test
+exercises the routing and the dependencies that a direct call to the route
+function would skip. They keep the signatures and return types of the
+functions they stand in for, and raise the HTTPException a failure carried.
 """
 
 from __future__ import annotations
 
 import functools
+import inspect
 import json
 import os
 import threading
 import time
+from contextlib import contextmanager
 from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
+from fastapi import HTTPException
+from fastapi.routing import APIRoute
+from fastapi.testclient import TestClient
+from pydantic import BaseModel, TypeAdapter
 from sqlalchemy import create_engine, event, text
 from sqlalchemy.engine import make_url
 
@@ -56,6 +67,7 @@ os.environ["DATABASE_URL"] = _test_database_url()
 
 from app import main  # noqa: E402
 from app.db import engine  # noqa: E402
+from app.users import current_user_id  # noqa: E402
 
 # The user tests act as, inserted by recreate_test_database and kept by the
 # `committed_engine` cleanup. Its id is far from any the tests' own inserts
@@ -236,34 +248,98 @@ def selected_reading(token) -> str:
     return next(c for c in token.conflicts if c.selected).value["reading"]
 
 
-def _as_test_user(route):
-    """`route` with its `user_id` fixed to TEST_USER_ID."""
+_acting_user = [TEST_USER_ID]
 
-    @functools.wraps(route)
+# Who the routes below act as. Overriding the dependency, rather than logging
+# a user in over HTTP, keeps the Google flow out of every test.
+main.app.dependency_overrides[current_user_id] = lambda: _acting_user[-1]
+
+client = TestClient(main.app)
+
+
+@contextmanager
+def as_user(user_id: int):
+    """Route calls inside the block act as `user_id` rather than
+    TEST_USER_ID."""
+    _acting_user.append(user_id)
+    try:
+        yield user_id
+    finally:
+        _acting_user.pop()
+
+
+def api_routes(routes=None):
+    """Every APIRoute the app serves. Including a router nests it rather
+    than copying its routes, so the app's own list has to be walked."""
+    for route in main.app.routes if routes is None else routes:
+        if isinstance(route, APIRoute):
+            yield route
+        included = getattr(route, "original_router", None)
+        if included is not None:
+            yield from api_routes(included.routes)
+
+
+def _route_for(endpoint) -> APIRoute:
+    for route in api_routes():
+        if route.endpoint is endpoint:
+            return route
+    raise LookupError(f"{endpoint.__name__} is not registered as a route")
+
+
+def _via_client(endpoint):
+    """`endpoint` called over HTTP as the acting user, keeping its own
+    signature and response model, so a test reads like a direct call but
+    goes through the routing and the dependencies a direct call skips."""
+    route = _route_for(endpoint)
+    method = next(m for m in route.methods if m != "HEAD")
+    signature = inspect.signature(endpoint)
+    # `response_model` is what the route declares; None for a bare dict.
+    adapter = TypeAdapter(route.response_model) if route.response_model else None
+
+    @functools.wraps(endpoint)
     def call(*args, **kwargs):
-        return route(*args, user_id=TEST_USER_ID, **kwargs)
+        path_args, query, body = {}, {}, None
+        for name, value in signature.bind_partial(*args, **kwargs).arguments.items():
+            if name == "user_id":
+                raise TypeError("act as another user with as_user(), not user_id=")
+            if f"{{{name}}}" in route.path:
+                path_args[name] = value
+            elif isinstance(value, BaseModel):
+                body = value.model_dump(mode="json")
+            else:
+                query[name] = value
+
+        response = client.request(
+            method, route.path.format(**path_args), params=query, json=body
+        )
+        if response.status_code >= 400:
+            # So a test can assert on the failure the same way either side
+            # of this harness: as the HTTPException the route raised.
+            raise HTTPException(response.status_code, response.json().get("detail"))
+        if not response.content:
+            return None
+        return adapter.validate_python(response.json()) if adapter else response.json()
 
     return call
 
 
-# The routes, acting as TEST_USER_ID: tests call them directly, with no
-# request to log a user in. A test of another user's view calls the
-# app.main route itself, with that `user_id`.
-create_document = _as_test_user(main.create_document)
-get_document = _as_test_user(main.get_document)
-get_document_tokens = _as_test_user(main.get_document_tokens)
-list_documents = _as_test_user(main.list_documents)
-update_document_text = _as_test_user(main.update_document_text)
-link_lrclib = _as_test_user(main.link_lrclib)
-unlink_lrclib = _as_test_user(main.unlink_lrclib)
-save_line_timings = _as_test_user(main.save_line_timings)
-resolve_token_conflict = _as_test_user(main.resolve_token_conflict)
-accept_phrase_suggestions_endpoint = _as_test_user(
+# The routes, acting as TEST_USER_ID unless a test wraps the call in
+# as_user(...).
+create_document = _via_client(main.create_document)
+get_document = _via_client(main.get_document)
+get_document_tokens = _via_client(main.get_document_tokens)
+list_documents = _via_client(main.list_documents)
+update_document_text = _via_client(main.update_document_text)
+link_lrclib = _via_client(main.link_lrclib)
+unlink_lrclib = _via_client(main.unlink_lrclib)
+save_line_timings = _via_client(main.save_line_timings)
+resolve_token_conflict = _via_client(main.resolve_token_conflict)
+accept_phrase_suggestions_endpoint = _via_client(
     main.accept_phrase_suggestions_endpoint
 )
-resolve_phrase_furigana_endpoint = _as_test_user(main.resolve_phrase_furigana_endpoint)
-unmerge_phrase_tokens = _as_test_user(main.unmerge_phrase_tokens)
-get_alternate_readings = _as_test_user(main.get_alternate_readings)
-correct_token_reading = _as_test_user(main.correct_token_reading)
-apply_tokens_reading = _as_test_user(main.apply_tokens_reading)
-set_tokens_ignored = _as_test_user(main.set_tokens_ignored)
+resolve_phrase_furigana_endpoint = _via_client(main.resolve_phrase_furigana_endpoint)
+unmerge_phrase_tokens = _via_client(main.unmerge_phrase_tokens)
+get_alternate_readings = _via_client(main.get_alternate_readings)
+correct_token_reading = _via_client(main.correct_token_reading)
+apply_tokens_reading = _via_client(main.apply_tokens_reading)
+set_tokens_ignored = _via_client(main.set_tokens_ignored)
