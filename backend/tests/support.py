@@ -65,9 +65,9 @@ def _test_database_url() -> str:
 # never overrides a variable that's already set.
 os.environ["DATABASE_URL"] = _test_database_url()
 
-from app import main  # noqa: E402
-from app.db import engine  # noqa: E402
-from app.users import current_user_id  # noqa: E402
+from app import main
+from app.db import engine
+from app.users import current_user_id
 
 # The user tests act as, inserted by recreate_test_database and kept by the
 # `committed_engine` cleanup. Its id is far from any the tests' own inserts

@@ -16,7 +16,7 @@ entry of its own.
 
 from __future__ import annotations
 
-from typing import Callable, Optional
+from collections.abc import Callable
 
 # The classical (文語) adjective endings that can end up glued to the noun
 # after them: 青き線, 青く咲く, 青し.
@@ -37,7 +37,7 @@ def _is_dictionary_word(morpheme) -> bool:
 
 def _move_boundary(
     left, right, chars: int, tokenize: Callable, accept: Callable
-) -> Optional[list]:
+) -> list | None:
     """`left` and `right` re-tokenized with `chars` characters of `right`
     moved onto `left`, if that makes `left` a single morpheme `accept`
     accepts and leaves a rest that Sudachi knows. None otherwise.
@@ -55,7 +55,7 @@ def _move_boundary(
     return head + rest
 
 
-def _classical_adjective(left, right, tokenize: Callable) -> Optional[list]:
+def _classical_adjective(left, right, tokenize: Callable) -> list | None:
     """`left` and `right` re-split with the classical adjective ending that
     starts `right` moved onto `left`: 青 + き線 becomes 青き + 線."""
     if right.surface()[0] not in _ADJECTIVE_ENDINGS:

@@ -10,7 +10,6 @@ your mind later is another call to `resolve_conflict`.
 from __future__ import annotations
 
 import json
-from typing import Optional
 
 from sqlalchemy import text
 
@@ -765,8 +764,8 @@ def lock_token_group(
     conn,
     document_id: int,
     token_ids: list[int],
-    reading_hiragana: Optional[str] = None,
-    furigana_spans: Optional[list[dict]] = None,
+    reading_hiragana: str | None = None,
+    furigana_spans: list[dict] | None = None,
 ) -> list:
     """Lock the document's tokens in `token_ids` (distinct) and return them,
     raising TokenNotFound unless all of them exist, and TokensNotGroupable
@@ -848,7 +847,7 @@ def select_reading(
     document_id: int,
     token_ids: list[int],
     reading_hiragana: str,
-    furigana_spans: Optional[list[dict]] = None,
+    furigana_spans: list[dict] | None = None,
 ) -> list[int]:
     """Select `reading_hiragana` for each of the document's tokens in
     `token_ids`, which lock_token_group must accept together: the option

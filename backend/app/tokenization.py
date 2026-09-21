@@ -34,7 +34,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from sudachipy import dictionary as sudachi_dictionary
 from sudachipy import tokenizer as sudachi_tokenizer
@@ -145,7 +145,7 @@ def _is_regular_potential_form(
 
 def dictionary_form_note(
     dictionary_form: str, normalized_form: str, conjugation_type: str
-) -> Optional[str]:
+) -> str | None:
     """A short, learner-facing note when dictionary_form and normalized_form
     differ — the gloss shown to the user is looked up under normalized_form,
     so it's worth explicitly surfacing that the text's actual dictionary
@@ -206,7 +206,7 @@ class FuriganaSpan:
     start: int
     end: int
     text: str
-    reading: Optional[str]
+    reading: str | None
 
 
 class KanjiRunResult(NamedTuple):
@@ -234,13 +234,13 @@ class TokenRecord:
     is_oov: bool
     furigana_spans: list
     needs_review: bool
-    review_reason: Optional[str]
+    review_reason: str | None
     conflict_options: list
     # The position of the first token of the group this token is merged into.
-    phrase_start_position: Optional[int] = None
+    phrase_start_position: int | None = None
     # A phrase found starting here (see app.phrase_merge), to offer for
     # review. Not stored on the token.
-    phrase_suggestion: Optional[dict] = None
+    phrase_suggestion: dict | None = None
 
 
 def conflict_option_value(
@@ -418,7 +418,7 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
 
 def slice_spans_by_token(
     spans: list[dict], token_lengths: list[int]
-) -> list[Optional[list[dict]]]:
+) -> list[list[dict] | None]:
     """Split `spans`, laid over several tokens' surfaces joined in order, into
     a span list per token, starting at 0 for that token. None for a token a
     reading crosses out of, since one reading can't be divided between
