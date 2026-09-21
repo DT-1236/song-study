@@ -1,12 +1,27 @@
 repos:
+  # Pinned to the ruff the backend's venv installs, so the hook and the
+  # `ruff format` AGENTS.md tells you to run can't disagree about a file.
+  # Only the formatter: Ruff's linter isn't adopted yet (AGENTS.md), and a
+  # `--fix` hook would sweep it in file by file, which is what that says not
+  # to do. The lint hook belongs with the adoption, not before it.
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.9
+    rev: v0.16.8
     hooks:
-      - id: ruff
-        args: [--fix]
       - id: ruff-format
-  - repo: https://github.com/pre-commit/mirrors-prettier
-    rev: v3.1.1
+        # backend/ only, as AGENTS.md's `ruff format app tests migrations` is:
+        # this ruff also formats Python inside markdown, which would reflow the
+        # hand-aligned snippets in docs/.
+        files: ^backend/
+
+  # The repo's own prettier, not pre-commit's mirror: the mirror is archived,
+  # has no v3.1.1, and pins a prettier of its own that would fight the 3.9.8
+  # in frontend/package.json. Scoped to frontend/, the only tree prettier is
+  # configured for (.prettierrc.json and .prettierignore live there).
+  - repo: local
     hooks:
       - id: prettier
-        types_or: [javascript, jsx, typescript, tsx, css, json, markdown]
+        name: prettier
+        entry: frontend/node_modules/.bin/prettier --write
+        language: system
+        files: ^frontend/
+        types_or: [javascript, jsx, ts, tsx, css, json, markdown]
