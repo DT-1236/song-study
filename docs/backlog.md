@@ -47,3 +47,26 @@ so it can be picked up without re-deriving the reasoning.
   surfaces as per-call error text. `apiFetch` could catch a 401 and send the
   browser back to the login page (or reset the gate's state).
   *Sonnet 5, medium* — conventional React against a clear behavior.
+
+## From adding Prettier and Ruff (formatting only)
+
+- **Adopt `ruff check`, not just `ruff format`.**
+  Installing Ruff for formatting also brings its linter, and it currently
+  reports 187 findings across `app/`, `tests/` and `migrations/` — 177 of them
+  auto-fixable. The bulk is mechanical: 115 `UP007`/`UP045` (`Optional[X]` and
+  `Union[X, Y]` → `X | None`, `X | Y`), 21 `I001` (unsorted imports), 18
+  `UP035` (deprecated `typing` imports) and 16 `F401` (unused imports). The
+  remainder needs judgment and is worth reading one at a time: `B023`
+  (a closure capturing a loop variable) and `BLE001` (a blind `except`) can
+  each be a real bug rather than a style point. Kept out of the formatting
+  change so that diff stays reviewable as pure reflow.
+  *Sonnet 5, medium* — the auto-fixes are pattern application against a clear
+  spec, but the dozen judgment findings should be read by a human before the
+  `--fix` sweep is committed.
+
+- **No CI runs either formatter.**
+  `npm run format:check` and `ruff format --check` exist but nothing enforces
+  them, so the repo can drift back out of format. There's no CI workflow in
+  the repo at all yet, so this means adding one (or a pre-commit hook).
+  *Haiku 4.5, low* — a standard GitHub Actions workflow once someone decides
+  that's the mechanism.
