@@ -49,7 +49,12 @@ def test_spacing_is_normalized_and_every_line_break_kept():
 
 
 def test_synced_lyrics_lines_are_sanitized():
-    assert parse_synced_lyrics(f"[00:01.00]  {ROMAN_M}usic\u00a0\u00a0box\u200b ", 5.0).text == "music box"
+    assert (
+        parse_synced_lyrics(
+            f"[00:01.00]  {ROMAN_M}usic\u00a0\u00a0box\u200b ", 5.0
+        ).text
+        == "music box"
+    )
 
 
 def test_edited_text_that_sanitizes_to_nothing_is_rejected():
@@ -58,7 +63,14 @@ def test_edited_text_that_sanitizes_to_nothing_is_rejected():
 
 
 def test_saved_lyrics_are_sanitized_before_tokenizing(committed_engine):
-    document = create_document(DocumentCreate(title="test", text=f"私の{ROMAN_M}usic\r\n"))
+    document = create_document(
+        DocumentCreate(title="test", text=f"私の{ROMAN_M}usic\r\n")
+    )
 
     assert document.text == "私のmusic\n"
-    assert [t.surface for t in get_document_tokens(document.id)] == ["私", "の", "music", "\n"]
+    assert [t.surface for t in get_document_tokens(document.id)] == [
+        "私",
+        "の",
+        "music",
+        "\n",
+    ]

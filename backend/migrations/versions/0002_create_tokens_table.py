@@ -5,6 +5,7 @@ Revises: 0001
 Create Date: 2026-09-04 12:09:13.722439
 
 """
+
 from typing import Sequence, Union
 
 from alembic import op
@@ -12,8 +13,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '0002'
-down_revision: Union[str, Sequence[str], None] = '0001'
+revision: str = "0002"
+down_revision: Union[str, Sequence[str], None] = "0001"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

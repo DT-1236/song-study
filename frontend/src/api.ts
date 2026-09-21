@@ -59,7 +59,10 @@ export function errorMessage(err: unknown, fallback: string): string {
   return err instanceof ApiError ? err.message : fallback
 }
 
-async function assertOk(response: Response, statusMessages: Record<number, string> = {}): Promise<void> {
+async function assertOk(
+  response: Response,
+  statusMessages: Record<number, string> = {},
+): Promise<void> {
   if (response.ok) return
 
   if (statusMessages[response.status]) {
@@ -107,7 +110,10 @@ export async function fetchDocument(id: number): Promise<Document> {
   return response.json()
 }
 
-export async function updateDocumentText(id: number, text: string): Promise<Document> {
+export async function updateDocumentText(
+  id: number,
+  text: string,
+): Promise<Document> {
   const response = await fetch(`${API_URL}/documents/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -120,9 +126,14 @@ export async function updateDocumentText(id: number, text: string): Promise<Docu
 }
 
 // The forms of LRCLIB track reference linkLrclib and createDocument accept.
-export const LRCLIB_URI_PLACEHOLDER = 'e.g. https://lrclib.net/api/get/12345, or just 12345'
+export const LRCLIB_URI_PLACEHOLDER =
+  'e.g. https://lrclib.net/api/get/12345, or just 12345'
 
-export async function linkLrclib(id: number, uri: string, replaceText: boolean): Promise<Document> {
+export async function linkLrclib(
+  id: number,
+  uri: string,
+  replaceText: boolean,
+): Promise<Document> {
   const response = await fetch(`${API_URL}/documents/${id}/lrclib`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -135,7 +146,9 @@ export async function linkLrclib(id: number, uri: string, replaceText: boolean):
 }
 
 export async function unlinkLrclib(id: number): Promise<Document> {
-  const response = await fetch(`${API_URL}/documents/${id}/lrclib`, { method: 'DELETE' })
+  const response = await fetch(`${API_URL}/documents/${id}/lrclib`, {
+    method: 'DELETE',
+  })
 
   await assertOk(response, { 404: 'Document not found.' })
 
@@ -144,7 +157,11 @@ export async function unlinkLrclib(id: number): Promise<Document> {
 
 // Saves `lines` as the document's edited line timings, made for its lyrics
 // as they were when editing started (`text`).
-export async function saveLineTimings(id: number, text: string, lines: (LineTiming | null)[]): Promise<Document> {
+export async function saveLineTimings(
+  id: number,
+  text: string,
+  lines: (LineTiming | null)[],
+): Promise<Document> {
   const response = await fetch(`${API_URL}/documents/${id}/timings`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -311,8 +328,13 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
 
 // Every other reading JMDict has for tokenId's dictionary form, as reading
 // options to apply with applyReading.
-export async function fetchAlternateReadings(documentId: number, tokenId: number): Promise<ConflictOptionValue[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`)
+export async function fetchAlternateReadings(
+  documentId: number,
+  tokenId: number,
+): Promise<ConflictOptionValue[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`,
+  )
 
   await assertOk(response, { 404: 'Token not found for this document.' })
 
@@ -329,11 +351,18 @@ export async function applyReading(
   reading: string,
   furiganaSpans?: FuriganaSpan[],
 ): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/reading`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token_ids: tokenIds, reading, furigana_spans: furiganaSpans ?? null }),
-  })
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/reading`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        token_ids: tokenIds,
+        reading,
+        furigana_spans: furiganaSpans ?? null,
+      }),
+    },
+  )
 
   await assertOk(response, { 404: 'Token not found.' })
 
@@ -342,12 +371,18 @@ export async function applyReading(
 
 // Accepts phrase suggestions, or split predicate groups to merge again.
 // Returns every token they changed.
-export async function acceptPhraseSuggestions(documentId: number, conflictIds: number[]): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/accept-phrases`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conflict_ids: conflictIds }),
-  })
+export async function acceptPhraseSuggestions(
+  documentId: number,
+  conflictIds: number[],
+): Promise<Token[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/accept-phrases`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conflict_ids: conflictIds }),
+    },
+  )
 
   await assertOk(response, { 404: 'Conflict option not found for this token.' })
 
@@ -356,10 +391,16 @@ export async function acceptPhraseSuggestions(documentId: number, conflictIds: n
 
 // Splits the group tokenId is merged into, found from any member of it.
 // Returns every token it changed, or [] if tokenId isn't merged.
-export async function unmergePhrase(documentId: number, tokenId: number): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`, {
-    method: 'POST',
-  })
+export async function unmergePhrase(
+  documentId: number,
+  tokenId: number,
+): Promise<Token[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/${tokenId}/unmerge-phrase`,
+    {
+      method: 'POST',
+    },
+  )
 
   await assertOk(response, { 404: 'Token not found for this document.' })
 
@@ -368,24 +409,39 @@ export async function unmergePhrase(documentId: number, tokenId: number): Promis
 
 // Applies one of a phrase's alternative furigana splits (see
 // PhraseFuriganaValue). Returns every affected token.
-export async function resolvePhraseFurigana(documentId: number, conflictId: number): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/phrase-furigana`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ conflict_id: conflictId }),
-  })
+export async function resolvePhraseFurigana(
+  documentId: number,
+  conflictId: number,
+): Promise<Token[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/phrase-furigana`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ conflict_id: conflictId }),
+    },
+  )
 
-  await assertOk(response, { 404: 'Conflict option not found for this document.' })
+  await assertOk(response, {
+    404: 'Conflict option not found for this document.',
+  })
 
   return response.json()
 }
 
-export async function setTokensIgnored(documentId: number, tokenIds: number[], ignored: boolean): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens/ignored`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ token_ids: tokenIds, ignored }),
-  })
+export async function setTokensIgnored(
+  documentId: number,
+  tokenIds: number[],
+  ignored: boolean,
+): Promise<Token[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/ignored`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_ids: tokenIds, ignored }),
+    },
+  )
 
   await assertOk(response, { 404: 'Token not found.' })
 
@@ -409,7 +465,10 @@ export type JmdictEntry = {
   senses: JmdictSense[]
 }
 
-export async function searchJmdict(query: string, maxResultsPerTier = 3): Promise<JmdictEntry[]> {
+export async function searchJmdict(
+  query: string,
+  maxResultsPerTier = 3,
+): Promise<JmdictEntry[]> {
   const url = new URL(`${API_URL}/jmdict/search`, window.location.origin)
   url.searchParams.set('q', query)
   url.searchParams.set('max_results_per_tier', String(maxResultsPerTier))

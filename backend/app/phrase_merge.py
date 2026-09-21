@@ -46,7 +46,11 @@ def find_phrase_suggestions(records: list[TokenRecord]) -> None:
         if group_start not in (None, records[i].position):
             continue
         group_end = i
-        while group_start is not None and group_end < n and records[group_end].phrase_start_position == group_start:
+        while (
+            group_start is not None
+            and group_end < n
+            and records[group_end].phrase_start_position == group_start
+        ):
             group_end += 1
 
         current = records[i].surface

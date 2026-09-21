@@ -57,8 +57,12 @@ def upsert_google_user(conn, sub: str, email: str | None, name: str) -> int:
 async def login(request: Request):
     """Send the browser to Google to log in."""
     if not os.environ.get("GOOGLE_CLIENT_ID"):
-        raise HTTPException(status_code=503, detail="Google login isn't configured (GOOGLE_CLIENT_ID).")
-    return await oauth.google.authorize_redirect(request, f"{APP_URL}/api/auth/callback")
+        raise HTTPException(
+            status_code=503, detail="Google login isn't configured (GOOGLE_CLIENT_ID)."
+        )
+    return await oauth.google.authorize_redirect(
+        request, f"{APP_URL}/api/auth/callback"
+    )
 
 
 @router.get("/callback")
@@ -68,7 +72,9 @@ async def callback(request: Request):
     info = token["userinfo"]
     email = info.get("email")
     with engine.begin() as conn:
-        user_id = upsert_google_user(conn, info["sub"], email, info.get("name") or email or "")
+        user_id = upsert_google_user(
+            conn, info["sub"], email, info.get("name") or email or ""
+        )
     request.session.clear()
     request.session["user_id"] = user_id
     return RedirectResponse(APP_URL)
@@ -84,7 +90,9 @@ class Me(BaseModel):
 def me(user_id: int = Depends(current_user_id)) -> Me:
     """The logged-in user."""
     with engine.connect() as conn:
-        row = conn.execute(text("SELECT id, name, email FROM users WHERE id = :id"), {"id": user_id}).one_or_none()
+        row = conn.execute(
+            text("SELECT id, name, email FROM users WHERE id = :id"), {"id": user_id}
+        ).one_or_none()
     if row is None:
         # A session for a user who's since been deleted.
         raise HTTPException(status_code=401, detail="Log in to continue.")

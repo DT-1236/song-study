@@ -1,4 +1,8 @@
-import { FuriganaExampleList, renderSegments, type FuriganaSegment } from './furigana'
+import {
+  FuriganaExampleList,
+  renderSegments,
+  type FuriganaSegment,
+} from './furigana'
 import { useDialogModal } from './useDialogModal'
 
 // One kanji (or kanji run) paired with just the reading it covers, so ruby
@@ -48,7 +52,11 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'i-Adjective',
     description: 'A descriptive word ending in い that conjugates on its own.',
-    examples: ['高[たか]い (tall/expensive)', '楽[たの]しい (fun)', '無[な]い (nonexistent)'],
+    examples: [
+      '高[たか]い (tall/expensive)',
+      '楽[たの]しい (fun)',
+      '無[な]い (nonexistent)',
+    ],
   },
   {
     term: '形状詞',
@@ -58,8 +66,13 @@ export const POS_LEGEND: PosInfo[] = [
       { text: '詞', reading: 'し' },
     ],
     label: 'na-Adjective',
-    description: 'A descriptive word that takes な before a noun (e.g. 静かな部屋).',
-    examples: ['静[しず]か (quiet)', '綺麗[きれい] (pretty)', '便利[べんり] (convenient)'],
+    description:
+      'A descriptive word that takes な before a noun (e.g. 静かな部屋).',
+    examples: [
+      '静[しず]か (quiet)',
+      '綺麗[きれい] (pretty)',
+      '便利[べんり] (convenient)',
+    ],
   },
   {
     term: '副詞',
@@ -78,7 +91,8 @@ export const POS_LEGEND: PosInfo[] = [
       { text: '詞', reading: 'し' },
     ],
     label: 'Particle',
-    description: 'A short word marking grammatical role, attached after another word.',
+    description:
+      'A short word marking grammatical role, attached after another word.',
     examples: ['は', 'が', 'を', 'に', 'で'],
   },
   {
@@ -89,7 +103,8 @@ export const POS_LEGEND: PosInfo[] = [
       { text: '詞', reading: 'し' },
     ],
     label: 'Auxiliary verb',
-    description: 'Attaches to a verb or adjective stem to add meaning like tense, negation, or politeness.',
+    description:
+      'Attaches to a verb or adjective stem to add meaning like tense, negation, or politeness.',
     examples: ['ない (negative)', 'た (past)', 'です (polite copula)'],
   },
   {
@@ -133,7 +148,8 @@ export const POS_LEGEND: PosInfo[] = [
       { text: '詞', reading: 'し' },
     ],
     label: 'Adnominal',
-    description: "Directly modifies a following noun; doesn't conjugate on its own.",
+    description:
+      "Directly modifies a following noun; doesn't conjugate on its own.",
     examples: ['この (this)', 'ある (a certain)', 'いわゆる (so-called)'],
   },
   {
@@ -145,7 +161,11 @@ export const POS_LEGEND: PosInfo[] = [
     ],
     label: 'Prefix',
     description: 'Attaches before a word to modify its meaning.',
-    examples: ['お茶[ちゃ] (polite お-)', '真夜中[まよなか] (true, 真-)', '不安[ふあん] (un-, 不-)'],
+    examples: [
+      'お茶[ちゃ] (polite お-)',
+      '真夜中[まよなか] (true, 真-)',
+      '不安[ふあん] (un-, 不-)',
+    ],
   },
   {
     term: '接尾辞',
@@ -172,11 +192,25 @@ export function PosTermRuby({ segments }: { segments: PosSegment[] }) {
 
 // A modal listing all parts of speech, shown while `open`. Escape and the
 // Close button both call onClose.
-export function PosLegendModal({ open, onClose }: { open: boolean; onClose: () => void }) {
-  const { dialogRef, hasOpened, onCancel, onClick } = useDialogModal(open, onClose)
+export function PosLegendModal({
+  open,
+  onClose,
+}: {
+  open: boolean
+  onClose: () => void
+}) {
+  const { dialogRef, hasOpened, onCancel, onClick } = useDialogModal(
+    open,
+    onClose,
+  )
 
   return (
-    <dialog ref={dialogRef} className="pos-legend-dialog" onCancel={onCancel} onClick={onClick}>
+    <dialog
+      ref={dialogRef}
+      className="pos-legend-dialog"
+      onCancel={onCancel}
+      onClick={onClick}
+    >
       {hasOpened && (
         <>
           <div className="pos-legend-title">Parts of Speech</div>
@@ -187,7 +221,9 @@ export function PosLegendModal({ open, onClose }: { open: boolean; onClose: () =
                   <PosTermRuby segments={info.segments} />
                 </span>
                 <span className="pos-legend-item-label">{info.label}</span>
-                <span className="pos-legend-item-description">{info.description}</span>
+                <span className="pos-legend-item-description">
+                  {info.description}
+                </span>
                 <span className="pos-legend-item-examples">
                   <FuriganaExampleList examples={info.examples} />
                 </span>

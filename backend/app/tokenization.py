@@ -105,12 +105,21 @@ def conjugation_type_of(word: str) -> str:
 
 
 _GODAN_TO_POTENTIAL = {
-    "ウ": "エ", "ク": "ケ", "グ": "ゲ", "ス": "セ", "ツ": "テ",
-    "ヌ": "ネ", "ブ": "ベ", "ム": "メ", "ル": "レ",
+    "ウ": "エ",
+    "ク": "ケ",
+    "グ": "ゲ",
+    "ス": "セ",
+    "ツ": "テ",
+    "ヌ": "ネ",
+    "ブ": "ベ",
+    "ム": "メ",
+    "ル": "レ",
 }
 
 
-def _is_regular_potential_form(dictionary_form: str, dictionary_form_conjugation: str, normalized_form: str) -> bool:
+def _is_regular_potential_form(
+    dictionary_form: str, dictionary_form_conjugation: str, normalized_form: str
+) -> bool:
     """True if dictionary_form is the grammatically regular potential form
     of the godan verb normalized_form (挟める <- 挟む: "to be able to X").
 
@@ -134,7 +143,9 @@ def _is_regular_potential_form(dictionary_form: str, dictionary_form_conjugation
     return potential_reading == expected
 
 
-def dictionary_form_note(dictionary_form: str, normalized_form: str, conjugation_type: str) -> Optional[str]:
+def dictionary_form_note(
+    dictionary_form: str, normalized_form: str, conjugation_type: str
+) -> Optional[str]:
     """A short, learner-facing note when dictionary_form and normalized_form
     differ — the gloss shown to the user is looked up under normalized_form,
     so it's worth explicitly surfacing that the text's actual dictionary
@@ -148,7 +159,7 @@ def dictionary_form_note(dictionary_form: str, normalized_form: str, conjugation
     if _is_regular_potential_form(dictionary_form, conjugation_type, normalized_form):
         return (
             f"{dictionary_form}（{dict_reading}）is the potential form of {normalized_form}"
-            f"（{norm_reading}）, meaning \"can {normalized_form}\" — the definitions below are for"
+            f'（{norm_reading}）, meaning "can {normalized_form}" — the definitions below are for'
             f" {normalized_form} itself and don't show that nuance."
         )
 
@@ -232,14 +243,20 @@ class TokenRecord:
     phrase_suggestion: Optional[dict] = None
 
 
-def conflict_option_value(reading: str, furigana_spans: list[dict], citation_reading: str) -> dict:
+def conflict_option_value(
+    reading: str, furigana_spans: list[dict], citation_reading: str
+) -> dict:
     """The shared shape for a conflict's `value` JSONB column: one candidate
     reading, its furigana display, and the JMDict-keyed citation reading
     gloss lookups need. Built in one place so the three keys don't drift
     between the call sites that construct one — the auto-flagged
     heteronym/no_kana_anchor options here, and the default/manual-correction
     options in app/conflicts.py."""
-    return {"reading": reading, "furigana_spans": furigana_spans, "citation_reading": citation_reading}
+    return {
+        "reading": reading,
+        "furigana_spans": furigana_spans,
+        "citation_reading": citation_reading,
+    }
 
 
 def _kanji_run_spans(run: str, run_reading: str) -> KanjiRunResult:
@@ -273,7 +290,9 @@ def _kanji_run_spans(run: str, run_reading: str) -> KanjiRunResult:
     # linguistically correct outcome for non-decomposable (jukujikun)
     # readings like 今日 -> きょう, so no flag and no alternatives here —
     # ambiguity means more than one candidate existed, not zero.
-    return KanjiRunResult([FuriganaSpan(0, len(run), run, to_hiragana(run_reading))], False, [])
+    return KanjiRunResult(
+        [FuriganaSpan(0, len(run), run, to_hiragana(run_reading))], False, []
+    )
 
 
 def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
@@ -284,7 +303,11 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
     per-character split.
     """
     if not _KANJI_RE.search(surface):
-        return FuriganaResult([{"start": 0, "end": len(surface), "text": surface, "reading": None}], False, [])
+        return FuriganaResult(
+            [{"start": 0, "end": len(surface), "text": surface, "reading": None}],
+            False,
+            [],
+        )
 
     # Split surface into alternating kanji-run / other-run segments.
     segments: list[tuple[bool, int, int]] = []  # (is_kanji, start, end)
@@ -312,7 +335,14 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
         # OOV guesses, unusual symbols like ヶ). Can't place furigana per
         # character; keep it as a single flagged span.
         return FuriganaResult(
-            [{"start": 0, "end": len(surface), "text": surface, "reading": to_hiragana(reading_katakana)}],
+            [
+                {
+                    "start": 0,
+                    "end": len(surface),
+                    "text": surface,
+                    "reading": to_hiragana(reading_katakana),
+                }
+            ],
             True,
             [],
         )
@@ -324,7 +354,12 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
     for is_k, start, end in segments:
         if not is_k:
             spans.append(
-                {"start": start, "end": end, "text": surface[start:end], "reading": None}
+                {
+                    "start": start,
+                    "end": end,
+                    "text": surface[start:end],
+                    "reading": None,
+                }
             )
             continue
 
@@ -334,7 +369,12 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
 
         if len(run) == 1:
             spans.append(
-                {"start": start, "end": end, "text": run, "reading": to_hiragana(run_reading)}
+                {
+                    "start": start,
+                    "end": end,
+                    "text": run,
+                    "reading": to_hiragana(run_reading),
+                }
             )
             continue
 
@@ -363,7 +403,12 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
         after = [s for s in spans if s["start"] >= run_end]
         for alt_spans in sub_alternatives:
             middle = [
-                {"start": run_start + s.start, "end": run_start + s.end, "text": s.text, "reading": s.reading}
+                {
+                    "start": run_start + s.start,
+                    "end": run_start + s.end,
+                    "text": s.text,
+                    "reading": s.reading,
+                }
                 for s in alt_spans
             ]
             alternatives.append(before + middle + after)
@@ -371,7 +416,9 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
     return FuriganaResult(spans, flagged, alternatives)
 
 
-def slice_spans_by_token(spans: list[dict], token_lengths: list[int]) -> list[Optional[list[dict]]]:
+def slice_spans_by_token(
+    spans: list[dict], token_lengths: list[int]
+) -> list[Optional[list[dict]]]:
     """Split `spans`, laid over several tokens' surfaces joined in order, into
     a span list per token, starting at 0 for that token. None for a token a
     reading crosses out of, since one reading can't be divided between
@@ -385,12 +432,21 @@ def slice_spans_by_token(spans: list[dict], token_lengths: list[int]) -> list[Op
     result: list[list[dict]] = [[] for _ in token_lengths]
     unattributable: set[int] = set()
     for span in spans:
-        covered = [i for i, (b_start, b_end) in enumerate(boundaries) if span["start"] < b_end and span["end"] > b_start]
+        covered = [
+            i
+            for i, (b_start, b_end) in enumerate(boundaries)
+            if span["start"] < b_end and span["end"] > b_start
+        ]
         if len(covered) == 1:
             i = covered[0]
             b_start, _ = boundaries[i]
             result[i].append(
-                {"start": span["start"] - b_start, "end": span["end"] - b_start, "text": span["text"], "reading": span["reading"]}
+                {
+                    "start": span["start"] - b_start,
+                    "end": span["end"] - b_start,
+                    "text": span["text"],
+                    "reading": span["reading"],
+                }
             )
         elif span["reading"] is None:
             # Plain kana splits at the boundary.
@@ -408,7 +464,9 @@ def slice_spans_by_token(spans: list[dict], token_lengths: list[int]) -> list[Op
         else:
             unattributable.update(covered)
 
-    return [None if i in unattributable else result[i] for i in range(len(token_lengths))]
+    return [
+        None if i in unattributable else result[i] for i in range(len(token_lengths))
+    ]
 
 
 def _furigana_spans_for_morpheme(m) -> FuriganaResult:
@@ -426,13 +484,18 @@ def _furigana_spans_for_morpheme(m) -> FuriganaResult:
         # back to `m`'s own reading, each piece gets furigana from its own
         # reading — a real word boundary, not an inference.
         sub_morphemes = m.split(sudachi_tokenizer.Tokenizer.SplitMode.A)
-        if len(sub_morphemes) >= 2 and "".join(s.reading_form() for s in sub_morphemes) == reading:
+        if (
+            len(sub_morphemes) >= 2
+            and "".join(s.reading_form() for s in sub_morphemes) == reading
+        ):
             spans: list[dict] = []
             flagged = False
             offset = 0
             for sub in sub_morphemes:
                 sub_surface = sub.surface()
-                sub_spans, sub_flagged, _sub_alts = build_furigana_spans(sub_surface, sub.reading_form())
+                sub_spans, sub_flagged, _sub_alts = build_furigana_spans(
+                    sub_surface, sub.reading_form()
+                )
                 for s in sub_spans:
                     spans.append(
                         {
@@ -467,7 +530,10 @@ def mixed_reading(word: str) -> str:
     # in whatever script it's written in, so non-kanji spans just pass
     # through unchanged.
     spans, _, _ = build_furigana_spans(word, citation_reading(word))
-    return "".join(span["reading"] if span["reading"] is not None else span["text"] for span in spans)
+    return "".join(
+        span["reading"] if span["reading"] is not None else span["text"]
+        for span in spans
+    )
 
 
 def furigana_spans_for_reading(surface: str, reading_katakana: str) -> list[dict]:
@@ -495,7 +561,9 @@ def a_split_decomposition(word: str) -> list[tuple[str, str, tuple]]:
     morphemes = list(tok.tokenize(word, mode_a))
     if len(morphemes) < 2:
         return []
-    return [(m.surface(), m.reading_form(), tuple(m.part_of_speech())) for m in morphemes]
+    return [
+        (m.surface(), m.reading_form(), tuple(m.part_of_speech())) for m in morphemes
+    ]
 
 
 @lru_cache(maxsize=4096)
@@ -517,7 +585,9 @@ def heteronym_readings(surface: str, pos: tuple) -> list[str]:
     return readings
 
 
-def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_reading: str, conjugation_type: str) -> str:
+def _reconstruct_citation_reading(
+    reading: str, dict_form_citation: str, alt_reading: str, conjugation_type: str
+) -> str:
     """Reconstruct the citation-form reading for a heteronym alternative
     that shares the token's own exact conjugation type and form, given
     `conjugation_type` — Sudachi's own paradigm tag for the lexeme
@@ -540,7 +610,7 @@ def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_rea
         # Ichidan citation form is the stem plus る (揃え -> 揃える, アタタメ
         # -> アタタメル): append whatever's missing from this occurrence's
         # own (shorter) reading, which is almost always exactly る.
-        return alt_reading + dict_form_citation[len(reading):]
+        return alt_reading + dict_form_citation[len(reading) :]
 
     if conjugation_type.startswith("五段"):
         # Godan citation form's renyou stem replaces the final mora rather
@@ -556,7 +626,12 @@ def _reconstruct_citation_reading(reading: str, dict_form_citation: str, alt_rea
     return alt_reading
 
 
-def project_citation_reading(alt_citation_reading: str, reading: str, dict_form_citation: str, conjugation_type: str) -> str:
+def project_citation_reading(
+    alt_citation_reading: str,
+    reading: str,
+    dict_form_citation: str,
+    conjugation_type: str,
+) -> str:
     """The inverse of _reconstruct_citation_reading: `alt_citation_reading`,
     another katakana reading of a word's citation form, as spelled on an
     occurrence read `reading` (アク -> アイ for 開い). Irregular (サ変/カ変)
@@ -582,7 +657,9 @@ def tokenize_document(text: str) -> list[TokenRecord]:
 
     records: list[TokenRecord] = []
 
-    morphemes = repair_boundaries(list(tok.tokenize(text, mode_c)), lambda word: list(tok.tokenize(word, mode_c)))
+    morphemes = repair_boundaries(
+        list(tok.tokenize(text, mode_c)), lambda word: list(tok.tokenize(word, mode_c))
+    )
     for position, (char_begin, m) in enumerate(morphemes):
         surface = m.surface()
         reading = m.reading_form()
@@ -601,7 +678,9 @@ def tokenize_document(text: str) -> list[TokenRecord]:
             review_reason = "oov"
         else:
             alt_readings = (
-                [r for r in heteronym_readings(surface, pos) if r != reading] if has_kanji else []
+                [r for r in heteronym_readings(surface, pos) if r != reading]
+                if has_kanji
+                else []
             )
             if alt_readings:
                 review_reason = "heteronym"
@@ -615,9 +694,15 @@ def tokenize_document(text: str) -> list[TokenRecord]:
                 conjugation_type = conjugation_type_of(m.normalized_form())
                 for alt_reading in alt_readings:
                     alt_spans, _, _ = build_furigana_spans(surface, alt_reading)
-                    alt_citation = _reconstruct_citation_reading(reading, dict_form_citation, alt_reading, conjugation_type)
+                    alt_citation = _reconstruct_citation_reading(
+                        reading, dict_form_citation, alt_reading, conjugation_type
+                    )
                     conflict_options.append(
-                        conflict_option_value(to_hiragana(alt_reading), alt_spans, to_hiragana(alt_citation))
+                        conflict_option_value(
+                            to_hiragana(alt_reading),
+                            alt_spans,
+                            to_hiragana(alt_citation),
+                        )
                     )
             elif span_flag:
                 review_reason = "no_kana_anchor"
@@ -633,7 +718,8 @@ def tokenize_document(text: str) -> list[TokenRecord]:
                 # on anything but a bare citation-form occurrence.
                 citation = mixed_reading(m.normalized_form())
                 conflict_options = [
-                    conflict_option_value(to_hiragana(reading), alt, citation) for alt in span_alternatives
+                    conflict_option_value(to_hiragana(reading), alt, citation)
+                    for alt in span_alternatives
                 ]
 
         records.append(

@@ -87,7 +87,9 @@ export function JmdictSearch() {
             setQuery(toKana(kana))
           }}
         />
-        <div className="jmdict-search-hint">Capitals for katakana: TEREBI → テレビ</div>
+        <div className="jmdict-search-hint">
+          Capitals for katakana: TEREBI → テレビ
+        </div>
         <label className="jmdict-search-tier-limit">
           Prefix/suffix/substring matches per group
           <input
@@ -95,13 +97,19 @@ export function JmdictSearch() {
             min={1}
             max={20}
             value={maxResultsPerTier}
-            onChange={(e) => setMaxResultsPerTier(Math.min(20, Math.max(1, Number(e.target.value) || 1)))}
+            onChange={(e) =>
+              setMaxResultsPerTier(
+                Math.min(20, Math.max(1, Number(e.target.value) || 1)),
+              )
+            }
           />
         </label>
       </div>
       <div className="jmdict-search-results-wrap">
         {loading && <div className="jmdict-search-status">Searching…</div>}
-        {error && <div className="jmdict-search-status form-error">{error}</div>}
+        {error && (
+          <div className="jmdict-search-status form-error">{error}</div>
+        )}
         {!loading && !error && results !== null && results.length === 0 && (
           <div className="jmdict-search-status">No entries found.</div>
         )}
@@ -110,17 +118,24 @@ export function JmdictSearch() {
             {results.map((entry) => (
               <li key={entry.idseq} className="jmdict-entry">
                 <div className="jmdict-entry-headword">
-                  {entry.kanji_forms.length > 0 ? entry.kanji_forms.join('、') : entry.kana_forms.join('、')}
+                  {entry.kanji_forms.length > 0
+                    ? entry.kanji_forms.join('、')
+                    : entry.kana_forms.join('、')}
                 </div>
                 {entry.kanji_forms.length > 0 && (
-                  <div className="jmdict-entry-reading">{entry.kana_forms.join('、')}</div>
+                  <div className="jmdict-entry-reading">
+                    {entry.kana_forms.join('、')}
+                  </div>
                 )}
                 <ol className="gloss-senses">
                   {entry.senses.map((sense, i) => (
                     <li key={i}>
                       {sense.gloss.join('; ')}
                       {(sense.field.length > 0 || sense.misc.length > 0) && (
-                        <span className="gloss-tag"> ({[...sense.field, ...sense.misc].join(', ')})</span>
+                        <span className="gloss-tag">
+                          {' '}
+                          ({[...sense.field, ...sense.misc].join(', ')})
+                        </span>
                       )}
                     </li>
                   ))}

@@ -51,7 +51,12 @@ CASES = {
     "jukujikun": (
         "今日は良い天気です。",
         [
-            ("今日", "キョウ", "heteronym", [{"start": 0, "end": 2, "text": "今日", "reading": "きょう"}]),
+            (
+                "今日",
+                "キョウ",
+                "heteronym",
+                [{"start": 0, "end": 2, "text": "今日", "reading": "きょう"}],
+            ),
             ("は", "ハ", None, [{"start": 0, "end": 1, "text": "は", "reading": None}]),
             (
                 "良い",
@@ -71,7 +76,12 @@ CASES = {
                     {"start": 1, "end": 2, "text": "気", "reading": "き"},
                 ],
             ),
-            ("です", "デス", None, [{"start": 0, "end": 2, "text": "です", "reading": None}]),
+            (
+                "です",
+                "デス",
+                None,
+                [{"start": 0, "end": 2, "text": "です", "reading": None}],
+            ),
             ("。", "。", None, [{"start": 0, "end": 1, "text": "。", "reading": None}]),
         ],
     ),
@@ -125,13 +135,23 @@ CASES = {
                     {"start": 1, "end": 2, "text": "き", "reading": None},
                 ],
             ),
-            ("です", "デス", None, [{"start": 0, "end": 2, "text": "です", "reading": None}]),
+            (
+                "です",
+                "デス",
+                None,
+                [{"start": 0, "end": 2, "text": "です", "reading": None}],
+            ),
         ],
     ),
     "oov_and_multikanji": (
         "三年生になりました",
         [
-            ("三", "サン", "oov", [{"start": 0, "end": 1, "text": "三", "reading": "さん"}]),
+            (
+                "三",
+                "サン",
+                "oov",
+                [{"start": 0, "end": 1, "text": "三", "reading": "さん"}],
+            ),
             (
                 "年生",
                 "ネンセイ",
@@ -142,16 +162,36 @@ CASES = {
                 ],
             ),
             ("に", "ニ", None, [{"start": 0, "end": 1, "text": "に", "reading": None}]),
-            ("なり", "ナリ", None, [{"start": 0, "end": 2, "text": "なり", "reading": None}]),
-            ("まし", "マシ", None, [{"start": 0, "end": 2, "text": "まし", "reading": None}]),
+            (
+                "なり",
+                "ナリ",
+                None,
+                [{"start": 0, "end": 2, "text": "なり", "reading": None}],
+            ),
+            (
+                "まし",
+                "マシ",
+                None,
+                [{"start": 0, "end": 2, "text": "まし", "reading": None}],
+            ),
             ("た", "タ", None, [{"start": 0, "end": 1, "text": "た", "reading": None}]),
         ],
     ),
     "four_char_idiom": (
         "一石二鳥の作戦だ",
         [
-            ("一", "イチ", "oov", [{"start": 0, "end": 1, "text": "一", "reading": "いち"}]),
-            ("石", "コク", "heteronym", [{"start": 0, "end": 1, "text": "石", "reading": "こく"}]),
+            (
+                "一",
+                "イチ",
+                "oov",
+                [{"start": 0, "end": 1, "text": "一", "reading": "いち"}],
+            ),
+            (
+                "石",
+                "コク",
+                "heteronym",
+                [{"start": 0, "end": 1, "text": "石", "reading": "こく"}],
+            ),
             (
                 "二鳥",
                 "ニチョウ",
@@ -233,7 +273,12 @@ CASES = {
     "heteronym_verb": (
         "彼女は毎日走る",
         [
-            ("彼女", "カノジョ", None, [{"start": 0, "end": 2, "text": "彼女", "reading": "かのじょ"}]),
+            (
+                "彼女",
+                "カノジョ",
+                None,
+                [{"start": 0, "end": 2, "text": "彼女", "reading": "かのじょ"}],
+            ),
             ("は", "ハ", None, [{"start": 0, "end": 1, "text": "は", "reading": None}]),
             (
                 "毎日",
@@ -258,7 +303,12 @@ CASES = {
     "irregular_reading": (
         "八百屋で買い物をする",
         [
-            ("八百屋", "ヤオヤ", None, [{"start": 0, "end": 3, "text": "八百屋", "reading": "やおや"}]),
+            (
+                "八百屋",
+                "ヤオヤ",
+                None,
+                [{"start": 0, "end": 3, "text": "八百屋", "reading": "やおや"}],
+            ),
             ("で", "デ", None, [{"start": 0, "end": 1, "text": "で", "reading": None}]),
             (
                 "買い物",
@@ -271,7 +321,12 @@ CASES = {
                 ],
             ),
             ("を", "ヲ", None, [{"start": 0, "end": 1, "text": "を", "reading": None}]),
-            ("する", "スル", None, [{"start": 0, "end": 2, "text": "する", "reading": None}]),
+            (
+                "する",
+                "スル",
+                None,
+                [{"start": 0, "end": 2, "text": "する", "reading": None}],
+            ),
         ],
     ),
     "reduplicated": (
@@ -428,11 +483,18 @@ CASES = {
 
 
 def _actual(text: str) -> list[tuple]:
-    return [(r.surface, r.reading_katakana, r.review_reason, r.furigana_spans) for r in tokenize_document(text)]
+    return [
+        (r.surface, r.reading_katakana, r.review_reason, r.furigana_spans)
+        for r in tokenize_document(text)
+    ]
 
 
 def test_golden_cases_cover_every_review_reason():
-    reasons = {expected_review for _, expected in CASES.values() for _, _, expected_review, _ in expected}
+    reasons = {
+        expected_review
+        for _, expected in CASES.values()
+        for _, _, expected_review, _ in expected
+    }
     assert reasons == {None, "heteronym", "oov"}
 
 
@@ -556,7 +618,9 @@ def test_empty_document_returns_no_tokens():
 def test_pure_kana_has_no_furigana():
     records = tokenize_document("ひらがなだけのぶんしょう")
     assert all(record.review_reason is None for record in records)
-    assert all(span["reading"] is None for record in records for span in record.furigana_spans)
+    assert all(
+        span["reading"] is None for record in records for span in record.furigana_spans
+    )
 
 
 def test_to_katakana_and_to_hiragana_roundtrip():
@@ -570,7 +634,10 @@ class TestFuriganaAlignment:
         # 荒技 -> あら/わざ, a 2-kanji run resolved via the per-character
         # partition search (no kana anchor between them).
         spans, flagged, alts = build_furigana_spans("荒技", "アラワザ")
-        assert [(s["text"], s["reading"]) for s in spans] == [("荒", "あら"), ("技", "わざ")]
+        assert [(s["text"], s["reading"]) for s in spans] == [
+            ("荒", "あら"),
+            ("技", "わざ"),
+        ]
         assert not flagged
         assert alts == []
 
@@ -591,15 +658,25 @@ class TestFuriganaAlignment:
         assert alts == []
 
     def test_no_kanji_gives_a_single_unread_span(self):
-        for surface, reading in [("gifted", "gifted"), ("ライバル", "ライバル"), ("それ", "ソレ")]:
+        for surface, reading in [
+            ("gifted", "gifted"),
+            ("ライバル", "ライバル"),
+            ("それ", "ソレ"),
+        ]:
             spans, flagged, _ = build_furigana_spans(surface, reading)
-            assert spans == [{"start": 0, "end": len(surface), "text": surface, "reading": None}]
+            assert spans == [
+                {"start": 0, "end": len(surface), "text": surface, "reading": None}
+            ]
             assert not flagged
 
     def test_spans_always_exactly_partition_the_surface(self):
         # No gaps, no overlaps, in order — the invariant the frontend
         # relies on to render furigana by just walking the span list.
-        for surface, reading in [("荒技", "アラワザ"), ("揃える", "ソロエル"), ("今日", "キョウ")]:
+        for surface, reading in [
+            ("荒技", "アラワザ"),
+            ("揃える", "ソロエル"),
+            ("今日", "キョウ"),
+        ]:
             spans, _, _ = build_furigana_spans(surface, reading)
             pos = 0
             for span in spans:
@@ -681,7 +758,9 @@ class TestPotentialFormDetection:
             ("読める", "下一段-マ行", "読む"),
         ]
         for dictionary_form, conjugation, normalized_form in cases:
-            assert _is_regular_potential_form(dictionary_form, conjugation, normalized_form), dictionary_form
+            assert _is_regular_potential_form(
+                dictionary_form, conjugation, normalized_form
+            ), dictionary_form
 
     def test_lexicalized_lookalike_is_not_a_potential_form(self):
         # キレる/切れる are BOTH ichidan (no conjugation-class switch) — a
@@ -724,12 +803,16 @@ class TestHeteronymReadings:
     def test_finds_a_real_heteronym(self):
         # 今日 has two Sudachi-registered readings under the identical POS
         # tuple: きょう and こんにち.
-        readings = heteronym_readings("今日", ("名詞", "普通名詞", "副詞可能", "*", "*", "*"))
+        readings = heteronym_readings(
+            "今日", ("名詞", "普通名詞", "副詞可能", "*", "*", "*")
+        )
         assert "コンニチ" in readings or "キョウ" in readings
         assert len(set(readings)) >= 2
 
     def test_non_heteronym_word_has_no_alternates(self):
-        readings = heteronym_readings("花火", ("名詞", "普通名詞", "一般", "*", "*", "*"))
+        readings = heteronym_readings(
+            "花火", ("名詞", "普通名詞", "一般", "*", "*", "*")
+        )
         assert len(set(readings)) <= 1
 
 
@@ -741,8 +824,18 @@ class TestReconstructCitationReading:
         citation = citation_reading("温める")
         conjugation_type = conjugation_type_of("温める")
         assert conjugation_type == "下一段-マ行"
-        assert _reconstruct_citation_reading("アタタメ", citation, "ヌクメ", conjugation_type) == "ヌクメル"
-        assert _reconstruct_citation_reading("アタタメ", citation, "ヌルメ", conjugation_type) == "ヌルメル"
+        assert (
+            _reconstruct_citation_reading(
+                "アタタメ", citation, "ヌクメ", conjugation_type
+            )
+            == "ヌクメル"
+        )
+        assert (
+            _reconstruct_citation_reading(
+                "アタタメ", citation, "ヌルメ", conjugation_type
+            )
+            == "ヌルメル"
+        )
 
     def test_ichidan_already_at_citation_form_needs_no_change(self):
         # Regression: when the token occurs in its OWN citation-form
@@ -753,7 +846,12 @@ class TestReconstructCitationReading:
         # transformation at all.
         citation = citation_reading("温める")
         conjugation_type = conjugation_type_of("温める")
-        assert _reconstruct_citation_reading(citation, citation, "ヌクメル", conjugation_type) == "ヌクメル"
+        assert (
+            _reconstruct_citation_reading(
+                citation, citation, "ヌクメル", conjugation_type
+            )
+            == "ヌクメル"
+        )
 
     def test_godan_inflected_substitution_pattern(self):
         # 開き is 開く's stem/renyou form and a real, registered heteronym:
@@ -764,14 +862,20 @@ class TestReconstructCitationReading:
         citation = citation_reading("開く")  # Sudachi's own default: ヒラク
         conjugation_type = conjugation_type_of("開く")
         assert conjugation_type == "五段-カ行"
-        assert _reconstruct_citation_reading("ヒラキ", citation, "アキ", conjugation_type) == "アク"
+        assert (
+            _reconstruct_citation_reading("ヒラキ", citation, "アキ", conjugation_type)
+            == "アク"
+        )
 
     def test_godan_already_at_citation_form_needs_no_change(self):
         # Same regression as the ichidan case, for godan: a token occurring
         # in its own citation form (開く itself) needs no substitution.
         citation = citation_reading("開く")
         conjugation_type = conjugation_type_of("開く")
-        assert _reconstruct_citation_reading(citation, citation, "アク", conjugation_type) == "アク"
+        assert (
+            _reconstruct_citation_reading(citation, citation, "アク", conjugation_type)
+            == "アク"
+        )
 
     def test_falls_back_safely_for_irregular_verbs(self):
         # する/来る (サ行変格/カ行変格) don't follow either fixed rule — their
@@ -781,7 +885,10 @@ class TestReconstructCitationReading:
         citation = citation_reading("する")
         conjugation_type = conjugation_type_of("する")
         assert conjugation_type == "サ行変格"
-        assert _reconstruct_citation_reading("シ", citation, "シ", conjugation_type) == "シ"
+        assert (
+            _reconstruct_citation_reading("シ", citation, "シ", conjugation_type)
+            == "シ"
+        )
 
 
 class TestTokenizeDocument:
@@ -813,7 +920,9 @@ class TestTokenizeDocument:
             assert "furigana_spans" in option
             assert "citation_reading" in option
 
-    def test_no_kana_anchor_conflict_options_use_citation_reading_not_inflected_reading(self, monkeypatch):
+    def test_no_kana_anchor_conflict_options_use_citation_reading_not_inflected_reading(
+        self, monkeypatch
+    ):
         """出来上がった's stem token ('出来上がっ') has its own occurrence
         reading デキアガッ, which still carries the past-tense okurigana
         mutation — but JMDict is keyed by the citation reading できあがる
@@ -835,11 +944,22 @@ class TestTokenizeDocument:
         def fake_furigana_spans_for_morpheme(m):
             surface = m.surface()
             reading = m.reading_form()
-            spans = [{"start": 0, "end": len(surface), "text": surface, "reading": tok.to_hiragana(reading)}]
-            alt = [{"start": 0, "end": len(surface), "text": surface, "reading": "dummy"}]
+            spans = [
+                {
+                    "start": 0,
+                    "end": len(surface),
+                    "text": surface,
+                    "reading": tok.to_hiragana(reading),
+                }
+            ]
+            alt = [
+                {"start": 0, "end": len(surface), "text": surface, "reading": "dummy"}
+            ]
             return spans, True, [alt]
 
-        monkeypatch.setattr(tok, "_furigana_spans_for_morpheme", fake_furigana_spans_for_morpheme)
+        monkeypatch.setattr(
+            tok, "_furigana_spans_for_morpheme", fake_furigana_spans_for_morpheme
+        )
 
         records = tok.tokenize_document("出来上がった")
         stem = next(r for r in records if r.surface == "出来上がっ")

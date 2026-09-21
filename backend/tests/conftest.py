@@ -38,10 +38,14 @@ def committed_engine(test_database):
     with engine.begin() as conn:
         # Read from the catalog so a table added by a later migration is
         # emptied too. `users` keeps the user tests act as.
-        tables = conn.execute(
-            text(
-                "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
-                "AND tablename NOT IN ('alembic_version', 'users')"
+        tables = (
+            conn.execute(
+                text(
+                    "SELECT tablename FROM pg_tables WHERE schemaname = 'public' "
+                    "AND tablename NOT IN ('alembic_version', 'users')"
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY"))

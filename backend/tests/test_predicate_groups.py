@@ -11,7 +11,14 @@ from app.main import (
     PhraseAcceptance,
     TokensReading,
 )
-from tests.support import accept_phrase_suggestions_endpoint, apply_tokens_reading, create_document, get_document_tokens, resolve_token_conflict, unmerge_phrase_tokens
+from tests.support import (
+    accept_phrase_suggestions_endpoint,
+    apply_tokens_reading,
+    create_document,
+    get_document_tokens,
+    resolve_token_conflict,
+    unmerge_phrase_tokens,
+)
 
 
 def _tokens(text):
@@ -23,7 +30,9 @@ def _group(tokens, start):
     return [t for t in tokens if t.phrase_start_position == start]
 
 
-def test_processing_glosses_a_group_as_its_word_plus_notes_on_its_grammar(committed_engine):
+def test_processing_glosses_a_group_as_its_word_plus_notes_on_its_grammar(
+    committed_engine,
+):
     _, tokens = _tokens("欲してるんだって")
 
     assert [t.phrase_start_position for t in tokens] == [0, 0, 0, 0, 0]
@@ -37,7 +46,12 @@ def test_processing_glosses_a_group_as_its_word_plus_notes_on_its_grammar(commit
     word, *grammar = gloss.pieces
     assert word.surface == "欲する"
     assert word.senses and word.note is None
-    assert [(p.surface, p.senses) for p in grammar] == [("てる", []), ("ん", []), ("だ", []), ("って", [])]
+    assert [(p.surface, p.senses) for p in grammar] == [
+        ("てる", []),
+        ("ん", []),
+        ("だ", []),
+        ("って", []),
+    ]
     assert grammar[0].note.startswith("short for ている")
 
     # The head keeps a row to merge the group again with after a split.
@@ -66,20 +80,28 @@ def test_a_group_can_be_split_and_merged_again(committed_engine):
     assert len({t.gloss.lookup_form for t in split}) == 5
 
     row = next(c for c in tokens[0].conflicts if c.kind == "predicate")
-    merged = accept_phrase_suggestions_endpoint(document_id, PhraseAcceptance(conflict_ids=[row.id]))
+    merged = accept_phrase_suggestions_endpoint(
+        document_id, PhraseAcceptance(conflict_ids=[row.id])
+    )
 
     assert sorted(t.position for t in merged) == [0, 1, 2, 3, 4]
     assert all(t.phrase_start_position == 0 and t.gloss == group_gloss for t in merged)
-    assert not any(c.selected for t in merged for c in t.conflicts if c.kind == "predicate")
+    assert not any(
+        c.selected for t in merged for c in t.conflicts if c.kind == "predicate"
+    )
 
 
 def test_picking_a_reading_for_a_groups_head_glosses_the_group_again(committed_engine):
     # 開い is read ひらい by default, and あい is offered.
     document_id, tokens = _tokens("ドアが開いている")
     head = tokens[2]
-    alternative = next(c for c in head.conflicts if c.kind == "heteronym" and not c.selected)
+    alternative = next(
+        c for c in head.conflicts if c.kind == "heteronym" and not c.selected
+    )
 
-    resolve_token_conflict(document_id, head.id, ConflictResolution(conflict_id=alternative.id))
+    resolve_token_conflict(
+        document_id, head.id, ConflictResolution(conflict_id=alternative.id)
+    )
 
     group = _group(get_document_tokens(document_id), 2)
     assert len(group) == 3
@@ -89,11 +111,15 @@ def test_picking_a_reading_for_a_groups_head_glosses_the_group_again(committed_e
     assert all(t.gloss == group[0].gloss for t in group)
 
 
-def test_applying_a_reading_to_a_grouped_token_returns_the_whole_group(committed_engine):
+def test_applying_a_reading_to_a_grouped_token_returns_the_whole_group(
+    committed_engine,
+):
     document_id, tokens = _tokens("ドアが開いている")
     head = tokens[2]
 
-    updated = apply_tokens_reading(document_id, TokensReading(token_ids=[head.id], reading="あい"))
+    updated = apply_tokens_reading(
+        document_id, TokensReading(token_ids=[head.id], reading="あい")
+    )
 
     assert sorted(t.position for t in updated) == [2, 3, 4]
     assert all(t.gloss.reading == "あいている" for t in updated)
@@ -104,9 +130,14 @@ def test_a_typed_reading_never_selects_a_phrase_suggestion(committed_engine):
     # one of 今日's reading options.
     document_id, tokens = _tokens("今日は雨です。")
     today = tokens[0]
-    assert any(c.kind == "phrase" and c.value["reading"] == "こんにちは" for c in today.conflicts)
+    assert any(
+        c.kind == "phrase" and c.value["reading"] == "こんにちは"
+        for c in today.conflicts
+    )
 
-    [updated] = apply_tokens_reading(document_id, TokensReading(token_ids=[today.id], reading="こんにちは"))
+    [updated] = apply_tokens_reading(
+        document_id, TokensReading(token_ids=[today.id], reading="こんにちは")
+    )
 
     [selected] = [c for c in updated.conflicts if c.selected]
     assert selected.kind == "custom"
@@ -119,7 +150,9 @@ def test_accepting_a_phrase_replaces_the_group_it_overlaps(committed_engine):
     assert [t.phrase_start_position for t in tokens] == [None, None, 2, 2, 2, 2]
     suggestion = next(c for c in tokens[0].conflicts if c.kind == "phrase")
 
-    accept_phrase_suggestions_endpoint(document_id, PhraseAcceptance(conflict_ids=[suggestion.id]))
+    accept_phrase_suggestions_endpoint(
+        document_id, PhraseAcceptance(conflict_ids=[suggestion.id])
+    )
 
     tokens = get_document_tokens(document_id)
     assert [t.phrase_start_position for t in tokens] == [0, 0, 0, 0, 0, 0]

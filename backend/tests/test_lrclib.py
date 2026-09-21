@@ -31,7 +31,16 @@ from app.main import (
 )
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
-from tests.support import create_document, document_tokens, get_document, get_document_tokens, link_lrclib, pick_reading, unlink_lrclib, update_document_text
+from tests.support import (
+    create_document,
+    document_tokens,
+    get_document,
+    get_document_tokens,
+    link_lrclib,
+    pick_reading,
+    unlink_lrclib,
+    update_document_text,
+)
 
 URI = "https://lrclib.net/api/get/1"
 WEATHER = "今日は良い天気です。"
@@ -54,10 +63,15 @@ class FakeLrclib:
             raise LrclibError("LRCLIB has no track at that address.")
         return self.records[uri]
 
-    def publish(self, uri: str, lines: list[tuple[float, str]], duration: float = 60.0) -> None:
+    def publish(
+        self, uri: str, lines: list[tuple[float, str]], duration: float = 60.0
+    ) -> None:
         """Serve `lines`, (seconds, text) pairs, at `uri` as synced lyrics."""
         self.records[uri] = {
-            "syncedLyrics": "\n".join(f"[{int(start // 60):02d}:{start % 60:05.2f}]{text}" for start, text in lines),
+            "syncedLyrics": "\n".join(
+                f"[{int(start // 60):02d}:{start % 60:05.2f}]{text}"
+                for start, text in lines
+            ),
             "plainLyrics": "\n".join(text for _, text in lines),
             "duration": duration,
             "instrumental": False,
@@ -89,7 +103,10 @@ def test_each_synced_line_runs_until_the_next_one():
 
 
 def test_synced_lyrics_timestamp_variants():
-    lyrics = parse_synced_lyrics("[00:30]最後\n[00:10.5][00:20.123]繰り返し\n[00:05:25]<00:05.25>最<00:06.00>初\n", 40.0)
+    lyrics = parse_synced_lyrics(
+        "[00:30]最後\n[00:10.5][00:20.123]繰り返し\n[00:05:25]<00:05.25>最<00:06.00>初\n",
+        40.0,
+    )
 
     assert lyrics.text == "最初\n繰り返し\n繰り返し\n最後"
     assert lyrics.lines == [
@@ -102,13 +119,25 @@ def test_synced_lyrics_timestamp_variants():
 
 def test_last_line_without_a_usable_duration_gets_a_fixed_length():
     # Some LRCLIB records have a duration shorter than their lyrics.
-    assert parse_synced_lyrics("[00:10.00]一行目\n[00:20.00]二行目", 3.0).lines[-1] == {"start": 20.0, "end": 25.0}
-    assert parse_synced_lyrics("[00:10.00]一行目", None).lines[-1] == {"start": 10.0, "end": 15.0}
+    assert parse_synced_lyrics("[00:10.00]一行目\n[00:20.00]二行目", 3.0).lines[-1] == {
+        "start": 20.0,
+        "end": 25.0,
+    }
+    assert parse_synced_lyrics("[00:10.00]一行目", None).lines[-1] == {
+        "start": 10.0,
+        "end": 15.0,
+    }
 
 
 @pytest.mark.parametrize(
     "value",
-    ["123", " 123 ", "https://lrclib.net/api/get/123", "http://www.lrclib.net/api/get/123/", "lrclib.net/api/get/123"],
+    [
+        "123",
+        " 123 ",
+        "https://lrclib.net/api/get/123",
+        "http://www.lrclib.net/api/get/123/",
+        "lrclib.net/api/get/123",
+    ],
 )
 def test_lrclib_uri_normalization(value):
     assert normalize_lrclib_uri(value) == "https://lrclib.net/api/get/123"
@@ -132,13 +161,22 @@ def test_lrclib_uri_must_be_an_lrclib_track(value):
 
 
 def test_plain_only_record_gives_untimed_lyrics(fake_lrclib):
-    fake_lrclib.records[URI] = {"syncedLyrics": None, "plainLyrics": "一行目\r\n二行目\n", "duration": 60.0}
+    fake_lrclib.records[URI] = {
+        "syncedLyrics": None,
+        "plainLyrics": "一行目\r\n二行目\n",
+        "duration": 60.0,
+    }
 
     assert fetch_lyrics(URI) == LrclibLyrics("一行目\n二行目", None)
 
 
 def test_record_without_lyrics_is_an_error(fake_lrclib):
-    fake_lrclib.records[URI] = {"syncedLyrics": None, "plainLyrics": None, "instrumental": True, "duration": 60.0}
+    fake_lrclib.records[URI] = {
+        "syncedLyrics": None,
+        "plainLyrics": None,
+        "instrumental": True,
+        "duration": 60.0,
+    }
 
     with pytest.raises(LrclibError):
         fetch_lyrics(URI)
@@ -161,8 +199,16 @@ def test_requests_identify_the_app(monkeypatch):
     ("error", "expected"),
     [
         (urllib.error.HTTPError(URI, 404, "Not Found", {}, None), LrclibError),
-        (urllib.error.HTTPError(URI, 429, "Too Many Requests", {"Retry-After": "3"}, None), LrclibUnavailable),
-        (urllib.error.HTTPError(URI, 503, "Service Unavailable", {}, None), LrclibUnavailable),
+        (
+            urllib.error.HTTPError(
+                URI, 429, "Too Many Requests", {"Retry-After": "3"}, None
+            ),
+            LrclibUnavailable,
+        ),
+        (
+            urllib.error.HTTPError(URI, 503, "Service Unavailable", {}, None),
+            LrclibUnavailable,
+        ),
         (urllib.error.URLError("no route to host"), LrclibUnavailable),
         (TimeoutError(), LrclibUnavailable),
     ],
@@ -201,13 +247,25 @@ def test_creating_while_lrclib_is_unreachable_fails(fake_lrclib):
     assert rejected.value.status_code == 502
 
 
-def test_document_created_from_lrclib_uses_its_lyrics_and_timings(committed_engine, fake_lrclib):
-    fake_lrclib.publish(URI, [(1.0, FIRST_SENTENCE), (9.0, SECOND_SENTENCE)], duration=20.0)
+def test_document_created_from_lrclib_uses_its_lyrics_and_timings(
+    committed_engine, fake_lrclib
+):
+    fake_lrclib.publish(
+        URI, [(1.0, FIRST_SENTENCE), (9.0, SECOND_SENTENCE)], duration=20.0
+    )
 
-    document = create_document(DocumentCreate(title="test", text="ignored", lrclib_uri="1"))
+    document = create_document(
+        DocumentCreate(title="test", text="ignored", lrclib_uri="1")
+    )
 
-    assert (document.text, document.lrclib_uri) == (f"{FIRST_SENTENCE}\n{SECOND_SENTENCE}", URI)
-    assert document.lrclib_lines == [LineTiming(start=1.0, end=9.0), LineTiming(start=9.0, end=20.0)]
+    assert (document.text, document.lrclib_uri) == (
+        f"{FIRST_SENTENCE}\n{SECOND_SENTENCE}",
+        URI,
+    )
+    assert document.lrclib_lines == [
+        LineTiming(start=1.0, end=9.0),
+        LineTiming(start=9.0, end=20.0),
+    ]
 
 
 def _linked_document(fake_lrclib, lines, duration=60.0) -> int:
@@ -215,7 +273,9 @@ def _linked_document(fake_lrclib, lines, duration=60.0) -> int:
     return create_document(DocumentCreate(title="test", lrclib_uri=URI)).id
 
 
-def test_loading_keeps_picked_readings_while_lrclib_is_unchanged(committed_engine, fake_lrclib):
+def test_loading_keeps_picked_readings_while_lrclib_is_unchanged(
+    committed_engine, fake_lrclib
+):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     pick_reading(document_id, "今日", "こんにち")
 
@@ -237,7 +297,9 @@ def test_timing_update_on_lrclib_keeps_picked_readings(committed_engine, fake_lr
     assert after.gloss.reading == "こんにち"
 
 
-def test_text_update_on_lrclib_replaces_the_lyrics_and_resets_readings(committed_engine, fake_lrclib):
+def test_text_update_on_lrclib_replaces_the_lyrics_and_resets_readings(
+    committed_engine, fake_lrclib
+):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     pick_reading(document_id, "今日", "こんにち")
 
@@ -266,8 +328,16 @@ def test_linked_lyrics_are_only_editable_once_unlinked(committed_engine, fake_lr
 
     unlinked = unlink_lrclib(document_id)
     # The line timings still match the unchanged text, until it's edited.
-    assert (unlinked.lrclib_uri, unlinked.lrclib_lines) == (None, [LineTiming(start=1.0, end=60.0)])
-    assert update_document_text(document_id, DocumentTextUpdate(text=SECOND_SENTENCE)).lrclib_lines is None
+    assert (unlinked.lrclib_uri, unlinked.lrclib_lines) == (
+        None,
+        [LineTiming(start=1.0, end=60.0)],
+    )
+    assert (
+        update_document_text(
+            document_id, DocumentTextUpdate(text=SECOND_SENTENCE)
+        ).lrclib_lines
+        is None
+    )
     requests_before = len(fake_lrclib.requests)
     assert get_document(document_id).text == SECOND_SENTENCE
     assert len(fake_lrclib.requests) == requests_before
@@ -281,7 +351,11 @@ def test_linking_can_keep_the_lyrics_and_readings(committed_engine, fake_lrclib)
     document = link_lrclib(document_id, LrclibLink(uri="1", replace_text=False))
 
     # LRCLIB's lyrics differ, so its timings don't fit these.
-    assert (document.text, document.lrclib_uri, document.lrclib_lines) == (WEATHER, URI, None)
+    assert (document.text, document.lrclib_uri, document.lrclib_lines) == (
+        WEATHER,
+        URI,
+        None,
+    )
     assert document_tokens(document_id, "今日")[0].gloss.reading == "こんにち"
 
     # Once they match, LRCLIB's timings are used, and the lyrics and
@@ -289,22 +363,36 @@ def test_linking_can_keep_the_lyrics_and_readings(committed_engine, fake_lrclib)
     fake_lrclib.publish(URI, [(2.0, WEATHER)], duration=10.0)
     document = get_document(document_id)
 
-    assert (document.text, document.lrclib_lines) == (WEATHER, [LineTiming(start=2.0, end=10.0)])
+    assert (document.text, document.lrclib_lines) == (
+        WEATHER,
+        [LineTiming(start=2.0, end=10.0)],
+    )
     assert document_tokens(document_id, "今日")[0].gloss.reading == "こんにち"
 
 
-def test_kept_lyrics_stay_editable_and_untimed_at_a_trailing_blank_line(committed_engine, fake_lrclib):
+def test_kept_lyrics_stay_editable_and_untimed_at_a_trailing_blank_line(
+    committed_engine, fake_lrclib
+):
     document_id = create_document(DocumentCreate(title="test", text=f"{WEATHER}\n")).id
     fake_lrclib.publish(URI, [(1.0, WEATHER)], duration=10.0)
 
     document = link_lrclib(document_id, LrclibLink(uri="1", replace_text=False))
     edited = update_document_text(document_id, DocumentTextUpdate(text=SECOND_SENTENCE))
 
-    assert (document.text, document.lrclib_lines) == (f"{WEATHER}\n", [LineTiming(start=1.0, end=10.0)])
-    assert (edited.text, edited.lrclib_uri, edited.lrclib_lines) == (SECOND_SENTENCE, URI, None)
+    assert (document.text, document.lrclib_lines) == (
+        f"{WEATHER}\n",
+        [LineTiming(start=1.0, end=10.0)],
+    )
+    assert (edited.text, edited.lrclib_uri, edited.lrclib_lines) == (
+        SECOND_SENTENCE,
+        URI,
+        None,
+    )
 
 
-def test_linking_replaces_the_lyrics_and_times_the_tokens(committed_engine, fake_lrclib):
+def test_linking_replaces_the_lyrics_and_times_the_tokens(
+    committed_engine, fake_lrclib
+):
     document_id = create_document(DocumentCreate(title="test", text=FIRST_SENTENCE)).id
     get_document_tokens(document_id)
     fake_lrclib.publish(URI, [(4.0, SECOND_SENTENCE)])
@@ -313,5 +401,7 @@ def test_linking_replaces_the_lyrics_and_times_the_tokens(committed_engine, fake
     tokens = get_document_tokens(document_id)
 
     assert (document.text, document.lrclib_uri) == (SECOND_SENTENCE, URI)
-    assert [t.surface for t in tokens] == [r.surface for r in tokenize_document(SECOND_SENTENCE)]
+    assert [t.surface for t in tokens] == [
+        r.surface for r in tokenize_document(SECOND_SENTENCE)
+    ]
     assert document.lrclib_lines == [LineTiming(start=4.0, end=60.0)]

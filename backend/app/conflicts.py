@@ -68,7 +68,9 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
         # differ for an inflected token (揃える's citation reading そろえる
         # vs 揃え's own reading そろえ).
         default_value = conflict_option_value(
-            to_hiragana(record.reading_katakana), record.furigana_spans, mixed_reading(record.normalized_form)
+            to_hiragana(record.reading_katakana),
+            record.furigana_spans,
+            mixed_reading(record.normalized_form),
         )
         # record.conflict_options never includes this default: heteronym
         # alternatives are built from `[r for r in heteronym_readings(...)
@@ -105,12 +107,18 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
     )
 
 
-def create_phrase_conflicts(conn, document_id: int, records: list[TokenRecord], groups: list[range]) -> None:
+def create_phrase_conflicts(
+    conn, document_id: int, records: list[TokenRecord], groups: list[range]
+) -> None:
     """Insert an unselected 'phrase' row for each record's phrase suggestion,
     and a 'predicate' row on the first token of each of `groups`, which
     merges that group again after it's split."""
     rows = [
-        {"position": record.position, "kind": "phrase", "value": record.phrase_suggestion}
+        {
+            "position": record.position,
+            "kind": "phrase",
+            "value": record.phrase_suggestion,
+        }
         for record in records
         if record.phrase_suggestion is not None
     ]
@@ -118,7 +126,10 @@ def create_phrase_conflicts(conn, document_id: int, records: list[TokenRecord], 
         {
             "position": records[group.start].position,
             "kind": "predicate",
-            "value": {"surface": "".join(records[i].surface for i in group), "token_count": len(group)},
+            "value": {
+                "surface": "".join(records[i].surface for i in group),
+                "token_count": len(group),
+            },
         }
         for group in groups
     )
@@ -138,7 +149,9 @@ def create_phrase_conflicts(conn, document_id: int, records: list[TokenRecord], 
     )
 
 
-def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], gloss_lookup_id: int) -> None:
+def _apply_selected_reading(
+    conn, token_id: int, furigana_spans: list[dict], gloss_lookup_id: int
+) -> None:
     """Write a newly-selected reading's furigana and gloss onto the token
     row itself, for resolve_conflict. (select_reading makes the same update
     to many tokens in one statement.)"""
@@ -160,7 +173,9 @@ def _apply_selected_reading(conn, token_id: int, furigana_spans: list[dict], glo
     )
 
 
-def _recompute_phrase_furigana(conn, document_id: int, position: int, token_count: int, reading_hiragana: str) -> None:
+def _recompute_phrase_furigana(
+    conn, document_id: int, position: int, token_count: int, reading_hiragana: str
+) -> None:
     """Set the furigana of the document's `token_count` tokens from
     `position` from their phrase's reading, `reading_hiragana`, since a
     phrase can read differently from its tokens (期 reads ご in この期に及んで).
@@ -179,7 +194,9 @@ def _recompute_phrase_furigana(conn, document_id: int, position: int, token_coun
     merged_surface = "".join(m.surface for m in members)
     token_lengths = [len(m.surface) for m in members]
 
-    spans, needs_review, alternatives = build_furigana_spans(merged_surface, to_katakana(reading_hiragana))
+    spans, needs_review, alternatives = build_furigana_spans(
+        merged_surface, to_katakana(reading_hiragana)
+    )
     # The reading doesn't line up with the text, so the tokens keep their own.
     if needs_review and not alternatives:
         return
@@ -210,7 +227,11 @@ def _recompute_phrase_furigana(conn, document_id: int, position: int, token_coun
     rows = []
     for alt_spans in alternatives:
         alt_sliced = slice_spans_by_token(alt_spans, token_lengths)
-        alt_updates = [{"offset": i, "furigana_spans": sliced} for i, sliced in enumerate(alt_sliced) if sliced is not None]
+        alt_updates = [
+            {"offset": i, "furigana_spans": sliced}
+            for i, sliced in enumerate(alt_sliced)
+            if sliced is not None
+        ]
         if alt_updates:
             rows.append({"token_id": head_token_id, "value": {"updates": alt_updates}})
     if rows:
@@ -259,14 +280,22 @@ def resolve_phrase_furigana(conn, document_id: int, conflict_id: int) -> list[in
         {
             "document_id": document_id,
             "rows": json.dumps(
-                [{"position": row.position + u["offset"], "furigana_override": u["furigana_spans"]} for u in row.value["updates"]]
+                [
+                    {
+                        "position": row.position + u["offset"],
+                        "furigana_override": u["furigana_spans"],
+                    }
+                    for u in row.value["updates"]
+                ]
             ),
         },
     ).all()
     return [r.id for r in rows]
 
 
-def _project_onto_last_member(conn, document_id: int, last_position: int, citation_reading_hiragana: str) -> str:
+def _project_onto_last_member(
+    conn, document_id: int, last_position: int, citation_reading_hiragana: str
+) -> str:
     """`citation_reading_hiragana`, a headword's reading, as spelled on the
     page through the token at `last_position`, which can inflect the
     headword's last word (まにうける -> まにうけ for 真に受け)."""
@@ -280,7 +309,10 @@ def _project_onto_last_member(conn, document_id: int, last_position: int, citati
     dict_form_citation = citation_reading(last.dictionary_form)
     conjugation_type = conjugation_type_of(last.normalized_form)
     projected = project_citation_reading(
-        to_katakana(citation_reading_hiragana), last.reading_katakana, dict_form_citation, conjugation_type
+        to_katakana(citation_reading_hiragana),
+        last.reading_katakana,
+        dict_form_citation,
+        conjugation_type,
     )
     return to_hiragana(projected)
 
@@ -315,7 +347,9 @@ def _page_reading(member) -> str:
     return member.selected_reading or to_hiragana(member.reading_katakana)
 
 
-def _merge_tokens(conn, document_id: int, position: int, token_count: int, gloss_lookup_id: int) -> list[int]:
+def _merge_tokens(
+    conn, document_id: int, position: int, token_count: int, gloss_lookup_id: int
+) -> list[int]:
     """Mark the document's `token_count` tokens from `position` as one group
     sharing `gloss_lookup_id`. Returns their ids."""
     rows = conn.execute(
@@ -337,7 +371,9 @@ def _merge_tokens(conn, document_id: int, position: int, token_count: int, gloss
     return [row.id for row in rows]
 
 
-def merge_predicate_group(conn, document_id: int, position: int, token_count: int) -> list[int]:
+def merge_predicate_group(
+    conn, document_id: int, position: int, token_count: int
+) -> list[int]:
     """Merge the document's `token_count` tokens from `position` into a
     predicate group (see app.grammar), glossed together under each token's
     current reading. Returns their ids."""
@@ -346,9 +382,13 @@ def merge_predicate_group(conn, document_id: int, position: int, token_count: in
     request = predicate_group_request(
         members,
         [_page_reading(member) for member in members],
-        own_gloss_key(head.normalized_form, head.part_of_speech, head.selected_citation_reading),
+        own_gloss_key(
+            head.normalized_form, head.part_of_speech, head.selected_citation_reading
+        ),
     )
-    gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[request.key]
+    gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[
+        request.key
+    ]
     return _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
 
@@ -356,34 +396,48 @@ def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[i
     """Gloss the predicate group starting at `group_start` again, after one
     of its tokens' readings changed. Returns its token ids."""
     token_count = conn.execute(
-        text("SELECT count(*) FROM tokens WHERE document_id = :document_id AND phrase_start_position = :group_start"),
+        text(
+            "SELECT count(*) FROM tokens WHERE document_id = :document_id AND phrase_start_position = :group_start"
+        ),
         {"document_id": document_id, "group_start": group_start},
     ).scalar_one()
     return merge_predicate_group(conn, document_id, group_start, token_count)
 
 
-def _unmerge_overlapping_groups(conn, document_id: int, position: int, token_count: int) -> list[int]:
+def _unmerge_overlapping_groups(
+    conn, document_id: int, position: int, token_count: int
+) -> list[int]:
     """Split every group with a member among the document's `token_count`
     tokens from `position`. Returns the affected token ids."""
     # One member of each group is enough for unmerge_phrase to find it.
-    member_ids = conn.execute(
-        text(
-            """
+    member_ids = (
+        conn.execute(
+            text(
+                """
             SELECT DISTINCT ON (phrase_start_position) id FROM tokens
             WHERE document_id = :document_id AND position >= :position AND position < :position + :token_count
               AND phrase_start_position IS NOT NULL
             ORDER BY phrase_start_position, position
             """
-        ),
-        {"document_id": document_id, "position": position, "token_count": token_count},
-    ).scalars().all()
+            ),
+            {
+                "document_id": document_id,
+                "position": position,
+                "token_count": token_count,
+            },
+        )
+        .scalars()
+        .all()
+    )
     affected: list[int] = []
     for member_id in member_ids:
         affected.extend(unmerge_phrase(conn, document_id, member_id))
     return affected
 
 
-def _apply_phrase_selection(conn, document_id: int, token_id: int, value: dict) -> list[int]:
+def _apply_phrase_selection(
+    conn, document_id: int, token_id: int, value: dict
+) -> list[int]:
     """Merge an accepted phrase suggestion's tokens (see app.phrase_merge)
     into one group, glossed under the phrase's headword plus a piece per
     token of grammar attached after it, and recompute their furigana from
@@ -398,7 +452,9 @@ def _apply_phrase_selection(conn, document_id: int, token_id: int, value: dict) 
     attached = members[phrase_token_count:]
     # The headword's reading can spell more than the page does: まにうける
     # for 真に受け.
-    phrase_reading = _project_onto_last_member(conn, document_id, position + phrase_token_count - 1, value["reading"])
+    phrase_reading = _project_onto_last_member(
+        conn, document_id, position + phrase_token_count - 1, value["reading"]
+    )
     reading = phrase_reading + "".join(_page_reading(member) for member in attached)
 
     if attached:
@@ -408,12 +464,18 @@ def _apply_phrase_selection(conn, document_id: int, token_id: int, value: dict) 
             # No one token's part of speech is the phrase's, so its senses
             # keep JMDict's order.
             base_part_of_speech=("*",) * 6,
-            attached=tuple(GroupPart.of(member, _page_reading(member)) for member in attached),
+            attached=tuple(
+                GroupPart.of(member, _page_reading(member)) for member in attached
+            ),
             reading=reading,
         )
-        gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[request.key]
+        gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[
+            request.key
+        ]
     else:
-        gloss_lookup_id = get_or_create_gloss_lookup(conn, value["lookup_form"], value["reading"])
+        gloss_lookup_id = get_or_create_gloss_lookup(
+            conn, value["lookup_form"], value["reading"]
+        )
     ids = _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
     # A member can no longer start a phrase of its own inside this one:
@@ -483,15 +545,29 @@ def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
             ORDER BY t.position
             """
         ),
-        {"document_id": document_id, "group_start": group_start, "non_reading_kinds": list(NON_READING_KINDS)},
+        {
+            "document_id": document_id,
+            "group_start": group_start,
+            "non_reading_kinds": list(NON_READING_KINDS),
+        },
     ).all()
 
     keys = {
         member.id: key
         for member in members
-        if (key := own_gloss_key(member.normalized_form, member.part_of_speech, member.selected_reading)) is not None
+        if (
+            key := own_gloss_key(
+                member.normalized_form, member.part_of_speech, member.selected_reading
+            )
+        )
+        is not None
     }
-    gloss_ids = store_glosses(conn, plan_glosses(conn, [(keys[m.id], m.dictionary_form) for m in members if m.id in keys]))
+    gloss_ids = store_glosses(
+        conn,
+        plan_glosses(
+            conn, [(keys[m.id], m.dictionary_form) for m in members if m.id in keys]
+        ),
+    )
     # A phrase's furigana (see _recompute_phrase_furigana) gives way to each
     # token's own selected option's, or none.
     conn.execute(
@@ -510,7 +586,9 @@ def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
                 [
                     {
                         "id": member.id,
-                        "gloss_lookup_id": gloss_ids[keys[member.id]] if member.id in keys else None,
+                        "gloss_lookup_id": gloss_ids[keys[member.id]]
+                        if member.id in keys
+                        else None,
                         "furigana_override": member.selected_furigana_spans,
                     }
                     for member in members
@@ -541,16 +619,22 @@ def _select_conflict(conn, token_id: int, conflict_id: int) -> None:
     # Deselected first: conflicts_one_selected_per_token allows one selected
     # row per token, whatever its kind.
     conn.execute(
-        text("UPDATE conflicts SET selected = FALSE, selected_at = NULL WHERE token_id = :token_id"),
+        text(
+            "UPDATE conflicts SET selected = FALSE, selected_at = NULL WHERE token_id = :token_id"
+        ),
         {"token_id": token_id},
     )
     conn.execute(
-        text("UPDATE conflicts SET selected = TRUE, selected_at = now() WHERE id = :conflict_id"),
+        text(
+            "UPDATE conflicts SET selected = TRUE, selected_at = now() WHERE id = :conflict_id"
+        ),
         {"conflict_id": conflict_id},
     )
 
 
-def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) -> list[int]:
+def resolve_conflict(
+    conn, document_id: int, token_id: int, conflict_id: int
+) -> list[int]:
     """Apply `conflict_id`, one of `token_id`'s conflict rows: select a
     reading, accept a phrase suggestion, or merge a split predicate group
     again. Returns every token id whose gloss changed."""
@@ -580,24 +664,41 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
 
     if kind == "predicate":
         # Never selected: that would deselect the head's reading.
-        affected = _unmerge_overlapping_groups(conn, document_id, owner.position, value["token_count"])
-        return list({*affected, *merge_predicate_group(conn, document_id, owner.position, value["token_count"])})
+        affected = _unmerge_overlapping_groups(
+            conn, document_id, owner.position, value["token_count"]
+        )
+        return list(
+            {
+                *affected,
+                *merge_predicate_group(
+                    conn, document_id, owner.position, value["token_count"]
+                ),
+            }
+        )
 
     if kind == "phrase":
-        affected = _unmerge_overlapping_groups(conn, document_id, owner.position, value["token_count"])
+        affected = _unmerge_overlapping_groups(
+            conn, document_id, owner.position, value["token_count"]
+        )
         # Known limitation: this deselects a reading picked for this token,
         # which unmerging the phrase later can't recover.
         _select_conflict(conn, token_id, conflict_id)
-        return list({*affected, *_apply_phrase_selection(conn, document_id, token_id, value)})
+        return list(
+            {*affected, *_apply_phrase_selection(conn, document_id, token_id, value)}
+        )
 
     # A reading picked inside an accepted phrase would leave this token's
     # gloss out of step with the rest of the phrase, so the phrase is split
     # first. A predicate group is glossed again with the new reading instead.
-    unmerged = unmerge_phrase(conn, document_id, token_id) if owner.in_accepted_phrase else []
+    unmerged = (
+        unmerge_phrase(conn, document_id, token_id) if owner.in_accepted_phrase else []
+    )
     _select_conflict(conn, token_id, conflict_id)
 
     token = conn.execute(
-        text("SELECT normalized_form, dictionary_form FROM tokens WHERE id = :token_id"),
+        text(
+            "SELECT normalized_form, dictionary_form FROM tokens WHERE id = :token_id"
+        ),
         {"token_id": token_id},
     ).one()
 
@@ -620,11 +721,15 @@ def resolve_conflict(conn, document_id: int, token_id: int, conflict_id: int) ->
     _apply_selected_reading(conn, token_id, value["furigana_spans"], gloss_lookup_id)
     affected = {token_id, *unmerged}
     if owner.phrase_start_position is not None and not owner.in_accepted_phrase:
-        affected.update(_regloss_predicate_group(conn, document_id, owner.phrase_start_position))
+        affected.update(
+            _regloss_predicate_group(conn, document_id, owner.phrase_start_position)
+        )
     return list(affected)
 
 
-def accept_phrase_suggestions(conn, document_id: int, conflict_ids: list[int]) -> list[int]:
+def accept_phrase_suggestions(
+    conn, document_id: int, conflict_ids: list[int]
+) -> list[int]:
     """Apply each of `conflict_ids` as resolve_conflict does, such as every
     instance of the same phrase suggestion. Returns every token id any of
     them changed. Raises ConflictNotFound if one isn't in `document_id`."""
@@ -758,7 +863,9 @@ def select_reading(
     "these days"), and a wrong reading is often why a JMDict entry went
     unmatched. Returns every token id whose gloss changed, which includes
     the rest of any group one of them is in."""
-    tokens = lock_token_group(conn, document_id, token_ids, reading_hiragana, furigana_spans)
+    tokens = lock_token_group(
+        conn, document_id, token_ids, reading_hiragana, furigana_spans
+    )
     # As in resolve_conflict: an accepted phrase is split first, and a
     # predicate group is glossed again afterwards.
     affected = set(token_ids)
@@ -777,7 +884,9 @@ def select_reading(
     for token in tokens:
         value = token.match_value
         if value is None:
-            spans = furigana_spans or furigana_spans_for_reading(token.surface, to_katakana(reading_hiragana))
+            spans = furigana_spans or furigana_spans_for_reading(
+                token.surface, to_katakana(reading_hiragana)
+            )
             # The user's own input is used as-is for citation_reading — for
             # a non-inflected word (the common case for a manual correction)
             # this already is the citation reading; for an inflected one
@@ -794,8 +903,22 @@ def select_reading(
                     token.furigana_override or token.furigana_spans,
                     mixed_reading(token.normalized_form),
                 )
-                new_rows.append({"token_id": token.id, "value": original, "selected": False, "ord": len(new_rows)})
-            new_rows.append({"token_id": token.id, "value": value, "selected": True, "ord": len(new_rows)})
+                new_rows.append(
+                    {
+                        "token_id": token.id,
+                        "value": original,
+                        "selected": False,
+                        "ord": len(new_rows),
+                    }
+                )
+            new_rows.append(
+                {
+                    "token_id": token.id,
+                    "value": value,
+                    "selected": True,
+                    "ord": len(new_rows),
+                }
+            )
         else:
             chosen_ids.append(token.match_id)
         selections.append((token, value))
@@ -803,13 +926,26 @@ def select_reading(
     # citation_reading, not the reading itself, since JMDict is keyed by
     # citation form and the two differ for an inflected token. Falls back to
     # "reading" for any option written before citation_reading existed.
-    keys = {token.id: (token.normalized_form, value.get("citation_reading", value["reading"])) for token, value in selections}
-    gloss_ids = store_glosses(conn, plan_glosses(conn, [(keys[token.id], token.dictionary_form) for token, _ in selections]))
+    keys = {
+        token.id: (
+            token.normalized_form,
+            value.get("citation_reading", value["reading"]),
+        )
+        for token, value in selections
+    }
+    gloss_ids = store_glosses(
+        conn,
+        plan_glosses(
+            conn, [(keys[token.id], token.dictionary_form) for token, _ in selections]
+        ),
+    )
 
     # Deselected before anything is selected, for the "one selected row per
     # token" unique index.
     conn.execute(
-        text("UPDATE conflicts SET selected = FALSE, selected_at = NULL WHERE token_id = ANY(:token_ids) AND selected"),
+        text(
+            "UPDATE conflicts SET selected = FALSE, selected_at = NULL WHERE token_id = ANY(:token_ids) AND selected"
+        ),
         {"token_ids": token_ids},
     )
     if new_rows:
@@ -829,7 +965,9 @@ def select_reading(
         )
     if chosen_ids:
         conn.execute(
-            text("UPDATE conflicts SET selected = TRUE, selected_at = now() WHERE id = ANY(:ids)"),
+            text(
+                "UPDATE conflicts SET selected = TRUE, selected_at = now() WHERE id = ANY(:ids)"
+            ),
             {"ids": chosen_ids},
         )
     conn.execute(
@@ -847,7 +985,11 @@ def select_reading(
         {
             "rows": json.dumps(
                 [
-                    {"id": token.id, "furigana_spans": value["furigana_spans"], "gloss_lookup_id": gloss_ids[keys[token.id]]}
+                    {
+                        "id": token.id,
+                        "furigana_spans": value["furigana_spans"],
+                        "gloss_lookup_id": gloss_ids[keys[token.id]],
+                    }
                     for token, value in selections
                 ]
             )
@@ -858,7 +1000,9 @@ def select_reading(
     return list(affected)
 
 
-def correct_reading(conn, document_id: int, token_id: int, reading_hiragana: str) -> None:
+def correct_reading(
+    conn, document_id: int, token_id: int, reading_hiragana: str
+) -> None:
     """Select a user-supplied pronunciation for a token — for whenever
     Sudachi's own reading is wrong (三股 as みまた instead of さんまた) or
     nothing else offered a fix (no heteronym/split candidates existed, or

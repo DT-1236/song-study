@@ -30,10 +30,14 @@ def _is_dictionary_word(morpheme) -> bool:
     # this module.
     from app.glosses import is_headword
 
-    return any(is_headword(form) for form in (morpheme.surface(), morpheme.normalized_form()))
+    return any(
+        is_headword(form) for form in (morpheme.surface(), morpheme.normalized_form())
+    )
 
 
-def _move_boundary(left, right, chars: int, tokenize: Callable, accept: Callable) -> Optional[list]:
+def _move_boundary(
+    left, right, chars: int, tokenize: Callable, accept: Callable
+) -> Optional[list]:
     """`left` and `right` re-tokenized with `chars` characters of `right`
     moved onto `left`, if that makes `left` a single morpheme `accept`
     accepts and leaves a rest that Sudachi knows. None otherwise.
@@ -61,8 +65,10 @@ def _classical_adjective(left, right, tokenize: Callable) -> Optional[list]:
         right,
         1,
         tokenize,
-        lambda morpheme: morpheme.part_of_speech()[0] == "形容詞"
-        and morpheme.part_of_speech()[4].startswith("文語形容詞"),
+        lambda morpheme: (
+            morpheme.part_of_speech()[0] == "形容詞"
+            and morpheme.part_of_speech()[4].startswith("文語形容詞")
+        ),
     )
 
 
@@ -80,7 +86,10 @@ def repair_boundaries(morphemes: list, tokenize: Callable) -> list[tuple[int, ob
         new_split = None
         if i + 1 < len(morphemes):
             right = morphemes[i + 1]
-            new_split = next((split for rule in _RULES if (split := rule(left, right, tokenize))), None)
+            new_split = next(
+                (split for rule in _RULES if (split := rule(left, right, tokenize))),
+                None,
+            )
         if new_split is None:
             repaired.append((left.begin(), left))
             i += 1

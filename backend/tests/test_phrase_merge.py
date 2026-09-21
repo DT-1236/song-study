@@ -22,7 +22,11 @@ def _records(text):
 
 
 def _suggestions(text):
-    return {r.position: r.phrase_suggestion for r in _records(text) if r.phrase_suggestion is not None}
+    return {
+        r.position: r.phrase_suggestion
+        for r in _records(text)
+        if r.phrase_suggestion is not None
+    }
 
 
 class TestFindPhraseSuggestions:
@@ -57,7 +61,9 @@ class TestFindPhraseSuggestions:
             "phrase_token_count": 4,
         }
 
-    def test_a_match_through_an_inflected_verbs_dictionary_form_takes_its_grammar_along(self):
+    def test_a_match_through_an_inflected_verbs_dictionary_form_takes_its_grammar_along(
+        self,
+    ):
         # 真に受け is only a headword as 真に受ける, and the てみて after it
         # belongs to 受け.
         assert _suggestions("真に受けてみて") == {
@@ -79,7 +85,9 @@ class TestFindPhraseSuggestions:
     def test_a_match_starting_before_a_group_can_cover_it(self):
         # 火をつけたり starts at the noun 火, before the group つけたり, which
         # is a headword on its own too.
-        surfaces = {s["surface"] for s in _suggestions("人を殺したり家に火をつけたり").values()}
+        surfaces = {
+            s["surface"] for s in _suggestions("人を殺したり家に火をつけたり").values()
+        }
         assert "火をつけたり" in surfaces
         assert "つけたり" not in surfaces
 

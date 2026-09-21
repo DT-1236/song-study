@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { fetchTokens } from './api'
@@ -37,17 +45,26 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   // and the pathname they were on when they asked for it. If they've since
   // navigated elsewhere, or asked for a different document, this no longer
   // matches by the time processing finishes and the auto-navigate is skipped.
-  const pendingAutoNavRef = useRef<{ documentId: number; pathname: string } | null>(null)
+  const pendingAutoNavRef = useRef<{
+    documentId: number
+    pathname: string
+  } | null>(null)
   const inFlightRef = useRef<Map<number, Promise<Token[]>>>(new Map())
 
   const visitDocument = useCallback((documentId: number, title: string) => {
     setTabs((prev) => {
       const now = Date.now()
-      const existingIndex = prev.findIndex((tab) => tab.documentId === documentId)
+      const existingIndex = prev.findIndex(
+        (tab) => tab.documentId === documentId,
+      )
 
       if (existingIndex !== -1) {
         const next = [...prev]
-        next[existingIndex] = { ...next[existingIndex], title, lastAccessedAt: now }
+        next[existingIndex] = {
+          ...next[existingIndex],
+          title,
+          lastAccessedAt: now,
+        }
         return next
       }
 
@@ -56,7 +73,8 @@ export function TabsProvider({ children }: { children: ReactNode }) {
       if (next.length > MAX_OPEN_TABS) {
         let lruIndex = 0
         for (let i = 1; i < next.length; i++) {
-          if (next[i].lastAccessedAt < next[lruIndex].lastAccessedAt) lruIndex = i
+          if (next[i].lastAccessedAt < next[lruIndex].lastAccessedAt)
+            lruIndex = i
         }
         next.splice(lruIndex, 1)
       }
@@ -67,7 +85,10 @@ export function TabsProvider({ children }: { children: ReactNode }) {
 
   const ensureProcessed = useCallback(
     (documentId: number, title: string): Promise<Token[]> => {
-      pendingAutoNavRef.current = { documentId, pathname: currentPathnameRef.current }
+      pendingAutoNavRef.current = {
+        documentId,
+        pathname: currentPathnameRef.current,
+      }
 
       const existing = inFlightRef.current.get(documentId)
       if (existing) return existing
@@ -101,7 +122,10 @@ export function TabsProvider({ children }: { children: ReactNode }) {
     [navigate, visitDocument],
   )
 
-  const openIds = useMemo(() => new Set(tabs.map((tab) => tab.documentId)), [tabs])
+  const openIds = useMemo(
+    () => new Set(tabs.map((tab) => tab.documentId)),
+    [tabs],
+  )
 
   const value = useMemo(
     () => ({ tabs, openIds, processingIds, visitDocument, ensureProcessed }),

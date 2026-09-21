@@ -49,6 +49,21 @@
   note is an implementation detail, so it sits as a comment directly
   above the line it's about, not in the docstring.
 
+## Formatting
+
+- Both halves of the repo are formatted by a tool, so don't hand-align code or
+  argue with the output: run the formatter before committing.
+  - Frontend: `npm run format` in `frontend/` (Prettier). The config keeps the
+    style the code was already written in — no semicolons, single quotes.
+  - Backend: `.venv/bin/ruff format app tests migrations` in `backend/`. Ruff's
+    formatter is Black-compatible and left on its defaults (88 columns, double
+    quotes), so `backend/ruff.toml` only pins the target Python version.
+- `npm run format:check` and `ruff format --check` are the read-only versions,
+  for confirming a branch is clean without rewriting files.
+- Ruff's *linter* (`ruff check`) is installed alongside its formatter but is
+  not adopted yet — it reports findings across the existing code. Don't run
+  `ruff check --fix` as part of an unrelated change; see `docs/backlog.md`.
+
 ## Testing
 
 - Tests and ad-hoc verification scripts run against the test database

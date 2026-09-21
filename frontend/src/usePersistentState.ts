@@ -9,7 +9,8 @@ const KEY_PREFIX = 'song-study:'
 // than the default is ignored.
 export function usePersistentState<T>(key: string, initial: T | (() => T)) {
   const [value, setValue] = useState<T>(() => {
-    const fallback = typeof initial === 'function' ? (initial as () => T)() : initial
+    const fallback =
+      typeof initial === 'function' ? (initial as () => T)() : initial
     try {
       const stored = window.localStorage.getItem(KEY_PREFIX + key)
       if (stored !== null) {

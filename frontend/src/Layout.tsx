@@ -17,10 +17,17 @@ export function Layout() {
     <div className="app-layout">
       <nav className="sidebar">
         <div className="sidebar-scroll">
-          <NavLink to="/new" className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink
+            to="/new"
+            className={({ isActive }) => (isActive ? 'active' : '')}
+          >
             New Document
           </NavLink>
-          <NavLink to="/documents" end className={({ isActive }) => (isActive ? 'active' : '')}>
+          <NavLink
+            to="/documents"
+            end
+            className={({ isActive }) => (isActive ? 'active' : '')}
+          >
             Existing Documents
           </NavLink>
 
@@ -49,7 +56,10 @@ export function Layout() {
             Grammar Rules
           </button>
           <div className="sidebar-section-title">{user.name}</div>
-          <button type="button" onClick={() => logout().then(() => window.location.reload())}>
+          <button
+            type="button"
+            onClick={() => logout().then(() => window.location.reload())}
+          >
             Log out
           </button>
         </div>
@@ -62,8 +72,14 @@ export function Layout() {
       <aside className="right-panel">
         <JmdictSearch />
       </aside>
-      <PosLegendModal open={showPosLegend} onClose={() => setShowPosLegend(false)} />
-      <GrammarLegendModal open={showGrammarLegend} onClose={() => setShowGrammarLegend(false)} />
+      <PosLegendModal
+        open={showPosLegend}
+        onClose={() => setShowPosLegend(false)}
+      />
+      <GrammarLegendModal
+        open={showGrammarLegend}
+        onClose={() => setShowGrammarLegend(false)}
+      />
     </div>
   )
 }

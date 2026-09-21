@@ -122,7 +122,9 @@ def grammar_note(normalized_form: str, part_of_speech) -> str:
 
 def _is_dependent(part_of_speech) -> bool:
     # そう/よう/みたい of そうだ/ようだ/みたいだ are tagged 形状詞-助動詞語幹.
-    return part_of_speech[0] in ("助詞", "助動詞", "接尾辞") or tuple(part_of_speech[:2]) == ("形状詞", "助動詞語幹")
+    return part_of_speech[0] in ("助詞", "助動詞", "接尾辞") or tuple(
+        part_of_speech[:2]
+    ) == ("形状詞", "助動詞語幹")
 
 
 def is_helper_predicate(previous, token) -> bool:
@@ -136,13 +138,19 @@ def is_helper_predicate(previous, token) -> bool:
     if token.normalized_form == "無い":
         return True
     # normalized_form, so ちゃ (short for ては) counts as て.
-    return previous.part_of_speech[1] == "接続助詞" and previous.normalized_form in ("て", "で")
+    return previous.part_of_speech[1] == "接続助詞" and previous.normalized_form in (
+        "て",
+        "で",
+    )
 
 
 def is_helper_verb(token) -> bool:
     """Whether an attached `token` is a helper verb or adjective with a
     dictionary meaning of its own, rather than pure grammar."""
-    return token.part_of_speech[0] in ("動詞", "形容詞") and token.normalized_form != "為る"
+    return (
+        token.part_of_speech[0] in ("動詞", "形容詞")
+        and token.normalized_form != "為る"
+    )
 
 
 def attached_end(tokens, start: int) -> int:
@@ -150,7 +158,8 @@ def attached_end(tokens, start: int) -> int:
     `start - 1`: `start` itself when nothing is attached."""
     end = start
     while end < len(tokens) and (
-        _is_dependent(tokens[end].part_of_speech) or is_helper_predicate(tokens[end - 1], tokens[end])
+        _is_dependent(tokens[end].part_of_speech)
+        or is_helper_predicate(tokens[end - 1], tokens[end])
     ):
         end += 1
     return end

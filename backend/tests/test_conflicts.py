@@ -62,7 +62,9 @@ def _token_row(conn, token_id):
 class TestCreateConflicts:
     def test_no_rows_for_records_with_no_conflict_options(self, db_conn):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
@@ -85,15 +87,23 @@ class TestCreateConflicts:
 
         assert _conflicts_for(db_conn, token_id) == []
 
-    def test_flagged_record_gets_a_selected_default_plus_unselected_alternatives(self, db_conn):
+    def test_flagged_record_gets_a_selected_default_plus_unselected_alternatives(
+        self, db_conn
+    ):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
-        token_id = make_token(db_conn, document_id=document_id, position=0, surface="今日")
+        token_id = make_token(
+            db_conn, document_id=document_id, position=0, surface="今日"
+        )
 
         alt_option = {
             "reading": "こんにち",
-            "furigana_spans": [{"start": 0, "end": 2, "text": "今日", "reading": "こんにち"}],
+            "furigana_spans": [
+                {"start": 0, "end": 2, "text": "今日", "reading": "こんにち"}
+            ],
             "citation_reading": "こんにち",
         }
         record = TokenRecord(
@@ -106,7 +116,9 @@ class TestCreateConflicts:
             reading_katakana="キョウ",
             part_of_speech=["名詞", "普通名詞", "副詞可能", "*", "*", "*"],
             is_oov=False,
-            furigana_spans=[{"start": 0, "end": 2, "text": "今日", "reading": "きょう"}],
+            furigana_spans=[
+                {"start": 0, "end": 2, "text": "今日", "reading": "きょう"}
+            ],
             needs_review=True,
             review_reason="heteronym",
             conflict_options=[alt_option],
@@ -132,14 +144,22 @@ class TestPhraseConflicts:
     def _seed_phrase_tokens(self, conn):
         # この/期/に/及ん/で, whose idiom reads 期 as ご, unlike the token.
         document_id = conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         # Real token data, so each token's own gloss after a split differs.
         tokens_data = [
             ("この", "この", "この", "コノ", ["連体詞", "*", "*", "*", "*", "*"]),
             ("期", "期", "期", "キ", ["名詞", "普通名詞", "一般", "*", "*", "*"]),
             ("に", "に", "に", "ニ", ["助詞", "格助詞", "*", "*", "*", "*"]),
-            ("及ん", "及ぶ", "及ぶ", "オヨン", ["動詞", "一般", "*", "*", "五段-バ行", "連用形-撥音便"]),
+            (
+                "及ん",
+                "及ぶ",
+                "及ぶ",
+                "オヨン",
+                ["動詞", "一般", "*", "*", "五段-バ行", "連用形-撥音便"],
+            ),
             ("で", "で", "で", "デ", ["助詞", "接続助詞", "*", "*", "*", "*"]),
         ]
         token_ids = [
@@ -153,9 +173,13 @@ class TestPhraseConflicts:
                 reading_katakana=reading_katakana,
                 part_of_speech=part_of_speech,
             )
-            for position, (surface, dictionary_form, normalized_form, reading_katakana, part_of_speech) in enumerate(
-                tokens_data
-            )
+            for position, (
+                surface,
+                dictionary_form,
+                normalized_form,
+                reading_katakana,
+                part_of_speech,
+            ) in enumerate(tokens_data)
         ]
         record = TokenRecord(
             position=0,
@@ -199,7 +223,9 @@ class TestPhraseConflicts:
 
     def test_no_rows_when_no_token_has_a_suggestion(self, db_conn):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0)
         record = TokenRecord(
@@ -221,10 +247,14 @@ class TestPhraseConflicts:
 
         assert _conflicts_for(db_conn, token_id) == []
 
-    def test_accepting_a_phrase_suggestion_groups_and_reglosses_every_member(self, db_conn):
+    def test_accepting_a_phrase_suggestion_groups_and_reglosses_every_member(
+        self, db_conn
+    ):
         document_id, token_ids = self._seed_phrase_tokens(db_conn)
         phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
-        original_gloss_ids = [_token_row(db_conn, tid).gloss_lookup_id for tid in token_ids]
+        original_gloss_ids = [
+            _token_row(db_conn, tid).gloss_lookup_id for tid in token_ids
+        ]
 
         resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
 
@@ -232,10 +262,18 @@ class TestPhraseConflicts:
         assert rows[0].selected is True
 
         phrase_positions = db_conn.execute(
-            text("SELECT position, gloss_lookup_id, phrase_start_position FROM tokens WHERE document_id = :d ORDER BY position"),
+            text(
+                "SELECT position, gloss_lookup_id, phrase_start_position FROM tokens WHERE document_id = :d ORDER BY position"
+            ),
             {"d": document_id},
         ).all()
-        assert [row.phrase_start_position for row in phrase_positions] == [0, 0, 0, 0, 0]
+        assert [row.phrase_start_position for row in phrase_positions] == [
+            0,
+            0,
+            0,
+            0,
+            0,
+        ]
         gloss_ids = {row.gloss_lookup_id for row in phrase_positions}
         assert len(gloss_ids) == 1
         # Not left on any member's own gloss.
@@ -260,14 +298,22 @@ class TestPhraseConflicts:
         ni = _token_row(db_conn, token_ids[2])
         oyon = _token_row(db_conn, token_ids[3])
         de = _token_row(db_conn, token_ids[4])
-        assert this_.furigana_override == [{"start": 0, "end": 2, "text": "この", "reading": None}]
-        assert period.furigana_override == [{"start": 0, "end": 1, "text": "期", "reading": "ご"}]
-        assert ni.furigana_override == [{"start": 0, "end": 1, "text": "に", "reading": None}]
+        assert this_.furigana_override == [
+            {"start": 0, "end": 2, "text": "この", "reading": None}
+        ]
+        assert period.furigana_override == [
+            {"start": 0, "end": 1, "text": "期", "reading": "ご"}
+        ]
+        assert ni.furigana_override == [
+            {"start": 0, "end": 1, "text": "に", "reading": None}
+        ]
         assert oyon.furigana_override == [
             {"start": 0, "end": 1, "text": "及", "reading": "およ"},
             {"start": 1, "end": 2, "text": "ん", "reading": None},
         ]
-        assert de.furigana_override == [{"start": 0, "end": 1, "text": "で", "reading": None}]
+        assert de.furigana_override == [
+            {"start": 0, "end": 1, "text": "で", "reading": None}
+        ]
 
     def test_unmerge_reverts_every_member_to_its_own_gloss(self, db_conn):
         document_id, token_ids = self._seed_phrase_tokens(db_conn)
@@ -290,7 +336,9 @@ class TestPhraseConflicts:
         gloss_ids = {row.gloss_lookup_id for row in rows}
         assert len(gloss_ids) == 5
 
-    def test_unmerge_deselects_the_phrase_conflict_so_it_can_be_reaccepted(self, db_conn):
+    def test_unmerge_deselects_the_phrase_conflict_so_it_can_be_reaccepted(
+        self, db_conn
+    ):
         document_id, token_ids = self._seed_phrase_tokens(db_conn)
         phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
         resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
@@ -303,27 +351,36 @@ class TestPhraseConflicts:
         assert rows[0].selected is False
 
         head = db_conn.execute(
-            text("SELECT gloss_lookup_id FROM tokens WHERE id = :id"), {"id": token_ids[0]}
+            text("SELECT gloss_lookup_id FROM tokens WHERE id = :id"),
+            {"id": token_ids[0]},
         ).one()
         entries = db_conn.execute(
-            text("SELECT reading, entries FROM gloss_lookups WHERE id = :id"), {"id": head.gloss_lookup_id}
+            text("SELECT reading, entries FROM gloss_lookups WHERE id = :id"),
+            {"id": head.gloss_lookup_id},
         ).one()
         assert entries.reading != "このごにおよんで"
         assert entries.entries != []
 
         # It can be accepted again.
-        second_accept = resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+        second_accept = resolve_conflict(
+            db_conn, document_id, token_ids[0], phrase_conflict_id
+        )
         assert sorted(second_accept) == sorted(token_ids)
         assert _conflicts_for(db_conn, token_ids[0])[0].selected is True
 
-    def test_selecting_an_ordinary_reading_on_a_merged_token_unmerges_the_whole_group(self, db_conn):
+    def test_selecting_an_ordinary_reading_on_a_merged_token_unmerges_the_whole_group(
+        self, db_conn
+    ):
         # Otherwise the picked token alone is glossed as itself while the rest
         # still show the phrase.
         document_id, token_ids = self._seed_phrase_tokens(db_conn)
         phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
         resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
         assert all(
-            db_conn.execute(text("SELECT phrase_start_position FROM tokens WHERE id = :id"), {"id": tid}).scalar_one()
+            db_conn.execute(
+                text("SELECT phrase_start_position FROM tokens WHERE id = :id"),
+                {"id": tid},
+            ).scalar_one()
             is not None
             for tid in token_ids
         )
@@ -359,7 +416,9 @@ class TestPhraseConflicts:
 
     def test_unmerge_is_a_noop_for_a_token_that_was_never_merged(self, db_conn):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
@@ -367,10 +426,14 @@ class TestPhraseConflicts:
 
     def test_unmerge_raises_for_a_token_outside_the_document(self, db_conn):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         other_document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t2', 't2', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t2', 't2', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         token_id = make_token(db_conn, document_id=other_document_id, position=0)
 
@@ -380,7 +443,9 @@ class TestPhraseConflicts:
         except TokenNotFound:
             pass
 
-    def test_unmerge_clears_the_phrase_furigana_override_and_its_conflicts(self, db_conn):
+    def test_unmerge_clears_the_phrase_furigana_override_and_its_conflicts(
+        self, db_conn
+    ):
         document_id, token_ids = self._seed_phrase_tokens(db_conn)
         phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
         resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
@@ -388,7 +453,9 @@ class TestPhraseConflicts:
 
         unmerge_phrase(db_conn, document_id, token_ids[0])
 
-        assert all(_token_row(db_conn, tid).furigana_override is None for tid in token_ids)
+        assert all(
+            _token_row(db_conn, tid).furigana_override is None for tid in token_ids
+        )
 
 
 class TestPhraseFurigana:
@@ -399,30 +466,50 @@ class TestPhraseFurigana:
         # まにうける spells a る that 真に受け doesn't, and the kana に and け
         # leave nowhere to put it.
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         shin = make_token(db_conn, document_id=document_id, position=0, surface="真")
         ni = make_token(db_conn, document_id=document_id, position=1, surface="に")
         uke = make_token(db_conn, document_id=document_id, position=2, surface="受け")
-        originals = [_token_row(db_conn, tid).furigana_override for tid in (shin, ni, uke)]
+        originals = [
+            _token_row(db_conn, tid).furigana_override for tid in (shin, ni, uke)
+        ]
 
-        _recompute_phrase_furigana(db_conn, document_id, position=0, token_count=3, reading_hiragana="まにうける")
+        _recompute_phrase_furigana(
+            db_conn,
+            document_id,
+            position=0,
+            token_count=3,
+            reading_hiragana="まにうける",
+        )
 
-        assert [_token_row(db_conn, tid).furigana_override for tid in (shin, ni, uke)] == originals
+        assert [
+            _token_row(db_conn, tid).furigana_override for tid in (shin, ni, uke)
+        ] == originals
 
     def test_offers_a_pick_for_a_genuinely_ambiguous_run(self, db_conn):
         # 六右 read むゆう splits as む/ゆう or むゆ/う.
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         roku = make_token(db_conn, document_id=document_id, position=0, surface="六")
         u = make_token(db_conn, document_id=document_id, position=1, surface="右")
 
-        _recompute_phrase_furigana(db_conn, document_id, position=0, token_count=2, reading_hiragana="むゆう")
+        _recompute_phrase_furigana(
+            db_conn, document_id, position=0, token_count=2, reading_hiragana="むゆう"
+        )
 
         # The first valid split applied immediately as the default.
-        assert _token_row(db_conn, roku).furigana_override == [{"start": 0, "end": 1, "text": "六", "reading": "む"}]
-        assert _token_row(db_conn, u).furigana_override == [{"start": 0, "end": 1, "text": "右", "reading": "ゆう"}]
+        assert _token_row(db_conn, roku).furigana_override == [
+            {"start": 0, "end": 1, "text": "六", "reading": "む"}
+        ]
+        assert _token_row(db_conn, u).furigana_override == [
+            {"start": 0, "end": 1, "text": "右", "reading": "ゆう"}
+        ]
 
         alt_conflicts = _conflicts_for(db_conn, roku)
         assert len(alt_conflicts) == 1
@@ -431,14 +518,20 @@ class TestPhraseFurigana:
 
         resolve_phrase_furigana(db_conn, document_id, alt_conflicts[0].id)
 
-        assert _token_row(db_conn, roku).furigana_override == [{"start": 0, "end": 1, "text": "六", "reading": "むゆ"}]
-        assert _token_row(db_conn, u).furigana_override == [{"start": 0, "end": 1, "text": "右", "reading": "う"}]
+        assert _token_row(db_conn, roku).furigana_override == [
+            {"start": 0, "end": 1, "text": "六", "reading": "むゆ"}
+        ]
+        assert _token_row(db_conn, u).furigana_override == [
+            {"start": 0, "end": 1, "text": "右", "reading": "う"}
+        ]
         # Applying an alternative leaves it unselected.
         assert _conflicts_for(db_conn, roku)[0].selected is False
 
     def test_raises_for_a_nonexistent_conflict_id(self, db_conn):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
 
         try:
@@ -451,7 +544,9 @@ class TestPhraseFurigana:
 class TestResolveConflict:
     def _seed_heteronym_token(self, conn):
         document_id = conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         token_id = make_token(
             conn,
@@ -463,12 +558,16 @@ class TestResolveConflict:
         )
         default_value = {
             "reading": "きょう",
-            "furigana_spans": [{"start": 0, "end": 2, "text": "今日", "reading": "きょう"}],
+            "furigana_spans": [
+                {"start": 0, "end": 2, "text": "今日", "reading": "きょう"}
+            ],
             "citation_reading": "きょう",
         }
         alt_value = {
             "reading": "こんにち",
-            "furigana_spans": [{"start": 0, "end": 2, "text": "今日", "reading": "こんにち"}],
+            "furigana_spans": [
+                {"start": 0, "end": 2, "text": "今日", "reading": "こんにち"}
+            ],
             "citation_reading": "こんにち",
         }
         default_id = conn.execute(
@@ -537,7 +636,9 @@ class TestResolveConflict:
 class TestCorrectReading:
     def _seed_uncorrected_token(self, conn):
         document_id = conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
         token_id = make_token(
             conn,
@@ -547,11 +648,15 @@ class TestCorrectReading:
             normalized_form="三股",
             reading_katakana="ミマタ",
             char_end=2,
-            furigana_spans=[{"start": 0, "end": 2, "text": "三股", "reading": "みまた"}],
+            furigana_spans=[
+                {"start": 0, "end": 2, "text": "三股", "reading": "みまた"}
+            ],
         )
         return document_id, token_id
 
-    def test_first_correction_preserves_sudachis_original_as_an_unselected_row(self, db_conn):
+    def test_first_correction_preserves_sudachis_original_as_an_unselected_row(
+        self, db_conn
+    ):
         document_id, token_id = self._seed_uncorrected_token(db_conn)
 
         correct_reading(db_conn, document_id, token_id, "さんまた")
@@ -568,7 +673,9 @@ class TestCorrectReading:
         assert token.needs_review is False
         # 三股 is a 2-kanji run, so the override is split per-character
         # (さん/また), not one whole-word span.
-        assert "".join(s["reading"] or "" for s in token.furigana_override) == "さんまた"
+        assert (
+            "".join(s["reading"] or "" for s in token.furigana_override) == "さんまた"
+        )
 
     def test_second_correction_does_not_duplicate_the_preserved_original(self, db_conn):
         document_id, token_id = self._seed_uncorrected_token(db_conn)
@@ -585,7 +692,9 @@ class TestCorrectReading:
         assert sum(r.selected for r in rows) == 1
         assert next(r for r in rows if r.selected).value["reading"] == "みつまた"
 
-    def test_can_redo_back_to_the_preserved_original_via_resolve_conflict(self, db_conn):
+    def test_can_redo_back_to_the_preserved_original_via_resolve_conflict(
+        self, db_conn
+    ):
         document_id, token_id = self._seed_uncorrected_token(db_conn)
 
         correct_reading(db_conn, document_id, token_id, "さんまた")
@@ -618,12 +727,16 @@ class TestCorrectReading:
             rows = _conflicts_for(conn, token_id)
         # The second call saw the first's committed rows: one preserved
         # original, not two, and only its own reading left selected.
-        assert sorted(r.value["reading"] for r in rows) == sorted(["みまた", "さんまた", "みつまた"])
+        assert sorted(r.value["reading"] for r in rows) == sorted(
+            ["みまた", "さんまた", "みつまた"]
+        )
         assert [r.value["reading"] for r in rows if r.selected] == ["みつまた"]
 
     def test_raises_when_token_not_found(self, db_conn):
         document_id = db_conn.execute(
-            text(f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id")
+            text(
+                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
+            )
         ).scalar_one()
 
         try:

@@ -51,10 +51,15 @@ def normalize_lrclib_uri(value: str) -> str:
     if _TRACK_ID_RE.fullmatch(value):
         return f"{_API_GET}/{value}"
     parsed = urllib.parse.urlsplit(value if "://" in value else f"https://{value}")
-    if parsed.scheme in ("http", "https") and parsed.hostname in ("lrclib.net", "www.lrclib.net"):
+    if parsed.scheme in ("http", "https") and parsed.hostname in (
+        "lrclib.net",
+        "www.lrclib.net",
+    ):
         if match := _GET_BY_ID_PATH_RE.fullmatch(parsed.path):
             return f"{_API_GET}/{match.group(1)}"
-    raise LrclibError("Enter an LRCLIB track ID, or its https://lrclib.net/api/get/… address.")
+    raise LrclibError(
+        "Enter an LRCLIB track ID, or its https://lrclib.net/api/get/… address."
+    )
 
 
 @dataclass(frozen=True)
@@ -110,11 +115,15 @@ def parse_synced_lyrics(lrc: str, duration: Optional[float]) -> LrclibLyrics:
         lines.pop(0)
     while lines and not lines[-1][0]:
         lines.pop()
-    return LrclibLyrics("\n".join(text for text, _ in lines), [timing for _, timing in lines])
+    return LrclibLyrics(
+        "\n".join(text for text, _ in lines), [timing for _, timing in lines]
+    )
 
 
 def _get_json(uri: str) -> dict:
-    request = urllib.request.Request(uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    request = urllib.request.Request(
+        uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
+    )
     try:
         with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
             return json.load(response)
@@ -125,8 +134,12 @@ def _get_json(uri: str) -> dict:
         if exc.code == 429:
             retry_after = exc.headers.get("Retry-After")
             wait = f" in {retry_after} seconds" if retry_after else " later"
-            raise LrclibUnavailable(f"LRCLIB is rate-limiting requests — try again{wait}.") from exc
-        raise LrclibUnavailable(f"LRCLIB responded with an error ({exc.code}).") from exc
+            raise LrclibUnavailable(
+                f"LRCLIB is rate-limiting requests — try again{wait}."
+            ) from exc
+        raise LrclibUnavailable(
+            f"LRCLIB responded with an error ({exc.code})."
+        ) from exc
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         raise LrclibUnavailable("Couldn't reach LRCLIB.") from exc
 
@@ -144,5 +157,7 @@ def fetch_lyrics(uri: str) -> LrclibLyrics:
     if plain:
         return LrclibLyrics(plain, None)
     if record.get("instrumental"):
-        raise LrclibError("That LRCLIB track is marked instrumental, so it has no lyrics.")
+        raise LrclibError(
+            "That LRCLIB track is marked instrumental, so it has no lyrics."
+        )
     raise LrclibError("That LRCLIB track has no lyrics.")

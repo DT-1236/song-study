@@ -6,14 +6,19 @@ const UserContext = createContext<CurrentUser | null>(null)
 
 export function useCurrentUser(): CurrentUser {
   const user = useContext(UserContext)
-  if (user === null) throw new Error('useCurrentUser must be used inside AuthGate')
+  if (user === null)
+    throw new Error('useCurrentUser must be used inside AuthGate')
   return user
 }
 
 // Renders its children only for a logged-in user, and otherwise a link to
 // log in with Google.
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { data: user, loading, error } = useApiResource(fetchCurrentUser, [], 'Could not reach the server.')
+  const {
+    data: user,
+    loading,
+    error,
+  } = useApiResource(fetchCurrentUser, [], 'Could not reach the server.')
 
   if (loading) return null
   if (error) return <p className="login-page">{error}</p>
