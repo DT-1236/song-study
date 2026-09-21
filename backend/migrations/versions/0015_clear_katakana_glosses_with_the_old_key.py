@@ -10,17 +10,15 @@ Create Date: 2026-09-17 00:00:00.000000
 
 """
 
-from typing import Sequence, Union
+from collections.abc import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-
 
 # revision identifiers, used by Alembic.
 revision: str = "0015"
-down_revision: Union[str, Sequence[str], None] = "0014"
-branch_labels: Union[str, Sequence[str], None] = None
-depends_on: Union[str, Sequence[str], None] = None
+down_revision: str | Sequence[str] | None = "0014"
+branch_labels: str | Sequence[str] | None = None
+depends_on: str | Sequence[str] | None = None
 
 _OLD_KEY_GLOSSES = (
     "SELECT id FROM gloss_lookups WHERE source = 'composite' AND entries ? 'read_as'"
@@ -38,4 +36,3 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Downgrade schema."""
     # Nothing to restore: the rows were only a cache.
-    pass

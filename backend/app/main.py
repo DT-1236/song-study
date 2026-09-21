@@ -1,11 +1,10 @@
 import contextlib
 import dataclasses
 import json
-import os
 import re
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query
 from pydantic import BaseModel, Field, field_validator, model_validator
@@ -13,7 +12,8 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.auth import APP_URL, router as auth_router, session_secret
+from app.auth import APP_URL, session_secret
+from app.auth import router as auth_router
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
@@ -78,7 +78,7 @@ api = APIRouter(prefix="/api")
 api.include_router(auth_router)
 
 
-def _sanitize_lyrics(value: str) -> Optional[str]:
+def _sanitize_lyrics(value: str) -> str | None:
     """`value` sanitized, or None if only whitespace is left."""
     value = sanitize_text(value)
     return value if value.strip() else None
@@ -86,20 +86,20 @@ def _sanitize_lyrics(value: str) -> Optional[str]:
 
 class DocumentCreate(BaseModel):
     title: str = Field(min_length=1)
-    text: Optional[str] = None
-    youtube_video_id: Optional[str] = None
-    lrclib_uri: Optional[str] = None
+    text: str | None = None
+    youtube_video_id: str | None = None
+    lrclib_uri: str | None = None
 
     @field_validator("youtube_video_id", "lrclib_uri")
     @classmethod
-    def blank_to_none(cls, value: Optional[str]) -> Optional[str]:
+    def blank_to_none(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return value.strip() or None
 
     @field_validator("text")
     @classmethod
-    def sanitize_text_or_none(cls, value: Optional[str]) -> Optional[str]:
+    def sanitize_text_or_none(cls, value: str | None) -> str | None:
         return None if value is None else _sanitize_lyrics(value)
 
     @model_validator(mode="after")
@@ -125,22 +125,22 @@ class Document(BaseModel):
     id: int
     title: str
     text: str
-    youtube_video_id: Optional[str]
-    lrclib_uri: Optional[str]
+    youtube_video_id: str | None
+    lrclib_uri: str | None
     # Whether LRCLIB's lyrics replace the document's own, rather than the
     # document keeping them; None while it isn't linked.
-    lrclib_replaces_text: Optional[bool]
+    lrclib_replaces_text: bool | None
     # When each line of `text` is sung, in seconds into the track, from
     # LRCLIB's synced lyrics; None without them.
-    lrclib_lines: Optional[list[LineTiming]]
+    lrclib_lines: list[LineTiming] | None
     # The line timings as edited on the document's page, used in place of
     # lrclib_lines: one per line, None for a line whose timing was deleted.
     # None without edits, or once `text` isn't what they were made for.
-    edited_lines: Optional[list[Optional[LineTiming]]] = None
+    edited_lines: list[LineTiming | None] | None = None
     created_at: datetime
     # Why a linked document's lyrics couldn't be refreshed from LRCLIB on
     # this load, in which case the stored ones are returned instead.
-    lrclib_sync_error: Optional[str] = None
+    lrclib_sync_error: str | None = None
 
 
 def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
@@ -275,7 +275,7 @@ def _delete_tokens(conn, document_id: int) -> None:
 
 def _linked_lyrics(
     document_text: str, replaces_text: bool, lyrics: LrclibLyrics
-) -> tuple[str, Optional[list[dict]]]:
+) -> tuple[str, list[dict] | None]:
     """The text and line timings a document linked to LRCLIB takes from
     `lyrics`: LRCLIB's, if they replace its own; otherwise its own text,
     timed by LRCLIB only while LRCLIB's lyrics match it line for line."""
@@ -440,11 +440,11 @@ class LineTimingsUpdate(BaseModel):
     # underneath are refused.
     text: str
     # One per line of `text`, None for a blank line left untimed.
-    lines: list[Optional[LineTiming]]
+    lines: list[LineTiming | None]
 
     @field_validator("lines")
     @classmethod
-    def in_order(cls, lines: list[Optional[LineTiming]]) -> list[Optional[LineTiming]]:
+    def in_order(cls, lines: list[LineTiming | None]) -> list[LineTiming | None]:
         timed = [line for line in lines if line is not None]
         if any(line.start < 0 or line.end < line.start for line in timed):
             raise ValueError(
@@ -506,7 +506,7 @@ SortField = Literal["id", "title", "youtube_video_id", "created_at"]
 class DocumentListItem(BaseModel):
     id: int
     title: str
-    youtube_video_id: Optional[str]
+    youtube_video_id: str | None
     created_at: datetime
 
 
@@ -593,7 +593,7 @@ class GlossPiece(BaseModel):
     ambiguous_readings: list[str]
     # What a grammar word or helper verb adds to the word before it, for a
     # piece of a group's gloss (see app.grammar.grammar_note).
-    note: Optional[str] = None
+    note: str | None = None
 
 
 class Gloss(BaseModel):
@@ -608,7 +608,7 @@ class Gloss(BaseModel):
     pieces: list[GlossPiece] = []
     # The hiragana this was looked up as, for katakana with no dictionary
     # entry of its own (see app/katakana.py).
-    looked_up_as: Optional[str] = None
+    looked_up_as: str | None = None
 
 
 class Conflict(BaseModel):
@@ -627,33 +627,33 @@ class Token(BaseModel):
     surface: str
     dictionary_form: str
     dictionary_form_reading: str
-    dictionary_form_note: Optional[str]
+    dictionary_form_note: str | None
     normalized_form: str
     reading_katakana: str
     part_of_speech: list[str]
     is_oov: bool
     furigana_spans: list[dict]
     needs_review: bool
-    review_reason: Optional[str]
-    furigana_override: Optional[list[dict]]
+    review_reason: str | None
+    furigana_override: list[dict] | None
     # Marked by the user as needing no gloss, like a name no dictionary has.
     gloss_ignored: bool
     # The first token's position when this token is merged with its
     # neighbors into one group, the same across the group; else None.
-    phrase_start_position: Optional[int]
+    phrase_start_position: int | None
     # What that group is: an accepted phrase suggestion (see
     # app/phrase_merge.py), or a predicate with its grammar (see
     # app/grammar.py).
-    group_kind: Optional[Literal["phrase", "predicate"]]
+    group_kind: Literal["phrase", "predicate"] | None
     is_english: bool
-    gloss: Optional[Gloss]
+    gloss: Gloss | None
     conflicts: list[Conflict]
-    start_time: Optional[Decimal]
-    end_time: Optional[Decimal]
+    start_time: Decimal | None
+    end_time: Decimal | None
 
 
 def _fetch_tokens(
-    conn, document_id: int, token_ids: Optional[list[int]] = None
+    conn, document_id: int, token_ids: list[int] | None = None
 ) -> list[Token]:
     token_filter = "AND t.id = ANY(:token_ids)" if token_ids is not None else ""
     rows = conn.execute(
@@ -752,7 +752,7 @@ class _ProcessedDocument:
     # Each predicate group's index range (see app.grammar).
     groups: list[range]
     # The gloss key of each record, by index: its group's, if it's in one.
-    gloss_keys: list[Optional[GlossKey]]
+    gloss_keys: list[GlossKey | None]
     gloss_plan: GlossPlan
 
 
@@ -1069,7 +1069,7 @@ def _token_group_errors():
 
 class TokensReading(ReadingCorrection, TokenIds):
     # The furigana split to prefer among the tokens' options with `reading`.
-    furigana_spans: Optional[list[dict]] = None
+    furigana_spans: list[dict] | None = None
 
 
 @api.post("/documents/{document_id}/tokens/reading", response_model=list[Token])

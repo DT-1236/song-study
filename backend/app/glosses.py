@@ -26,7 +26,6 @@ import sqlite3
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Optional
 
 from jamdict import Jamdict
 from sqlalchemy import text
@@ -375,7 +374,7 @@ def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
     return scored
 
 
-def resolve_phrase_reading(surface: str) -> Optional[str]:
+def resolve_phrase_reading(surface: str) -> str | None:
     """The hiragana reading JMDict gives `surface` as a headword, common ones
     first, or None if it isn't one. It can differ from its tokens' readings:
     期 alone reads き, but この期に及んで has ご."""
@@ -454,7 +453,7 @@ def citation_key(normalized_form: str) -> GlossKey:
     return (normalized_form, mixed_reading(normalized_form))
 
 
-def gloss_key(record: TokenRecord) -> Optional[GlossKey]:
+def gloss_key(record: TokenRecord) -> GlossKey | None:
     """The cache key a newly tokenized token is glossed under, or None if it
     doesn't get a gloss."""
     if not is_glossable(record.part_of_speech, bool(record.conflict_options)):
@@ -465,8 +464,8 @@ def gloss_key(record: TokenRecord) -> Optional[GlossKey]:
 
 
 def own_gloss_key(
-    normalized_form: str, part_of_speech, selected_reading: Optional[str]
-) -> Optional[GlossKey]:
+    normalized_form: str, part_of_speech, selected_reading: str | None
+) -> GlossKey | None:
     """The gloss key for a stored token: under `selected_reading`, if a
     reading was picked, else its citation form's, or None if it isn't
     glossable."""
@@ -512,7 +511,7 @@ def _cached_rows(conn, keys, *, with_entries: bool = False) -> dict:
 
 
 def _lookup(
-    lookup_form: str, reading: str, alt_lookup_form: Optional[str] = None
+    lookup_form: str, reading: str, alt_lookup_form: str | None = None
 ) -> tuple[object, str]:
     """(entries, source) for one key, from the English stub or JMDict, trying
     alt_lookup_form too when lookup_form has no entry."""
@@ -530,7 +529,7 @@ def _lookup(
     return found, "jmdict"
 
 
-def _kanji_spelling(entries, senses) -> Optional[str]:
+def _kanji_spelling(entries, senses) -> str | None:
     """How the entry the first of `senses` comes from is usually written, if
     it's written with kanji at all (こころのこえ -> 心の声)."""
     entry = (
@@ -552,8 +551,8 @@ def gloss_piece(
     source: str,
     part_of_speech,
     *,
-    senses_pos_major: Optional[str] = None,
-    note: Optional[str] = None,
+    senses_pos_major: str | None = None,
+    note: str | None = None,
     spell_with_kanji: bool = False,
 ) -> dict:
     """A composite gloss piece for `surface` read as `reading`, with the
@@ -634,7 +633,7 @@ class GroupPart:
     reading: str
 
     @classmethod
-    def of(cls, token, reading: str) -> "GroupPart":
+    def of(cls, token, reading: str) -> GroupPart:
         """The part for `token`, a token or token row, read as `reading`."""
         return cls(
             token.dictionary_form,
@@ -653,7 +652,7 @@ class GroupGlossRequest:
     # The word's own gloss key (a verb's citation key, or an idiom's
     # headword), and an alternate spelling to try for it.
     base_key: GlossKey
-    base_alt: Optional[str]
+    base_alt: str | None
     base_part_of_speech: tuple
     attached: tuple[GroupPart, ...]
     # The whole group's reading, as on the page.
@@ -752,7 +751,7 @@ def _piece_sources(
 ) -> dict[GlossKey, tuple[object, str]]:
     """The (entries, source) of every base and helper verb in `groups`, from
     the cache or else looked up, adding each lookup to `new_rows`."""
-    alternates: dict[GlossKey, Optional[str]] = {}
+    alternates: dict[GlossKey, str | None] = {}
     for group in groups:
         alternates.setdefault(group.base_key, group.base_alt)
         for part in group.attached:
@@ -846,7 +845,7 @@ def _add_katakana_readings(
 
 def plan_glosses(
     conn,
-    requests: Iterable[tuple[GlossKey, Optional[str]]],
+    requests: Iterable[tuple[GlossKey, str | None]],
     groups: Iterable[GroupGlossRequest] = (),
 ) -> GlossPlan:
     """Resolve each requested key, and each of `groups`' composite keys,
@@ -856,7 +855,7 @@ def plan_glosses(
     own lookup_form has no JMDict entry; the first one given for a key is
     used."""
     groups = list(groups)
-    alternates: dict[GlossKey, Optional[str]] = {}
+    alternates: dict[GlossKey, str | None] = {}
     for key, alt in requests:
         alternates.setdefault(key, alt)
     cached_ids = {
@@ -925,7 +924,7 @@ def store_glosses(conn, plan: GlossPlan) -> dict[GlossKey, int]:
 
 
 def get_or_create_gloss_lookup(
-    conn, lookup_form: str, reading: str, *, alt_lookup_form: Optional[str] = None
+    conn, lookup_form: str, reading: str, *, alt_lookup_form: str | None = None
 ) -> int:
     """The gloss_lookups row id for (lookup_form, reading), computing and
     caching it first if it isn't cached yet. alt_lookup_form is a second

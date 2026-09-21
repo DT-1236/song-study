@@ -13,8 +13,6 @@ would start a new bunsetsu at them (見て|いる).
 
 from __future__ import annotations
 
-from typing import Optional
-
 _HEAD_POS = frozenset({"動詞", "形容詞", "形状詞"})
 
 # Short explanations for grammar words and helper verbs in a group, keyed by
@@ -165,7 +163,7 @@ def attached_end(tokens, start: int) -> int:
     return end
 
 
-def predicate_group_end(tokens, start: int) -> Optional[int]:
+def predicate_group_end(tokens, start: int) -> int | None:
     """The index just past the predicate group headed by `tokens[start]`, or
     None if it doesn't head one of two or more tokens. A noun directly
     followed by する heads one too (勉強してた)."""
