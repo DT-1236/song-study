@@ -30,19 +30,15 @@ so it can be picked up without re-deriving the reasoning.
 
 ## From adding Prettier and Ruff (formatting only)
 
-- **Adopt `ruff check`, not just `ruff format`.**
-  Installing Ruff for formatting also brings its linter, and it currently
-  reports 187 findings across `app/`, `tests/` and `migrations/` — 177 of them
-  auto-fixable. The bulk is mechanical: 115 `UP007`/`UP045` (`Optional[X]` and
-  `Union[X, Y]` → `X | None`, `X | Y`), 21 `I001` (unsorted imports), 18
-  `UP035` (deprecated `typing` imports) and 16 `F401` (unused imports). The
-  remainder needs judgment and is worth reading one at a time: `B023`
-  (a closure capturing a loop variable) and `BLE001` (a blind `except`) can
-  each be a real bug rather than a style point. Kept out of the formatting
-  change so that diff stays reviewable as pure reflow.
-  *Sonnet 5, medium* — the auto-fixes are pattern application against a clear
-  spec, but the dozen judgment findings should be read by a human before the
-  `--fix` sweep is committed.
+- **Narrow the blind `except` in `heteronym_readings`.**
+  `app/tokenization.py` catches bare `Exception` around a SudachiPy lookup and
+  returns `[]`. That's the right fallback — it runs per token while tokenizing,
+  and "no heteronym readings" is a fine answer — but as written it also
+  swallows a real bug. Narrowing it needs a list of what SudachiPy's `lookup`
+  actually raises, which is why the Ruff adoption left it with a `# noqa` and
+  a comment rather than guessing.
+  *Sonnet 5, medium* — the work is finding out what that library raises; the
+  edit itself is one line.
 
 - **No CI runs either formatter.**
   Pre-commit hooks now run both, but they're opt-in per clone (`pre-commit

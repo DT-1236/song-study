@@ -60,13 +60,16 @@
     quotes), so `backend/ruff.toml` only pins the target Python version.
 - `npm run format:check` and `ruff format --check` are the read-only versions,
   for confirming a branch is clean without rewriting files.
-- Ruff's *linter* (`ruff check`) is installed alongside its formatter but is
-  not adopted yet — it reports findings across the existing code. Don't run
-  `ruff check --fix` as part of an unrelated change; see `docs/backlog.md`.
-  That's also why `.pre-commit-config.yaml` runs `ruff-format` and not `ruff`:
-  a `--fix` hook would sweep the linter in a file at a time.
-- Both formatters also run as pre-commit hooks, which is belt and braces for
-  the line above rather than a replacement for it. They only run once you've
+- Ruff's *linter* (`ruff check app tests migrations`) is adopted and clean —
+  keep it that way, and don't add a `# noqa` without a comment saying why the
+  rule is wrong here rather than the code.
+  - It runs as a pre-commit hook, reporting without `--fix`. A hook that
+    rewrites code mid-commit is how a sweep lands unread, and the findings
+    worth having are the ones you read: the last sweep turned up a closure
+    over a loop variable and two deliberate blind excepts.
+  - `ruff check --fix` by hand is fine. Read what it changed before committing.
+- The formatters and the linter run as pre-commit hooks, which is belt and
+  braces for the above rather than a replacement. They only run once you've
   installed them: `.venv/bin/pre-commit install` in `backend/`, once per
   clone. `pre-commit run --all-files` runs them over the whole repo.
 
