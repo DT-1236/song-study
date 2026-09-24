@@ -30,7 +30,7 @@ from app.conflicts import (
     select_reading,
     unmerge_phrase,
 )
-from app.db import _owned_document_row, engine, json_param
+from app.db import DOCUMENT_COLUMNS, engine, json_param, owned_document_row
 from app.glosses import (
     GlossKey,
     GlossPlan,
@@ -110,13 +110,6 @@ class DocumentCreate(BaseModel):
         return self
 
 
-_DOCUMENT_COLUMNS = (
-    "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, "
-    # Edits only apply to the text they were made for.
-    "CASE WHEN edited_lines_text = text THEN edited_lines END AS edited_lines, created_at"
-)
-
-
 class LineTiming(BaseModel):
     start: float
     end: float
@@ -176,7 +169,7 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
                         :owner_id, :title, :text, :youtube_video_id, :lrclib_uri, :lrclib_replaces_text,
                         CAST(:lrclib_lines AS JSONB)
                     )
-                    RETURNING {_DOCUMENT_COLUMNS}
+                    RETURNING {DOCUMENT_COLUMNS}
                     """
                 ),
                 {
@@ -216,7 +209,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there."""
     with engine.connect() as conn:
-        row = _owned_document_row(conn, document_id, user_id)
+        row = owned_document_row(conn, document_id, user_id)
 
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -289,7 +282,7 @@ def _lock_document(conn, document_id: int, user_id: int):
     transaction; a 404 if they have no such document."""
     # The same lock a first tokens request takes to write, so writes to the
     # document can't interleave with one.
-    current = _owned_document_row(conn, document_id, user_id, for_update=True)
+    current = owned_document_row(conn, document_id, user_id, for_update=True)
     if current is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return current
@@ -313,7 +306,7 @@ def _store_lrclib_lyrics(
             SET text = :text, lrclib_uri = :uri, lrclib_replaces_text = :replace_text,
                 lrclib_lines = CAST(:lines AS JSONB)
             WHERE id = :id
-            RETURNING {_DOCUMENT_COLUMNS}
+            RETURNING {DOCUMENT_COLUMNS}
             """
         ),
         {
@@ -360,7 +353,7 @@ def update_document_text(
                 f"""
                 UPDATE documents SET text = :text, lrclib_lines = NULL
                 WHERE id = :id AND owner_id = :owner_id AND lrclib_replaces_text IS NOT TRUE
-                RETURNING {_DOCUMENT_COLUMNS}
+                RETURNING {DOCUMENT_COLUMNS}
                 """
             ),
             {"id": document_id, "owner_id": user_id, "text": body.text},
@@ -415,7 +408,7 @@ def unlink_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
                 f"""
                 UPDATE documents SET lrclib_uri = NULL, lrclib_replaces_text = NULL
                 WHERE id = :id AND owner_id = :owner_id
-                RETURNING {_DOCUMENT_COLUMNS}
+                RETURNING {DOCUMENT_COLUMNS}
                 """
             ),
             {"id": document_id, "owner_id": user_id},
@@ -477,7 +470,7 @@ def save_line_timings(
                 f"""
                 UPDATE documents SET edited_lines = CAST(:lines AS JSONB), edited_lines_text = :text
                 WHERE id = :id
-                RETURNING {_DOCUMENT_COLUMNS}
+                RETURNING {DOCUMENT_COLUMNS}
                 """
             ),
             {

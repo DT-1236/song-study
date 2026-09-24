@@ -16,12 +16,16 @@ def json_param(value) -> str | None:
     return None if value is None else json.dumps(value)
 
 
-def _owned_document_row(conn, id: int, user_id: int, for_update: bool = False):
+DOCUMENT_COLUMNS = (
+    "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, "
+    # Edits only apply to the text they were made for.
+    "CASE WHEN edited_lines_text = text THEN edited_lines END AS edited_lines, created_at"
+)
+
+
+def owned_document_row(conn, id: int, user_id: int, for_update: bool = False):
     """The row of the user's document; None if they have no such document."""
-    query = "SELECT id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, CASE WHEN edited_lines_text = text THEN edited_lines END AS edited_lines, created_at FROM documents WHERE id = :id AND owner_id = :owner_id"
+    query = f"SELECT {DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id"
     if for_update:
         query += " FOR UPDATE"
-    return conn.execute(
-        text(query),
-        {"id": id, "owner_id": user_id},
-    ).one_or_none()
+    return conn.execute(text(query), {"id": id, "owner_id": user_id}).one_or_none()
