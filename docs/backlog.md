@@ -6,14 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## From `/simplify` on PR #24 (users, ownership, Google login)
 
-- **One helper for the owner-scoped document select.**
-  `get_document`, `_lock_document` and `owned_document_id` each write their own
-  `WHERE id = :id AND owner_id = :owner_id`, now across two modules. A single
-  `_owned_document_row(conn, id, user_id, for_update=False)` would remove the
-  repetition. The gain is small, and `owned_document_id` lives in `app/users.py`
-  so the helper would need a home both can reach.
-  *Haiku 4.5, low* — mechanical, with one obvious shape.
-
 - **Handle a 401 centrally in the frontend's `apiFetch`.**
   `AuthGate` checks `/auth/me` once, at load, so a session that expires mid-use
   surfaces as per-call error text. `apiFetch` could catch a 401 and send the
