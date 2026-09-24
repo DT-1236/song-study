@@ -1,16 +1,18 @@
 repos:
   # Pinned to the ruff the backend's venv installs, so the hook and the
   # `ruff format` AGENTS.md tells you to run can't disagree about a file.
-  # Only the formatter: Ruff's linter isn't adopted yet (AGENTS.md), and a
-  # `--fix` hook would sweep it in file by file, which is what that says not
-  # to do. The lint hook belongs with the adoption, not before it.
+  # Both are scoped to backend/, as AGENTS.md's `ruff format app tests
+  # migrations` is: this ruff also formats Python inside markdown, which would
+  # reflow the hand-aligned snippets in docs/.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
     hooks:
+      # Reports without rewriting: a --fix hook edits code mid-commit, and the
+      # findings worth having are the ones you read (see the B023 and BLE001
+      # in the adoption commit). `ruff check --fix` by hand is still fine.
+      - id: ruff-check
+        files: ^backend/
       - id: ruff-format
-        # backend/ only, as AGENTS.md's `ruff format app tests migrations` is:
-        # this ruff also formats Python inside markdown, which would reflow the
-        # hand-aligned snippets in docs/.
         files: ^backend/
 
   # The repo's own prettier, not pre-commit's mirror: the mirror is archived,

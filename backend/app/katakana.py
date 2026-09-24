@@ -7,7 +7,6 @@ looked up as hiragana the same text splits into words JMDict has
 from __future__ import annotations
 
 import re
-from typing import Optional, Union
 
 from app.glosses import (
     GroupGlossRequest,
@@ -17,7 +16,7 @@ from app.glosses import (
 )
 from app.grammar import find_predicate_groups
 from app.phrase_merge import find_phrase_suggestions
-from app.tokenization import tokenize_document, to_hiragana
+from app.tokenization import to_hiragana, tokenize_document
 
 _KATAKANA_WORD_RE = re.compile(r"^[ァ-ヶー]{2,}$")
 
@@ -31,7 +30,7 @@ def is_katakana_word(text: str) -> bool:
 
 def hiragana_units(
     katakana: str,
-) -> Optional[list[Union[GroupGlossRequest, GroupPart]]]:
+) -> list[GroupGlossRequest | GroupPart] | None:
     """The words of `katakana` looked up as hiragana, in order: a gloss
     request for each word, phrase, or predicate group, and a bare part for
     each grammar word between them. None when the hiragana doesn't split
@@ -42,7 +41,7 @@ def hiragana_units(
     find_predicate_groups(records)
     find_phrase_suggestions(records)
 
-    units: list[Union[GroupGlossRequest, GroupPart]] = []
+    units: list[GroupGlossRequest | GroupPart] = []
     i = 0
     while i < len(records):
         record = records[i]

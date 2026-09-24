@@ -206,7 +206,7 @@ class TestPhraseConflicts:
         return document_id, token_ids
 
     def test_create_phrase_conflicts_inserts_one_unselected_row(self, db_conn):
-        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        _document_id, token_ids = self._seed_phrase_tokens(db_conn)
 
         rows = _conflicts_for(db_conn, token_ids[0])
         assert len(rows) == 1
@@ -623,7 +623,9 @@ class TestResolveConflict:
         assert gloss_for_default != gloss_for_alt
 
     def test_raises_when_conflict_does_not_belong_to_token(self, db_conn):
-        document_id, token_id, default_id, alt_id = self._seed_heteronym_token(db_conn)
+        document_id, _token_id, default_id, _alt_id = self._seed_heteronym_token(
+            db_conn
+        )
         other_token_id = make_token(db_conn, document_id=document_id, position=1)
 
         try:

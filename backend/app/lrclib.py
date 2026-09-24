@@ -18,7 +18,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
-from typing import Optional
 
 from app.sanitize import sanitize_text
 
@@ -51,12 +50,12 @@ def normalize_lrclib_uri(value: str) -> str:
     if _TRACK_ID_RE.fullmatch(value):
         return f"{_API_GET}/{value}"
     parsed = urllib.parse.urlsplit(value if "://" in value else f"https://{value}")
-    if parsed.scheme in ("http", "https") and parsed.hostname in (
-        "lrclib.net",
-        "www.lrclib.net",
+    if (
+        parsed.scheme in ("http", "https")
+        and parsed.hostname in ("lrclib.net", "www.lrclib.net")
+        and (match := _GET_BY_ID_PATH_RE.fullmatch(parsed.path))
     ):
-        if match := _GET_BY_ID_PATH_RE.fullmatch(parsed.path):
-            return f"{_API_GET}/{match.group(1)}"
+        return f"{_API_GET}/{match.group(1)}"
     raise LrclibError(
         "Enter an LRCLIB track ID, or its https://lrclib.net/api/get/… address."
     )
@@ -67,7 +66,7 @@ class LrclibLyrics:
     text: str
     # One {"start", "end"} per line of `text`, in seconds, or None when the
     # record only has unsynced lyrics.
-    lines: Optional[list[dict]]
+    lines: list[dict] | None
 
 
 # [mm:ss], [mm:ss.x…], or the [mm:ss:xx] some LRC writers use.
@@ -78,7 +77,7 @@ _WORD_TIMESTAMP_RE = re.compile(r"<\d+:\d{1,2}(?:[.:]\d+)?>")
 _LAST_LINE_FALLBACK_SECONDS = 5.0
 
 
-def parse_synced_lyrics(lrc: str, duration: Optional[float]) -> LrclibLyrics:
+def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
     """The text of LRC-format lyrics, one line per timed line in time order,
     each timed from its timestamp to the next line's — the last line's to
     `duration`, the track's length in seconds."""

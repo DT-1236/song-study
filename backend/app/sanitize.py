@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from functools import lru_cache
+from functools import cache
 
 # Every line break str.splitlines recognizes.
 _LINE_BREAK_RE = re.compile("\r\n|[\n\r\v\f\x1c\x1d\x1e\x85\u2028\u2029]")
@@ -16,7 +16,7 @@ _INVISIBLE_RE = re.compile("[\u200b\u2060\ufeff\u00ad]")
 _SPACE_RUN_RE = re.compile(r"[^\S\u3000]+")
 
 
-@lru_cache(maxsize=None)
+@cache
 def _fold_latin_lookalike(ch: str) -> str:
     """The plain Latin letters `ch` is a compatibility variant of (U+217F,
     the Roman numeral one thousand, as m; ﬁ as fi), or `ch` itself if it
