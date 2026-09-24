@@ -14,14 +14,6 @@ so it can be picked up without re-deriving the reasoning.
   so the helper would need a home both can reach.
   *Haiku 4.5, low* — mechanical, with one obvious shape.
 
-- **The comment above `app.include_router(api)` is wrong.**
-  It says including a router copies its routes, so inclusion must come last.
-  This FastAPI version nests the router instead (`_IncludedRouter`, which is why
-  `tests/support.py`'s `api_routes()` has to walk it), so the ordering may no
-  longer be load-bearing. Worth checking before someone relies on either claim.
-  *Haiku 4.5, low* — read the FastAPI version's `include_router`, then fix the
-  comment or keep it with a real reason.
-
 - **Handle a 401 centrally in the frontend's `apiFetch`.**
   `AuthGate` checks `/auth/me` once, at load, so a session that expires mid-use
   surfaces as per-call error text. `apiFetch` could catch a 401 and send the
@@ -39,12 +31,3 @@ so it can be picked up without re-deriving the reasoning.
   a comment rather than guessing.
   *Sonnet 5, medium* — the work is finding out what that library raises; the
   edit itself is one line.
-
-- **No CI runs either formatter.**
-  Pre-commit hooks now run both, but they're opt-in per clone (`pre-commit
-  install`) and skippable with `--no-verify`, so nothing enforces them for
-  everyone. The drift is not hypothetical: `DocumentViewPage.tsx` was already
-  out of Prettier format on main by the time the hooks were fixed. There's
-  still no CI workflow in the repo at all, so this means adding one.
-  *Haiku 4.5, low* — a standard GitHub Actions workflow once someone decides
-  that's the mechanism.

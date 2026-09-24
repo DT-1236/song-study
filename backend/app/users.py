@@ -4,9 +4,8 @@ app/auth.py), and which documents that lets it reach."""
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request
-from sqlalchemy import text
 
-from app.db import engine
+from app.db import _owned_document_row, engine
 
 
 def current_user_id(request: Request) -> int:
@@ -30,14 +29,8 @@ def owned_document_id(document_id: int, user_id: CurrentUser) -> int:
     # can't change hands (nothing transfers or deletes one), and the routes
     # that go on to write still re-scope by owner_id under their own lock.
     with engine.connect() as conn:
-        owned = conn.execute(
-            text(
-                "SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"
-            ),
-            {"id": document_id, "owner_id": user_id},
-        ).scalar_one()
-    if not owned:
-        raise HTTPException(status_code=404, detail="Document not found.")
+        if _owned_document_row(conn, document_id, user_id) is None:
+            raise HTTPException(status_code=404, detail="Document not found.")
     return document_id
 
 

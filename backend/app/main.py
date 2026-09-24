@@ -30,7 +30,7 @@ from app.conflicts import (
     select_reading,
     unmerge_phrase,
 )
-from app.db import engine, json_param
+from app.db import _owned_document_row, engine, json_param
 from app.glosses import (
     GlossKey,
     GlossPlan,
@@ -216,12 +216,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there."""
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id"
-            ),
-            {"id": document_id, "owner_id": user_id},
-        ).one_or_none()
+        row = _owned_document_row(conn, document_id, user_id)
 
     if row is None:
         raise HTTPException(status_code=404, detail="Document not found.")
@@ -294,12 +289,7 @@ def _lock_document(conn, document_id: int, user_id: int):
     transaction; a 404 if they have no such document."""
     # The same lock a first tokens request takes to write, so writes to the
     # document can't interleave with one.
-    current = conn.execute(
-        text(
-            f"SELECT {_DOCUMENT_COLUMNS} FROM documents WHERE id = :id AND owner_id = :owner_id FOR UPDATE"
-        ),
-        {"id": document_id, "owner_id": user_id},
-    ).one_or_none()
+    current = _owned_document_row(conn, document_id, user_id, for_update=True)
     if current is None:
         raise HTTPException(status_code=404, detail="Document not found.")
     return current
@@ -1111,5 +1101,4 @@ def set_tokens_ignored(
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
 
 
-# After every route above is registered, since including a router copies its routes.
 app.include_router(api)
