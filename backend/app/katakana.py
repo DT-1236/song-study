@@ -75,7 +75,7 @@ def hiragana_units(
                 predicate_group_request(
                     members,
                     [to_hiragana(r.reading_katakana) for r in members],
-                    citation_key(record.normalized_form),
+                    citation_key(record.normalized_form, record.dictionary_form),
                 )
             )
         elif record.part_of_speech[0] in _GRAMMAR_POS:
@@ -91,7 +91,7 @@ def hiragana_units(
                 predicate_group_request(
                     [record],
                     [to_hiragana(record.reading_katakana)],
-                    citation_key(record.normalized_form),
+                    citation_key(record.normalized_form, record.dictionary_form),
                 )
             )
         i = end

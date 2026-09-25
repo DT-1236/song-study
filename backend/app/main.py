@@ -22,6 +22,7 @@ from app.conflicts import (
     TokenNotFound,
     TokensNotGroupable,
     accept_phrase_suggestions,
+    attach_group_glosses,
     correct_reading,
     create_conflicts,
     create_phrase_conflicts,
@@ -850,6 +851,7 @@ def get_document_tokens(
             # existed, or unlinked by a migration that reset the gloss cache
             # (as 0005 did).
             with engine.begin() as conn:
+                attach_group_glosses(conn, document_id)
                 attach_glosses(conn, document_id)
                 return _fetch_tokens(conn, document_id)
 

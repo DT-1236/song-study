@@ -43,6 +43,7 @@ from app.tokenization import (
     citation_reading,
     conjugation_type_of,
     dictionary_form_note,
+    headword_reading,
     heteronym_readings,
     mixed_reading,
     slice_spans_by_token,
@@ -741,6 +742,29 @@ class TestMixedReading:
 
     def test_jukujikun_word(self):
         assert mixed_reading("今日") == "きょう"
+
+
+class TestHeadwordReading:
+    def test_the_page_decides_between_words_spelled_the_same(self):
+        # する normalizes to 為る, which read on its own is なる ("to become").
+        assert mixed_reading("為る") == "なる"
+        assert headword_reading("為る", "する") == "する"
+        # So does a kana spelling of one of a word's readings.
+        assert headword_reading("言う", "いう") == "いう"
+        assert headword_reading("私", "ワタシ") == "わたし"
+
+    def test_a_different_word_on_the_page_keeps_the_normalized_forms_reading(
+        self,
+    ):
+        # 挟める's reading is a different word's, not one of 挟む's.
+        assert headword_reading("挟む", "挟める") == "はさむ"
+
+    def test_a_standalone_reading_of_another_word_is_passed_over(self):
+        # 為る on its own is the 為る that normalizes to 成る.
+        assert headword_reading("為る", "為る") == "する"
+
+    def test_an_unknown_word_reads_as_on_its_own(self):
+        assert headword_reading("無理ゲー", "無理ゲー") == "むりゲー"
 
 
 class TestCitationReading:

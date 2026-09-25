@@ -155,7 +155,7 @@ def dictionary_form_note(
         return None
 
     dict_reading = mixed_reading(dictionary_form)
-    norm_reading = mixed_reading(normalized_form)
+    norm_reading = headword_reading(normalized_form, dictionary_form)
 
     if _is_regular_potential_form(dictionary_form, conjugation_type, normalized_form):
         return (
@@ -520,6 +520,19 @@ def _furigana_spans_for_morpheme(m) -> FuriganaResult:
     return build_furigana_spans(surface, reading)
 
 
+def _mixed(word: str, reading_katakana: str) -> str:
+    """`reading_katakana`, a reading of `word`, in JMDict's convention (see
+    mixed_reading)."""
+    # Reuses the furigana span alignment: each span's own text is already
+    # in whatever script it's written in, so non-kanji spans just pass
+    # through unchanged.
+    spans, _, _ = build_furigana_spans(word, reading_katakana)
+    return "".join(
+        span["reading"] if span["reading"] is not None else span["text"]
+        for span in spans
+    )
+
+
 @lru_cache(maxsize=4096)
 def mixed_reading(word: str) -> str:
     """The reading of `word` in JMDict's convention: kanji rendered in
@@ -527,14 +540,51 @@ def mixed_reading(word: str) -> str:
     JMDict's kana_forms mix hiragana and katakana per word (無理ゲー's
     real entry is keyed to むりゲー, not むりげー).
     """
-    # Reuses the furigana span alignment: each span's own text is already
-    # in whatever script it's written in, so non-kanji spans just pass
-    # through unchanged.
-    spans, _, _ = build_furigana_spans(word, citation_reading(word))
-    return "".join(
-        span["reading"] if span["reading"] is not None else span["text"]
-        for span in spans
-    )
+    return _mixed(word, citation_reading(word))
+
+
+def _lexicon_lookup(surface: str) -> list:
+    """Every dictionary entry spelled `surface`, or none if the dictionary
+    can't look it up."""
+    try:
+        return list(_get_dictionary().lookup(surface))
+    except (sudachi_errors.SudachiError, UnicodeEncodeError):
+        # A lookup that fails means "no entries", not a failed request: this
+        # runs per token while tokenizing a document. These are the two ways
+        # lookup rejects a surface (input past ~49KB; a lone surrogate that
+        # can't be encoded). Anything else, such as a TypeError from a
+        # non-str surface, is a caller bug and propagates.
+        return []
+
+
+@lru_cache(maxsize=4096)
+def _own_readings(normalized_form: str) -> list[str]:
+    """The katakana readings of the words the dictionary spells
+    `normalized_form` and normalizes to it, in its order."""
+    readings: list[str] = []
+    for m in _lexicon_lookup(normalized_form):
+        if m.normalized_form() == normalized_form and m.reading_form() not in readings:
+            readings.append(m.reading_form())
+    return readings
+
+
+@lru_cache(maxsize=4096)
+def headword_reading(normalized_form: str, dictionary_form: str) -> str:
+    """The citation reading, in JMDict's convention (see mixed_reading), of
+    the word a token with these forms is: `normalized_form` as read where
+    it's written `dictionary_form`. One spelling can be several words, and
+    read on its own it's whichever Sudachi's tokenizer prefers: する
+    normalizes to 為る, which on its own reads なる, "to become"."""
+    own = _own_readings(normalized_form)
+    standalone = citation_reading(normalized_form)
+    # The reading as written on the page, if it's one of the word's (する
+    # for 為る; not 挟める's for 挟む, a different word). Otherwise the
+    # standalone reading, unless that's another word's (為る on its own is
+    # the 為る normalized to 成る), leaving the word's first.
+    for candidate in (citation_reading(dictionary_form), standalone):
+        if candidate in own:
+            return _mixed(normalized_form, candidate)
+    return _mixed(normalized_form, own[0] if own else standalone)
 
 
 def furigana_spans_for_reading(surface: str, reading_katakana: str) -> list[dict]:
@@ -575,17 +625,8 @@ def heteronym_readings(surface: str, pos: tuple) -> list[str]:
     readings that differ because the part-of-speech differs (already
     resolved by Sudachi's own context modeling, e.g. 人 as ひと vs the
     counter-suffix にん)."""
-    try:
-        candidates = _get_dictionary().lookup(surface)
-    except (sudachi_errors.SudachiError, UnicodeEncodeError):
-        # A lookup that fails means "no heteronym readings to offer", not a
-        # failed request: this runs per token while tokenizing a document.
-        # These are the two ways lookup rejects a surface (input past ~49KB;
-        # a lone surrogate that can't be encoded). Anything else, such as a
-        # TypeError from a non-str surface, is a caller bug and propagates.
-        return []
     readings: list[str] = []
-    for m in candidates:
+    for m in _lexicon_lookup(surface):
         if tuple(m.part_of_speech()) == pos and m.reading_form() not in readings:
             readings.append(m.reading_form())
     return readings
@@ -722,7 +763,7 @@ def tokenize_document(text: str) -> list[TokenRecord]:
                 # here would send an inflected, non-citation reading to the
                 # gloss lookup the moment a user picks a non-default option
                 # on anything but a bare citation-form occurrence.
-                citation = mixed_reading(m.normalized_form())
+                citation = headword_reading(m.normalized_form(), m.dictionary_form())
                 conflict_options = [
                     conflict_option_value(to_hiragana(reading), alt, citation)
                     for alt in span_alternatives

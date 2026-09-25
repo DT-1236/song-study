@@ -110,7 +110,12 @@ def _own_word(row, explicit: bool) -> tuple[CardKey, str | None] | None:
         or (row.needs_review and row.review_reason in _GUESSED_READING_REASONS)
     ):
         return None
-    key = own_gloss_key(row.normalized_form, row.part_of_speech, row.selected_reading)
+    key = own_gloss_key(
+        row.normalized_form,
+        row.dictionary_form,
+        row.part_of_speech,
+        row.selected_reading,
+    )
     if key is None:
         return None
     return CardKey("recognition", *key), row.dictionary_form
