@@ -4,14 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## From `/simplify` on PR #24 (users, ownership, Google login)
-
-- **Handle a 401 centrally in the frontend's `apiFetch`.**
-  `AuthGate` checks `/auth/me` once, at load, so a session that expires mid-use
-  surfaces as per-call error text. `apiFetch` could catch a 401 and send the
-  browser back to the login page (or reset the gate's state).
-  *Sonnet 5, medium* — conventional React against a clear behavior.
-
 ## From flashcards step 2 (card storage and harvest)
 
 - **Every する is glossed as なる, "to become".**

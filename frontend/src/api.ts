@@ -65,6 +65,14 @@ async function assertOk(
 ): Promise<void> {
   if (response.ok) return
 
+  if (response.status === 401) {
+    // The session expired mid-use. A reload re-runs AuthGate's /auth/me
+    // check, which lands on the login page; the thrown error covers the
+    // moment before the reload takes effect.
+    window.location.reload()
+    throw new ApiError('Your session has expired. Please log in again.')
+  }
+
   if (statusMessages[response.status]) {
     throw new ApiError(statusMessages[response.status])
   }
