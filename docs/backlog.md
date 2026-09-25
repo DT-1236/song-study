@@ -36,15 +36,3 @@ so it can be picked up without re-deriving the reasoning.
   wrong key fails silently as a plausible-looking gloss for a different word.
   Deciding which normalized forms need the page's reading, and repairing the
   stored conflict values, both still have to be worked out.
-
-## From adding Prettier and Ruff (formatting only)
-
-- **Narrow the blind `except` in `heteronym_readings`.**
-  `app/tokenization.py` catches bare `Exception` around a SudachiPy lookup and
-  returns `[]`. That's the right fallback — it runs per token while tokenizing,
-  and "no heteronym readings" is a fine answer — but as written it also
-  swallows a real bug. Narrowing it needs a list of what SudachiPy's `lookup`
-  actually raises, which is why the Ruff adoption left it with a `# noqa` and
-  a comment rather than guessing.
-  *Sonnet 5, medium* — the work is finding out what that library raises; the
-  edit itself is one line.
