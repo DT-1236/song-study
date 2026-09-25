@@ -1023,11 +1023,46 @@ break — they call route functions directly rather than over HTTP.
 latency, multiple choice capped at Good), push-out and remove, the per-song queue **and the
 all-songs queue**, the per-song new-card limit, the retention setting.
 *Watch:* a manual push-out is a reschedule, never a logged rating.
+*As built* (`backend/app/study.py`, migration 0020) — what later steps build on:
+- Ratings come from the card's `kind` alone: `LATENCY_MS` holds each kind's fast/slow thresholds
+  (3 s / 10 s for both, flat as §3 starts) and `MULTIPLE_CHOICE_KINDS` the kinds capped at Good,
+  which today is both. Type C, when it arrives, is a third kind that isn't in that set. The client
+  sends only `correct` and `duration_ms`; the thresholds are recorded on each `study_reviews` row.
+- `POST /cards/{id}/review`, `/push-out` (`months` 1, 3 or 6 → 30, 90 or 180 days) and `/suspend`.
+  A push-out sets state Review, stability to the number of days, `last_review` to now, and keeps
+  the card's difficulty — or, for a card never reviewed, the one an Easy answer would give it. It
+  writes no `study_reviews` row. A suspended card can't be reviewed (409); restoring is still
+  `PUT …/tokens/{tid}/card`.
+- `POST /documents/{id}/study` is the per-song queue and the one place a song enrolls: it enrolls
+  up to `documents.new_cards_per_day` (default 10) less the cards created from that song in the
+  last 24 hours, then returns the due cards whose word or grammar term the song has a token for.
+  A day is a rolling 24 hours, not a calendar day, to avoid needing a time zone. A word added by
+  hand counts against the limit, since the card doesn't record how it began. `GET /study/queue` is
+  the all-songs queue, with no enrollment. Both are ordered by due date; a card is due when
+  `due <= now()`, so a learning card comes back in minutes.
+- A song's cards are found by `document_card_keys`, which reads the tokens the way a hand-add does
+  (`explicit=True`), not the way the harvest does: a card added by hand for a word with an
+  unreviewed reading would otherwise never show up in its own song's queue.
+- `users.desired_retention` (default 0.90, 0.75–0.95) via `GET`/`PUT /study/settings`;
+  `documents.new_cards_per_day` via `GET`/`PUT /documents/{id}/study/settings`. Changing
+  retention leaves existing due dates alone.
+- Deferred, since neither was in this step's list: choosing which line a card plays (§5), now in
+  step 4, and spacing a word's recognition and production cards apart (§7), now with Type C under
+  "Later". The queues return bare cards, ordered by due date.
 
 **4 — Card content.** Type A's option builder — POS-matched, same-song-preferred, near-synonym
 guarded, sense-count matched, two senses each — and Type B's, which first needs the category
 groupings in `grammar.py` promoted from source comments to data. Pure backend and the subtlest
 logic in the feature, so it earns its own PR and its own tests.
+
+Also here, because it completes the queues step 3 left as bare cards: **choosing each card's
+line** (§5) — prefer an occurrence in the song being studied, fall back to any song with the word,
+and text-only when a song has no audio — which needs the backend line-index helper from §8 (the
+frontend derives a token's line by counting `\n`). A grammar card takes its example line from
+whatever song is being studied. The all-songs queue must still return a card whose word is in no
+song, with no line.
+*Watch:* the line is chosen when the queue is built and never stored (§5), so the queue endpoints
+grow a line field rather than the cards gaining a column.
 
 **5 — Kanji sidebar data.** Backend only: KANJIDIC2 and KRADFILE lookups through the existing
 `jamdict` dependency, the contextual kun'yomi matched against `furigana_spans`, the classical
@@ -1054,7 +1089,9 @@ the gloss popup's add / remove / restore affordance (§1).
 *Watch:* the popup is already crowded and its edge-nudge positioning is delicate — this is a real
 UI change, not a bolt-on.
 
-**Later, in rough order of value:** Type C production cards (opt-in, default off) · typed
+**Later, in rough order of value:** Type C production cards (opt-in, default off), which also
+brings the queue-ordering rule that a word's recognition and production cards don't appear back to
+back (§7), and a third card kind outside `MULTIPLE_CHOICE_KINDS` so Easy becomes reachable · typed
 conjugation production, now known to be gradable against the song's own surface string · OAuth and
 deployment · personal FSRS parameters from the accumulated review log.
 
@@ -1080,7 +1117,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 0 — Doc | Done | Sonnet 5 | low | Prose and git mechanics, fully specified |
 | 1 — Users and ownership | Done | Sonnet 5 | medium | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing |
 | 2 — Card storage and harvest | Done | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
-| 3 — Scheduling | Not started | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
+| 3 — Scheduling | Done | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
 | 4 — Card content | Not started | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
 | 5 — Kanji sidebar data | Not started | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
 | 6 — Study UI | Not started | Sonnet 5 | medium | A new page is conventional React against a specified layout |
