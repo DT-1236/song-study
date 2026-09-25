@@ -33,6 +33,8 @@ hand at the time (see the case comments), not invented examples.
 
 from itertools import pairwise
 
+import pytest
+
 from app.tokenization import (
     _is_regular_potential_form,
     _reconstruct_citation_reading,
@@ -816,6 +818,15 @@ class TestHeteronymReadings:
             "花火", ("名詞", "普通名詞", "一般", "*", "*", "*")
         )
         assert len(set(readings)) <= 1
+
+    def test_surfaces_the_dictionary_rejects_have_no_alternates(self):
+        pos = ("名詞", "普通名詞", "一般", "*", "*", "*")
+        assert heteronym_readings("あ" * 50_000, pos) == []
+        assert heteronym_readings("\ud800", pos) == []
+
+    def test_a_non_string_surface_is_a_bug_not_a_fallback(self):
+        with pytest.raises(TypeError):
+            heteronym_readings(None, ())
 
 
 class TestReconstructCitationReading:

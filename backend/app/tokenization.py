@@ -37,6 +37,7 @@ from functools import lru_cache
 from typing import NamedTuple
 
 from sudachipy import dictionary as sudachi_dictionary
+from sudachipy import errors as sudachi_errors
 from sudachipy import tokenizer as sudachi_tokenizer
 
 from app.resplit import repair_boundaries
@@ -576,11 +577,12 @@ def heteronym_readings(surface: str, pos: tuple) -> list[str]:
     counter-suffix にん)."""
     try:
         candidates = _get_dictionary().lookup(surface)
-    except Exception:  # noqa: BLE001
+    except (sudachi_errors.SudachiError, UnicodeEncodeError):
         # A lookup that fails means "no heteronym readings to offer", not a
-        # failed request: this runs per token while tokenizing a document, and
-        # the dictionary raises on surfaces it can't handle. Narrow this only
-        # with a list of what SudachiPy actually raises.
+        # failed request: this runs per token while tokenizing a document.
+        # These are the two ways lookup rejects a surface (input past ~49KB;
+        # a lone surrogate that can't be encoded). Anything else, such as a
+        # TypeError from a non-str surface, is a caller bug and propagates.
         return []
     readings: list[str] = []
     for m in candidates:
