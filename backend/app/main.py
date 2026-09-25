@@ -15,6 +15,7 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
+from app.cards import CardKind, NotStudyable, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
@@ -1092,6 +1093,39 @@ def set_tokens_ignored(
             {"token_ids": body.token_ids, "ignored": body.ignored},
         )
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
+
+
+class StudyCard(BaseModel):
+    id: int
+    kind: CardKind
+    lookup_form: str
+    # None for a grammar term.
+    reading: str | None
+    # Removed from study, keeping its history.
+    suspended: bool
+    due: datetime
+    first_seen_document_id: int | None
+
+
+@api.put("/documents/{document_id}/tokens/{token_id}/card", response_model=StudyCard)
+def add_token_card(
+    document_id: OwnedDocument, token_id: int, user_id: CurrentUser
+) -> StudyCard:
+    """Add the word `token_id` is part of to the user's cards, or restore it
+    if they removed it, as enroll_token does."""
+    with engine.begin() as conn:
+        try:
+            row = enroll_token(conn, user_id, document_id, token_id)
+        except TokenNotFound:
+            raise HTTPException(
+                status_code=404, detail="Token not found for this document."
+            )
+        except NotStudyable:
+            raise HTTPException(
+                status_code=422,
+                detail="This isn't a word with a dictionary entry to study.",
+            )
+    return StudyCard(**row._mapping)
 
 
 app.include_router(api)
