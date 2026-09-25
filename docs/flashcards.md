@@ -837,8 +837,19 @@ only silences playback, so a muted session is still a usable study session on a 
 Not every token is vocabulary. The pool is tokens whose gloss came from a real JMDict headword —
 excluding `gloss_ignored` (names and non-words you already flagged), `english_stub` (Latin-script
 words routed away from JMDict), `composite` glosses (A-split breakdowns and katakana-as-hiragana
-fallbacks are explanations, not headwords), and — per §4 — **tokens with `needs_review` set and no
-selected conflict**, whose reading is still a default guess.
+fallbacks are explanations, not headwords), particles and auxiliaries (grammar, which Type B
+covers), and — per §4 — **tokens whose reading is still a default guess**.
+
+As built (step 2), that last rule is `needs_review` with a `heteronym` or `oov` reason. The default
+option is always created *selected*, so "no selected conflict" never happens; what a pick changes
+is `needs_review`, which any pick clears — including re-picking the default. A `no_kana_anchor`
+flag doesn't gate: the reading is certain, only its furigana split isn't. **The rule holds back a
+lot:** on the 蜘蛛の糸 test fixture it excludes 47 of 159 words (人, 水, 花, 日, 事, …), nearly all
+of whose default readings are right. That's the decided trade — enrolling late over building
+history on a guess — but it means reviewing readings is what unlocks much of a song's deck.
+
+An **accepted phrase** (この期に及んで) is one word, keyed on its headword; the particles inside it
+are part of the headword, not grammar.
 
 Predicate groups look like an awkward case — the group's gloss is a composite, so the head verb
 has no headword row of its own. Type B dissolves that: **the group is the
@@ -990,6 +1001,23 @@ break — they call route functions directly rather than over HTTP.
 `own_gloss_key()`; the enrollment path. No scheduling yet.
 *Watch:* no foreign key into `gloss_lookups` (§5), and rehydrate uncached keys through
 `plan_glosses()` / `store_glosses()` rather than snapshotting a gloss.
+*As built* (`backend/app/cards.py`, migration 0018) — what later steps build on:
+- `study_cards` has a `kind`: `recognition` (Type A, keyed `(lookup_form, reading)`) or `grammar`
+  (Type B, keyed on the grammar term with `reading` NULL), unique per user with `NULLS NOT
+  DISTINCT`. Type C can become a third kind sharing a word's key, so its scheduling stays separate.
+- Grammar cards come only from grammar *attached* in a predicate group or accepted phrase, and
+  only for terms with their own entry in `_GRAMMAR_NOTES` — the generic "particle" fallback has
+  nothing to test. A particle after a noun outside any group gives no card.
+- Cards store `alt_lookup_form` (the token's dictionary form): the second spelling
+  `plan_glosses()` needs to rehydrate a word like さり気ない, whose normalized form さり気無い has no
+  JMDict entry. It's a lookup input, not gloss content. `gloss_rows()` is the rehydration call.
+- The FSRS columns default to py-fsrs 6's new card: state 1 (Learning), step 0, due now.
+- `study_reviews` has no cascade from cards, so a card with history can't be deleted; it records
+  `correct`, `duration_ms` and the `fast_ms` / `slow_ms` thresholds beside `rating`.
+- `enroll_new_words(conn, user_id, document_id, limit)` creates cards most-sung word first and
+  never restores a suspended card; step 3's per-song daily limit supplies `limit`.
+  `PUT /documents/{id}/tokens/{tid}/card` is the manual add/restore, which overrides
+  `gloss_ignored` and an unreviewed reading but still needs a JMDict headword.
 
 **3 — Scheduling.** The `fsrs` dependency, the review endpoint, the rating map (correctness +
 latency, multiple choice capped at Good), push-out and remove, the per-song queue **and the
@@ -1047,18 +1075,18 @@ these are **starting points, not floors**: escalate a step that stalls rather th
 everything at `max`. `xhigh` and `max` are deliberately absent below — reserve them for a step
 that has already failed at its recommended level, or for debugging something that makes no sense.
 
-| Step | Model | Effort | Why |
-|---|---|---|---|
-| 0 — Doc | Sonnet 5 | low | Prose and git mechanics, fully specified |
-| 1 — Users and ownership | Sonnet 5 | medium | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing |
-| 2 — Card storage and harvest | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
-| 3 — Scheduling | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
-| 4 — Card content | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
-| 5 — Kanji sidebar data | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
-| 6 — Study UI | Sonnet 5 | medium | A new page is conventional React against a specified layout |
-| 6 — …the `DocumentViewPage` extraction | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
-| 7 — Progress | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
-| 8 — Correction and deck management | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
+| Step | Status | Model | Effort | Why |
+|---|---|---|---|---|
+| 0 — Doc | Done | Sonnet 5 | low | Prose and git mechanics, fully specified |
+| 1 — Users and ownership | Done | Sonnet 5 | medium | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing |
+| 2 — Card storage and harvest | Done | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
+| 3 — Scheduling | Not started | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
+| 4 — Card content | Not started | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
+| 5 — Kanji sidebar data | Not started | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
+| 6 — Study UI | Not started | Sonnet 5 | medium | A new page is conventional React against a specified layout |
+| 6 — …the `DocumentViewPage` extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
+| 7 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
+| 8 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
 
 For the later items: Type C and OAuth/deployment suit Sonnet 5 at medium; typed conjugation
 production wants Opus 5 at high, since the ている/てる variant-matching problem is where it gets

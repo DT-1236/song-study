@@ -118,11 +118,24 @@ def grammar_note(normalized_form: str, part_of_speech) -> str:
     return "grammatical ending"
 
 
-def _is_dependent(part_of_speech) -> bool:
+def has_grammar_note(normalized_form: str) -> bool:
+    """Whether `normalized_form` is a grammar term with its own explanation,
+    rather than one grammar_note can only name the kind of."""
+    return normalized_form in _GRAMMAR_NOTES
+
+
+def is_grammar_word(part_of_speech) -> bool:
+    """Whether a word is a particle or auxiliary: grammar, with no meaning of
+    its own to learn."""
     # そう/よう/みたい of そうだ/ようだ/みたいだ are tagged 形状詞-助動詞語幹.
-    return part_of_speech[0] in ("助詞", "助動詞", "接尾辞") or tuple(
-        part_of_speech[:2]
-    ) == ("形状詞", "助動詞語幹")
+    return part_of_speech[0] in ("助詞", "助動詞") or tuple(part_of_speech[:2]) == (
+        "形状詞",
+        "助動詞語幹",
+    )
+
+
+def _is_dependent(part_of_speech) -> bool:
+    return is_grammar_word(part_of_speech) or part_of_speech[0] == "接尾辞"
 
 
 def is_helper_predicate(previous, token) -> bool:
