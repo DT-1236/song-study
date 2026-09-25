@@ -215,6 +215,20 @@ def harvest(conn, document_id: int) -> list[HarvestedWord]:
     return [w for w in found.values() if w.key.kind == "grammar" or w.key in studyable]
 
 
+def document_card_keys(conn, document_id: int) -> set[CardKey]:
+    """The key of every word and grammar term the document has a token for:
+    which cards belong to the song, if the user has them. Unlike harvest, it
+    counts a word marked as needing no gloss, or read as a guess, since a
+    card for one can only exist because the user added it by hand."""
+    keys: set[CardKey] = set()
+    for unit in _units(_token_rows(conn, document_id)):
+        word, grammar = _unit_cards(unit, explicit=True)
+        if word:
+            keys.add(word[0])
+        keys.update(grammar)
+    return keys
+
+
 def enroll_new_words(
     conn, user_id: int, document_id: int, limit: int | None = None
 ) -> list[int]:

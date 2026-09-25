@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.sessions import SessionMiddleware
 
+from app import study
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
 from app.cards import CardKind, NotStudyable, enroll_token
@@ -1128,6 +1129,150 @@ def add_token_card(
                 detail="This isn't a word with a dictionary entry to study.",
             )
     return StudyCard(**row._mapping)
+
+
+class ReviewAnswer(BaseModel):
+    correct: bool
+    duration_ms: int = Field(ge=0)
+    # The song whose line was played, if any.
+    document_id: int | None = None
+
+
+class ReviewResult(BaseModel):
+    # FSRS's rating, 1 (Again) to 4 (Easy).
+    rating: int
+    card: StudyCard
+
+
+class PushOut(BaseModel):
+    months: Literal[1, 3, 6]
+
+
+def _card_not_found() -> HTTPException:
+    return HTTPException(status_code=404, detail="Card not found.")
+
+
+@api.post("/cards/{card_id}/review", response_model=ReviewResult)
+def review_card(
+    card_id: int, answer: ReviewAnswer, user_id: CurrentUser
+) -> ReviewResult:
+    """Schedule the user's card after an answer, rated from its correctness
+    and how long it took."""
+    with engine.begin() as conn:
+        try:
+            rating, row = study.review_card(
+                conn,
+                user_id,
+                card_id,
+                answer.correct,
+                answer.duration_ms,
+                answer.document_id,
+            )
+        except study.CardNotFound:
+            raise _card_not_found()
+        except study.CardSuspended:
+            raise HTTPException(
+                status_code=409, detail="This card was removed from your list."
+            )
+        except study.DocumentNotFound:
+            raise HTTPException(status_code=404, detail="Document not found.")
+    return ReviewResult(rating=int(rating), card=StudyCard(**row._mapping))
+
+
+@api.post("/cards/{card_id}/push-out", response_model=StudyCard)
+def push_out_card(card_id: int, body: PushOut, user_id: CurrentUser) -> StudyCard:
+    """Reschedule the user's card 1, 3 or 6 months out, for a word they
+    already knew. Not a review: nothing is logged."""
+    with engine.begin() as conn:
+        try:
+            row = study.push_out(conn, user_id, card_id, body.months)
+        except study.CardNotFound:
+            raise _card_not_found()
+    return StudyCard(**row._mapping)
+
+
+@api.post("/cards/{card_id}/suspend", response_model=StudyCard)
+def suspend_card(card_id: int, user_id: CurrentUser) -> StudyCard:
+    """Remove the user's card from study, keeping its history; adding the
+    word again (add_token_card) restores it."""
+    with engine.begin() as conn:
+        try:
+            row = study.suspend_card(conn, user_id, card_id)
+        except study.CardNotFound:
+            raise _card_not_found()
+    return StudyCard(**row._mapping)
+
+
+@api.get("/study/queue", response_model=list[StudyCard])
+def get_all_songs_queue(user_id: CurrentUser) -> list[StudyCard]:
+    """The user's cards that are due, from every song."""
+    with engine.connect() as conn:
+        rows = study.all_songs_queue(conn, user_id)
+    return [StudyCard(**row._mapping) for row in rows]
+
+
+@api.post("/documents/{document_id}/study", response_model=list[StudyCard])
+def start_song_session(
+    document_id: OwnedDocument, user_id: CurrentUser
+) -> list[StudyCard]:
+    """Start studying the song: enroll new words from it, up to its daily
+    limit, and return the user's due cards for its words."""
+    with engine.begin() as conn:
+        rows = study.song_queue(conn, user_id, document_id)
+    return [StudyCard(**row._mapping) for row in rows]
+
+
+class StudySettings(BaseModel):
+    desired_retention: float = Field(ge=study.MIN_RETENTION, le=study.MAX_RETENTION)
+
+
+@api.get("/study/settings", response_model=StudySettings)
+def get_study_settings(user_id: CurrentUser) -> StudySettings:
+    """The user's study settings."""
+    with engine.connect() as conn:
+        return StudySettings(
+            desired_retention=study.get_desired_retention(conn, user_id)
+        )
+
+
+@api.put("/study/settings", response_model=StudySettings)
+def save_study_settings(settings: StudySettings, user_id: CurrentUser) -> StudySettings:
+    """Save the user's study settings. A new desired retention applies from
+    each card's next review; due dates already set stay as they are."""
+    with engine.begin() as conn:
+        return StudySettings(
+            desired_retention=study.set_desired_retention(
+                conn, user_id, settings.desired_retention
+            )
+        )
+
+
+class SongStudySettings(BaseModel):
+    new_cards_per_day: int = Field(ge=0)
+
+
+@api.get("/documents/{document_id}/study/settings", response_model=SongStudySettings)
+def get_song_study_settings(
+    document_id: OwnedDocument, user_id: CurrentUser
+) -> SongStudySettings:
+    """The study settings of one of the user's songs."""
+    with engine.connect() as conn:
+        return SongStudySettings(
+            new_cards_per_day=study.get_new_cards_per_day(conn, user_id, document_id)
+        )
+
+
+@api.put("/documents/{document_id}/study/settings", response_model=SongStudySettings)
+def save_song_study_settings(
+    document_id: OwnedDocument, settings: SongStudySettings, user_id: CurrentUser
+) -> SongStudySettings:
+    """Save the study settings of one of the user's songs."""
+    with engine.begin() as conn:
+        return SongStudySettings(
+            new_cards_per_day=study.set_new_cards_per_day(
+                conn, user_id, document_id, settings.new_cards_per_day
+            )
+        )
 
 
 app.include_router(api)
