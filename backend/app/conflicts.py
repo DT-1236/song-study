@@ -407,25 +407,26 @@ def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[i
 
 
 def attach_group_glosses(conn, document_id: int) -> None:
-    """Gloss again each of the document's predicate groups that has a token
-    with no gloss linked, as a migration clearing stale glosses leaves one,
-    so that attach_glosses doesn't gloss its tokens one by one."""
-    group_starts = (
-        conn.execute(
-            text(
-                f"""
-                SELECT DISTINCT t.phrase_start_position FROM tokens t
-                WHERE t.document_id = :document_id AND t.gloss_lookup_id IS NULL
-                  AND t.phrase_start_position IS NOT NULL AND NOT {IS_ACCEPTED_PHRASE_SQL}
-                """
-            ),
-            {"document_id": document_id},
-        )
-        .scalars()
-        .all()
-    )
-    for group_start in group_starts:
-        _regloss_predicate_group(conn, document_id, group_start)
+    """Gloss again each of the document's predicate groups and accepted
+    phrases that has a token with no gloss linked, as a migration clearing
+    stale glosses leaves one, so that attach_glosses doesn't gloss its
+    tokens one by one."""
+    groups = conn.execute(
+        text(
+            f"""
+            SELECT DISTINCT t.phrase_start_position, {IS_ACCEPTED_PHRASE_SQL} AS is_phrase
+            FROM tokens t
+            WHERE t.document_id = :document_id AND t.gloss_lookup_id IS NULL
+              AND t.phrase_start_position IS NOT NULL
+            """
+        ),
+        {"document_id": document_id},
+    ).all()
+    for group in groups:
+        if group.is_phrase:
+            _regloss_accepted_phrase(conn, document_id, group.phrase_start_position)
+        else:
+            _regloss_predicate_group(conn, document_id, group.phrase_start_position)
 
 
 def _unmerge_overlapping_groups(
@@ -459,17 +460,12 @@ def _unmerge_overlapping_groups(
     return affected
 
 
-def _apply_phrase_selection(
-    conn, document_id: int, token_id: int, value: dict
-) -> list[int]:
-    """Merge an accepted phrase suggestion's tokens (see app.phrase_merge)
-    into one group, glossed under the phrase's headword plus a piece per
-    token of grammar attached after it, and recompute their furigana from
-    the phrase's reading. Returns their ids."""
-    position = conn.execute(
-        text("SELECT position FROM tokens WHERE id = :token_id"),
-        {"token_id": token_id},
-    ).scalar_one()
+def _gloss_phrase(
+    conn, document_id: int, position: int, value: dict
+) -> tuple[int, str]:
+    """The gloss lookup id and full reading of the phrase suggestion `value`
+    (see app.phrase_merge) starting at the document's token `position`: the
+    phrase's headword plus a piece per token of grammar attached after it."""
     token_count = value["token_count"]
     phrase_token_count = value.get("phrase_token_count", token_count)
     members = _group_members(conn, document_id, position, token_count)
@@ -500,6 +496,41 @@ def _apply_phrase_selection(
         gloss_lookup_id = get_or_create_gloss_lookup(
             conn, value["lookup_form"], value["reading"]
         )
+    return gloss_lookup_id, reading
+
+
+def _regloss_accepted_phrase(conn, document_id: int, group_start: int) -> list[int]:
+    """Gloss the accepted phrase starting at `group_start` again, leaving its
+    furigana as is. Returns its token ids."""
+    value = conn.execute(
+        text(
+            """
+            SELECT c.value FROM conflicts c JOIN tokens t ON t.id = c.token_id
+            WHERE t.document_id = :document_id AND t.position = :group_start
+              AND c.kind = 'phrase' AND c.selected
+            """
+        ),
+        {"document_id": document_id, "group_start": group_start},
+    ).scalar_one()
+    gloss_lookup_id, _ = _gloss_phrase(conn, document_id, group_start, value)
+    return _merge_tokens(
+        conn, document_id, group_start, value["token_count"], gloss_lookup_id
+    )
+
+
+def _apply_phrase_selection(
+    conn, document_id: int, token_id: int, value: dict
+) -> list[int]:
+    """Merge an accepted phrase suggestion's tokens (see app.phrase_merge)
+    into one group, glossed under the phrase's headword plus a piece per
+    token of grammar attached after it, and recompute their furigana from
+    the phrase's reading. Returns their ids."""
+    position = conn.execute(
+        text("SELECT position FROM tokens WHERE id = :token_id"),
+        {"token_id": token_id},
+    ).scalar_one()
+    token_count = value["token_count"]
+    gloss_lookup_id, reading = _gloss_phrase(conn, document_id, position, value)
     ids = _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
     # A member can no longer start a phrase of its own inside this one:
