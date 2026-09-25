@@ -6,6 +6,8 @@ which is dropped and re-created from the migrations once per session.
 - `committed_engine`: for tests whose rows must really commit — to be seen
   from a second connection, or because the code under test runs its own
   transaction. Every table is emptied again at teardown.
+- `other_user`: the id of a second user, for tests that act as someone else
+  (see `as_user` in tests/support.py).
 """
 
 from __future__ import annotations
@@ -49,3 +51,19 @@ def committed_engine(test_database):
             .all()
         )
         conn.execute(text(f"TRUNCATE {', '.join(tables)} RESTART IDENTITY"))
+
+
+@pytest.fixture
+def other_user(committed_engine):
+    with committed_engine.begin() as conn:
+        user_id = conn.execute(
+            text("INSERT INTO users (name) VALUES ('other') RETURNING id")
+        ).scalar_one()
+    yield user_id
+    with committed_engine.begin() as conn:
+        # Everything else is emptied by committed_engine, but only after
+        # this runs.
+        conn.execute(
+            text("TRUNCATE study_reviews, study_cards, conflicts, tokens, documents")
+        )
+        conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})

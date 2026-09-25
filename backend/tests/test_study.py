@@ -12,7 +12,6 @@ from pydantic import ValidationError
 from sqlalchemy import text
 
 from app.main import (
-    DocumentCreate,
     PushOut,
     ReviewAnswer,
     SongStudySettings,
@@ -23,10 +22,9 @@ from tests.support import (
     TEST_USER_ID,
     add_token_card,
     as_user,
-    create_document,
+    create_tokenized_document,
     document_tokens,
     get_all_songs_queue,
-    get_document_tokens,
     get_song_study_settings,
     get_study_settings,
     push_out_card,
@@ -40,13 +38,6 @@ from tests.support import (
 SONG = "君を呼ぶ。聞こえてる。聞こえた。"
 # In the order they enroll: most sung first, then in order of appearance.
 SONG_WORDS = ["聞こえる", "君", "呼ぶ", "てる", "た"]
-
-
-def _document(text: str = SONG) -> int:
-    """A new document of `text`, already tokenized."""
-    document_id = create_document(DocumentCreate(title="test", text=text)).id
-    get_document_tokens(document_id)
-    return document_id
 
 
 def _lookup_forms(cards) -> list[str]:
@@ -68,9 +59,9 @@ def _reviews(engine, card_id: int) -> list:
         ).all()
 
 
-def _new_card(engine, text_: str = "君") -> int:
+def _new_card(text_: str = "君") -> int:
     """The id of a new card for the only word of a document of `text_`."""
-    [card] = start_song_session(_document(text_))
+    [card] = start_song_session(create_tokenized_document(text_))
     return card.id
 
 
@@ -106,22 +97,6 @@ def _seconds_from_now(moment: datetime) -> float:
 
 def _days_from_now(moment: datetime) -> float:
     return _seconds_from_now(moment) / 86_400
-
-
-@pytest.fixture
-def other_user(committed_engine):
-    with committed_engine.begin() as conn:
-        user_id = conn.execute(
-            text("INSERT INTO users (name) VALUES ('other') RETURNING id")
-        ).scalar_one()
-    yield user_id
-    with committed_engine.begin() as conn:
-        # Everything else is emptied by committed_engine, but only after
-        # this runs.
-        conn.execute(
-            text("TRUNCATE study_reviews, study_cards, conflicts, tokens, documents")
-        )
-        conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
 
 
 @pytest.fixture(autouse=True)
@@ -169,7 +144,7 @@ def test_an_answer_is_rated_by_correctness_and_latency(
 def test_a_correct_answer_moves_a_new_card_to_its_next_learning_step(
     committed_engine,
 ):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     result = review_card(card_id, ReviewAnswer(correct=True, duration_ms=5_000))
 
@@ -183,7 +158,7 @@ def test_a_correct_answer_moves_a_new_card_to_its_next_learning_step(
 
 
 def test_a_wrong_answer_returns_a_new_card_to_its_first_step(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     result = review_card(card_id, ReviewAnswer(correct=False, duration_ms=5_000))
 
@@ -193,7 +168,7 @@ def test_a_wrong_answer_returns_a_new_card_to_its_first_step(committed_engine):
 
 
 def test_a_fast_answer_to_a_multiple_choice_card_is_only_good(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     assert review_card(card_id, ReviewAnswer(correct=True, duration_ms=0)).rating == (
         Rating.Good
@@ -201,15 +176,15 @@ def test_a_fast_answer_to_a_multiple_choice_card_is_only_good(committed_engine):
 
 
 def test_a_slow_correct_answer_is_hard(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
-    assert review_card(
-        card_id, ReviewAnswer(correct=True, duration_ms=10_001)
-    ).rating == (Rating.Hard)
+    result = review_card(card_id, ReviewAnswer(correct=True, duration_ms=10_001))
+
+    assert result.rating == Rating.Hard
 
 
 def test_a_review_is_logged_with_the_thresholds_it_was_rated_with(committed_engine):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
     [card] = start_song_session(document_id)
 
     review_card(
@@ -229,7 +204,7 @@ def test_a_review_is_logged_with_the_thresholds_it_was_rated_with(committed_engi
 
 
 def test_a_grammar_card_is_reviewed_the_same_way(committed_engine):
-    document_id = _document(SONG)
+    document_id = create_tokenized_document(SONG)
     grammar = next(
         card for card in start_song_session(document_id) if card.kind == "grammar"
     )
@@ -240,7 +215,7 @@ def test_a_grammar_card_is_reviewed_the_same_way(committed_engine):
 
 
 def test_a_graduated_card_is_scheduled_days_out(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     _known_for_30_days(committed_engine, card_id)
 
     result = review_card(card_id, ReviewAnswer(correct=True, duration_ms=5_000))
@@ -251,7 +226,7 @@ def test_a_graduated_card_is_scheduled_days_out(committed_engine):
 
 
 def test_a_lapse_puts_a_graduated_card_back_into_relearning(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     _known_for_30_days(committed_engine, card_id)
 
     review_card(card_id, ReviewAnswer(correct=False, duration_ms=5_000))
@@ -265,7 +240,7 @@ def test_a_lower_desired_retention_spaces_reviews_further_apart(committed_engine
     intervals = {}
     for retention in (0.75, 0.95):
         save_study_settings(StudySettings(desired_retention=retention))
-        card_id = _new_card(committed_engine, "君" if retention == 0.75 else "泣く")
+        card_id = _new_card("君" if retention == 0.75 else "泣く")
         _known_for_30_days(committed_engine, card_id)
         due = review_card(
             card_id, ReviewAnswer(correct=True, duration_ms=5_000)
@@ -276,7 +251,7 @@ def test_a_lower_desired_retention_spaces_reviews_further_apart(committed_engine
 
 
 def test_reviewing_another_users_card_is_refused(committed_engine, other_user):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     with as_user(other_user), pytest.raises(HTTPException) as exc:
         review_card(card_id, ReviewAnswer(correct=True, duration_ms=1_000))
@@ -286,7 +261,7 @@ def test_reviewing_another_users_card_is_refused(committed_engine, other_user):
 
 
 def test_reviewing_a_removed_card_is_refused(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     suspend_card(card_id)
 
     with pytest.raises(HTTPException) as exc:
@@ -299,9 +274,9 @@ def test_reviewing_a_removed_card_is_refused(committed_engine):
 def test_a_review_cant_be_logged_against_another_users_song(
     committed_engine, other_user
 ):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     with as_user(other_user):
-        theirs = _document("君")
+        theirs = create_tokenized_document("君")
 
     with pytest.raises(HTTPException) as exc:
         review_card(
@@ -318,7 +293,7 @@ def test_a_review_cant_be_logged_against_another_users_song(
 
 @pytest.mark.parametrize("months, days", [(1, 30), (3, 90), (6, 180)])
 def test_pushing_a_card_out_makes_it_due_that_far_ahead(committed_engine, months, days):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     card = push_out_card(card_id, PushOut(months=months))
 
@@ -331,7 +306,7 @@ def test_pushing_a_card_out_makes_it_due_that_far_ahead(committed_engine, months
 
 
 def test_pushing_a_card_out_is_a_reschedule_not_a_review(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     review_card(card_id, ReviewAnswer(correct=False, duration_ms=5_000))
     before = _reviews(committed_engine, card_id)
     difficulty = _row(committed_engine, card_id).difficulty
@@ -344,7 +319,7 @@ def test_pushing_a_card_out_is_a_reschedule_not_a_review(committed_engine):
 
 
 def test_a_card_pushed_out_grows_from_there_on_its_next_review(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     push_out_card(card_id, PushOut(months=1))
     _set(
         committed_engine,
@@ -364,7 +339,7 @@ def test_a_card_can_only_be_pushed_out_one_three_or_six_months():
 
 
 def test_pushing_out_another_users_card_is_refused(committed_engine, other_user):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     with as_user(other_user), pytest.raises(HTTPException) as exc:
         push_out_card(card_id, PushOut(months=1))
@@ -377,7 +352,7 @@ def test_pushing_out_another_users_card_is_refused(committed_engine, other_user)
 
 
 def test_a_removed_card_leaves_both_queues(committed_engine):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
     [card] = start_song_session(document_id)
 
     assert suspend_card(card.id).suspended
@@ -389,7 +364,7 @@ def test_a_removed_card_leaves_both_queues(committed_engine):
 def test_a_removed_card_keeps_its_history_and_adding_the_word_restores_it(
     committed_engine,
 ):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
     [card] = start_song_session(document_id)
     review_card(card.id, ReviewAnswer(correct=True, duration_ms=5_000))
     stability = _row(committed_engine, card.id).stability
@@ -403,7 +378,7 @@ def test_a_removed_card_keeps_its_history_and_adding_the_word_restores_it(
 
 
 def test_removing_another_users_card_is_refused(committed_engine, other_user):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
 
     with as_user(other_user), pytest.raises(HTTPException) as exc:
         suspend_card(card_id)
@@ -416,7 +391,7 @@ def test_removing_another_users_card_is_refused(committed_engine, other_user):
 
 
 def test_studying_a_song_enrolls_its_words_up_to_its_daily_limit(committed_engine):
-    document_id = _document()
+    document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=2))
 
     queue = start_song_session(document_id)
@@ -426,7 +401,7 @@ def test_studying_a_song_enrolls_its_words_up_to_its_daily_limit(committed_engin
 
 
 def test_studying_a_song_again_the_same_day_enrolls_no_more(committed_engine):
-    document_id = _document()
+    document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=2))
     start_song_session(document_id)
 
@@ -434,7 +409,7 @@ def test_studying_a_song_again_the_same_day_enrolls_no_more(committed_engine):
 
 
 def test_the_limit_frees_up_as_the_day_passes(committed_engine):
-    document_id = _document()
+    document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=2))
     start_song_session(document_id)
     with committed_engine.begin() as conn:
@@ -446,7 +421,7 @@ def test_the_limit_frees_up_as_the_day_passes(committed_engine):
 
 
 def test_raising_the_limit_enrolls_the_difference(committed_engine):
-    document_id = _document()
+    document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=2))
     start_song_session(document_id)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=3))
@@ -455,7 +430,7 @@ def test_raising_the_limit_enrolls_the_difference(committed_engine):
 
 
 def test_a_limit_of_zero_enrolls_nothing(committed_engine):
-    document_id = _document()
+    document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=0))
 
     assert start_song_session(document_id) == []
@@ -463,14 +438,14 @@ def test_a_limit_of_zero_enrolls_nothing(committed_engine):
 
 def test_the_default_limit_is_ten_a_song(committed_engine):
     long_song = "歌う。笑う。泣く。眠る。探す。話す。愛。涙。目。光。春。夏"
-    document_id = _document(long_song)
+    document_id = create_tokenized_document(long_song)
 
     assert len(start_song_session(document_id)) == 10
 
 
 def test_each_song_has_its_own_limit(committed_engine):
-    first = _document("君を呼ぶ。")
-    second = _document("泣く。話す。")
+    first = create_tokenized_document("君を呼ぶ。")
+    second = create_tokenized_document("泣く。話す。")
     save_song_study_settings(first, SongStudySettings(new_cards_per_day=1))
 
     assert len(start_song_session(first)) == 1
@@ -478,8 +453,8 @@ def test_each_song_has_its_own_limit(committed_engine):
 
 
 def test_a_songs_queue_holds_only_cards_for_its_words(committed_engine):
-    first = _document("君を呼ぶ。")
-    second = _document("泣く。話す。")
+    first = create_tokenized_document("君を呼ぶ。")
+    second = create_tokenized_document("泣く。話す。")
     start_song_session(first)
 
     assert _lookup_forms(start_song_session(second)) == ["泣く", "話す"]
@@ -487,15 +462,15 @@ def test_a_songs_queue_holds_only_cards_for_its_words(committed_engine):
 
 
 def test_a_word_from_another_song_is_reviewed_in_this_one(committed_engine):
-    first = _document("君を呼ぶ。")
-    second = _document("君の声")
+    first = create_tokenized_document("君を呼ぶ。")
+    second = create_tokenized_document("君の声")
     start_song_session(first)
 
     assert "君" in _lookup_forms(start_song_session(second))
 
 
 def test_a_card_that_isnt_due_is_left_out_of_the_queue(committed_engine):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
     [card] = start_song_session(document_id)
     review_card(card.id, ReviewAnswer(correct=True, duration_ms=5_000))
     _set(committed_engine, card.id, due="now() + interval '1 day'")
@@ -505,7 +480,7 @@ def test_a_card_that_isnt_due_is_left_out_of_the_queue(committed_engine):
 
 
 def test_the_queue_is_ordered_by_due_date(committed_engine):
-    document_id = _document("君を呼ぶ。")
+    document_id = create_tokenized_document("君を呼ぶ。")
     cards = start_song_session(document_id)
     by_form = {card.lookup_form: card.id for card in cards}
     _set(committed_engine, by_form["呼ぶ"], due="now() - interval '2 days'")
@@ -517,7 +492,7 @@ def test_the_queue_is_ordered_by_due_date(committed_engine):
 def test_a_word_added_by_hand_with_an_unreviewed_reading_is_in_its_songs_queue(
     committed_engine,
 ):
-    document_id = _document("今日は")
+    document_id = create_tokenized_document("今日は")
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=0))
     add_token_card(document_id, document_tokens(document_id, "今日")[0].id)
 
@@ -525,7 +500,7 @@ def test_a_word_added_by_hand_with_an_unreviewed_reading_is_in_its_songs_queue(
 
 
 def test_the_all_songs_queue_reaches_a_card_no_song_has_any_more(committed_engine):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
     [card] = start_song_session(document_id)
     with committed_engine.begin() as conn:
         conn.execute(text("DELETE FROM tokens"))
@@ -535,18 +510,16 @@ def test_the_all_songs_queue_reaches_a_card_no_song_has_any_more(committed_engin
 
 
 def test_the_all_songs_queue_holds_every_songs_due_cards(committed_engine):
-    first = _document("君を呼ぶ。")
-    second = _document("泣く。話す。")
+    first = create_tokenized_document("君を呼ぶ。")
+    second = create_tokenized_document("泣く。話す。")
     start_song_session(first)
     start_song_session(second)
 
-    assert sorted(_lookup_forms(get_all_songs_queue())) == sorted(
-        ["君", "呼ぶ", "泣く", "話す"]
-    )
+    assert set(_lookup_forms(get_all_songs_queue())) == {"君", "呼ぶ", "泣く", "話す"}
 
 
 def test_each_user_has_their_own_queue(committed_engine, other_user):
-    _new_card(committed_engine)
+    _new_card()
 
     with as_user(other_user):
         assert get_all_songs_queue() == []
@@ -554,7 +527,7 @@ def test_each_user_has_their_own_queue(committed_engine, other_user):
 
 def test_studying_another_users_song_is_refused(committed_engine, other_user):
     with as_user(other_user):
-        theirs = _document("君")
+        theirs = create_tokenized_document("君")
 
     with pytest.raises(HTTPException) as exc:
         start_song_session(theirs)
@@ -566,14 +539,14 @@ def test_studying_another_users_song_is_refused(committed_engine, other_user):
 
 
 def test_the_settings_default_to_ninety_percent_and_ten_new_cards(committed_engine):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
 
     assert get_study_settings().desired_retention == 0.90
     assert get_song_study_settings(document_id).new_cards_per_day == 10
 
 
 def test_saved_settings_are_read_back(committed_engine):
-    document_id = _document("君")
+    document_id = create_tokenized_document("君")
 
     save_study_settings(StudySettings(desired_retention=0.85))
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=4))
@@ -597,7 +570,7 @@ def test_a_negative_new_card_limit_is_refused(committed_engine):
 
 def test_a_songs_settings_are_its_owners_alone(committed_engine, other_user):
     with as_user(other_user):
-        theirs = _document("君")
+        theirs = create_tokenized_document("君")
 
     with pytest.raises(HTTPException) as exc:
         get_song_study_settings(theirs)
@@ -615,7 +588,7 @@ def test_retention_is_each_users_own(committed_engine, other_user):
 
 
 def test_changing_retention_leaves_due_dates_alone(committed_engine):
-    card_id = _new_card(committed_engine)
+    card_id = _new_card()
     review_card(card_id, ReviewAnswer(correct=True, duration_ms=5_000))
     due = _row(committed_engine, card_id).due
 
