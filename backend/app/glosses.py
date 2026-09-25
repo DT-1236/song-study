@@ -38,6 +38,7 @@ from app.tokenization import (
     conflict_option_value,
     conjugation_type_of,
     furigana_spans_for_reading,
+    headword_reading,
     heteronym_readings,
     mixed_reading,
     project_citation_reading,
@@ -441,16 +442,14 @@ def is_glossable(part_of_speech, has_conflicts: bool) -> bool:
 GlossKey = tuple[str, str]
 
 
-def citation_key(normalized_form: str) -> GlossKey:
-    """The cache key a token is glossed under unless a reading was picked for
-    it: its normalized form and that form's own citation reading."""
-    # The citation form's own reading, not the token's reading_katakana —
+def citation_key(normalized_form: str, dictionary_form: str) -> GlossKey:
+    """The cache key a token with these forms is glossed under unless a
+    reading was picked for it: its normalized form and the citation reading
+    of the word it is."""
+    # The citation form's reading, not the token's reading_katakana —
     # JMDict keys entries by citation reading (e.g. 揃える -> そろえる), and
     # an inflected surface's reading (揃え -> そろえ) won't match it.
-    # mixed_reading (not a blind to_hiragana) because JMDict keeps katakana
-    # loanword portions as katakana in its own kana_forms (無理ゲー ->
-    # むりゲー, not むりげー).
-    return (normalized_form, mixed_reading(normalized_form))
+    return (normalized_form, headword_reading(normalized_form, dictionary_form))
 
 
 def gloss_key(record: TokenRecord) -> GlossKey | None:
@@ -460,11 +459,14 @@ def gloss_key(record: TokenRecord) -> GlossKey | None:
         return None
     # For a flagged token, this is also the key of the default option
     # create_conflicts selects.
-    return citation_key(record.normalized_form)
+    return citation_key(record.normalized_form, record.dictionary_form)
 
 
 def own_gloss_key(
-    normalized_form: str, part_of_speech, selected_reading: str | None
+    normalized_form: str,
+    dictionary_form: str,
+    part_of_speech,
+    selected_reading: str | None,
 ) -> GlossKey | None:
     """The gloss key for a stored token: under `selected_reading`, if a
     reading was picked, else its citation form's, or None if it isn't
@@ -472,7 +474,7 @@ def own_gloss_key(
     if selected_reading is not None:
         return (normalized_form, selected_reading)
     if is_lexical(part_of_speech):
-        return citation_key(normalized_form)
+        return citation_key(normalized_form, dictionary_form)
     return None
 
 
@@ -715,7 +717,9 @@ def _group_pieces(
     for part in request.attached:
         note = grammar_note(part.normalized_form, part.part_of_speech)
         if is_helper_verb(part):
-            entries, source = found[citation_key(part.normalized_form)]
+            entries, source = found[
+                citation_key(part.normalized_form, part.dictionary_form)
+            ]
             pieces.append(
                 gloss_piece(
                     part.dictionary_form,
@@ -757,7 +761,8 @@ def _piece_sources(
         for part in group.attached:
             if is_helper_verb(part):
                 alternates.setdefault(
-                    citation_key(part.normalized_form), part.dictionary_form
+                    citation_key(part.normalized_form, part.dictionary_form),
+                    part.dictionary_form,
                 )
 
     found = {
@@ -967,7 +972,10 @@ def attach_glosses(conn, document_id: int) -> None:
         # Under a picked reading, or a correction would revert whenever this
         # runs.
         key = own_gloss_key(
-            row.normalized_form, row.part_of_speech, row.selected_reading
+            row.normalized_form,
+            row.dictionary_form,
+            row.part_of_speech,
+            row.selected_reading,
         )
         if key is None:
             continue

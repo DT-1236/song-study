@@ -30,7 +30,7 @@ from app.tokenization import (
     conflict_option_value,
     conjugation_type_of,
     furigana_spans_for_reading,
-    mixed_reading,
+    headword_reading,
     project_citation_reading,
     slice_spans_by_token,
     to_hiragana,
@@ -62,14 +62,14 @@ def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None
             continue
         # `reading` below is the inflected surface's own reading (what
         # furigana needs); `citation_reading` is deliberately different —
-        # mixed_reading of normalized_form, the citation form's reading,
-        # which is what a later gloss lookup is actually keyed by. These
+        # the citation form's reading, from headword_reading, which is
+        # what a later gloss lookup is actually keyed by. These
         # differ for an inflected token (揃える's citation reading そろえる
         # vs 揃え's own reading そろえ).
         default_value = conflict_option_value(
             to_hiragana(record.reading_katakana),
             record.furigana_spans,
-            mixed_reading(record.normalized_form),
+            headword_reading(record.normalized_form, record.dictionary_form),
         )
         # record.conflict_options never includes this default: heteronym
         # alternatives are built from `[r for r in heteronym_readings(...)
@@ -382,7 +382,10 @@ def merge_predicate_group(
         members,
         [_page_reading(member) for member in members],
         own_gloss_key(
-            head.normalized_form, head.part_of_speech, head.selected_citation_reading
+            head.normalized_form,
+            head.dictionary_form,
+            head.part_of_speech,
+            head.selected_citation_reading,
         ),
     )
     gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[
@@ -401,6 +404,28 @@ def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[i
         {"document_id": document_id, "group_start": group_start},
     ).scalar_one()
     return merge_predicate_group(conn, document_id, group_start, token_count)
+
+
+def attach_group_glosses(conn, document_id: int) -> None:
+    """Gloss again each of the document's predicate groups that has a token
+    with no gloss linked, as a migration clearing stale glosses leaves one,
+    so that attach_glosses doesn't gloss its tokens one by one."""
+    group_starts = (
+        conn.execute(
+            text(
+                f"""
+                SELECT DISTINCT t.phrase_start_position FROM tokens t
+                WHERE t.document_id = :document_id AND t.gloss_lookup_id IS NULL
+                  AND t.phrase_start_position IS NOT NULL AND NOT {IS_ACCEPTED_PHRASE_SQL}
+                """
+            ),
+            {"document_id": document_id},
+        )
+        .scalars()
+        .all()
+    )
+    for group_start in group_starts:
+        _regloss_predicate_group(conn, document_id, group_start)
 
 
 def _unmerge_overlapping_groups(
@@ -556,7 +581,10 @@ def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
         for member in members
         if (
             key := own_gloss_key(
-                member.normalized_form, member.part_of_speech, member.selected_reading
+                member.normalized_form,
+                member.dictionary_form,
+                member.part_of_speech,
+                member.selected_reading,
             )
         )
         is not None
@@ -900,7 +928,7 @@ def select_reading(
                 original = conflict_option_value(
                     to_hiragana(token.reading_katakana),
                     token.furigana_override or token.furigana_spans,
-                    mixed_reading(token.normalized_form),
+                    headword_reading(token.normalized_form, token.dictionary_form),
                 )
                 new_rows.append(
                     {
