@@ -25,6 +25,7 @@ from app.conflicts import (
     ConflictNotFound,
     TokenNotFound,
     _recompute_phrase_furigana,
+    attach_group_glosses,
     correct_reading,
     create_conflicts,
     create_phrase_conflicts,
@@ -335,6 +336,30 @@ class TestPhraseConflicts:
         # Each token is glossable, so each gets a gloss of its own back.
         gloss_ids = {row.gloss_lookup_id for row in rows}
         assert len(gloss_ids) == 5
+
+    def test_an_accepted_phrase_with_an_unlinked_token_is_glossed_as_the_phrase(
+        self, db_conn
+    ):
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+        phrase_gloss_id = _token_row(db_conn, token_ids[0]).gloss_lookup_id
+        # As a migration clearing stale glosses would leave it.
+        db_conn.execute(
+            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE id = :id"),
+            {"id": token_ids[2]},
+        )
+
+        attach_group_glosses(db_conn, document_id)
+
+        rows = db_conn.execute(
+            text(
+                "SELECT gloss_lookup_id, phrase_start_position FROM tokens WHERE document_id = :d"
+            ),
+            {"d": document_id},
+        ).all()
+        assert {row.gloss_lookup_id for row in rows} == {phrase_gloss_id}
+        assert {row.phrase_start_position for row in rows} == {0}
 
     def test_unmerge_deselects_the_phrase_conflict_so_it_can_be_reaccepted(
         self, db_conn

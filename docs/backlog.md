@@ -17,13 +17,3 @@ so it can be picked up without re-deriving the reasoning.
   for the keys that change.
   *Sonnet 5, medium* — 0019 is the pattern to follow; what's left open is
   whether an inflected token can recover its citation reading.
-
-- **An accepted phrase whose tokens lose their gloss link is glossed token by
-  token.** `attach_group_glosses` (`app/conflicts.py`) glosses an unlinked
-  predicate group again, but an accepted phrase with an unlinked token falls
-  through to `attach_glosses`, which links each token to its own gloss and so
-  drops the phrase's. Nothing unlinks one today (0019 leaves phrases linked);
-  a later migration that has to would need to re-gloss the phrase as
-  `_apply_phrase_selection` does, minus its furigana and conflict rewrites.
-  *Sonnet 5, medium* — clear pattern to copy, but pulling the gloss half out
-  of `_apply_phrase_selection` without changing it needs care.
