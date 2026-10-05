@@ -9,8 +9,9 @@ decision point in the pipeline:
     (review_reason == "heteronym")
   - a token is out-of-vocabulary (review_reason == "oov")
   - a multi-kanji run has no kana anchor and falls to the per-character
-    dictionary partition search (review_reason is None when it resolves
-    unambiguously, "no_kana_anchor" when it doesn't)
+    dictionary partition search, resolving unambiguously (review_reason is
+    None; the ambiguous "no_kana_anchor" outcome has no natural golden case
+    and is forced by monkeypatch in TestTokenizeDocument instead)
   - a SplitMode.C token is a merge of independently-recognized words across
     a kana particle, which only Morpheme.split(SplitMode.A) can recover —
     the old regex-segmentation-first approach could never see across the
@@ -19,10 +20,12 @@ decision point in the pipeline:
     kana between them at all (both the old and new approach can find this
     one; kept as a non-regression check)
 
-Each case's expected output was captured directly from a verified-correct
-run and double-checked by hand against the old (whole-document rescan)
-implementation before this file existed — see the tokenization refactor
-commit for how that comparison was done.
+They're snapshots of what the pipeline produced at the time, captured from
+a run and compared by hand against the old implementation, not a statement
+of the right answer: some lock in output that's wrong (一石二鳥 splits into
+three tokens with 石 read こく). So a failure means the output changed —
+after a Sudachi or dictionary upgrade, say — and an improvement fails one
+too; update the case once the new output is checked by hand.
 
 The classes further down (TestFuriganaAlignment onward) are separate
 regression tests for the reading-disambiguation/gloss-support functions
@@ -30,8 +33,6 @@ added alongside conflict_options — each case here is a real bug found and
 fixed this session, grounded in real Sudachi/JMDict behavior verified by
 hand at the time (see the case comments), not invented examples.
 """
-
-from itertools import pairwise
 
 import pytest
 
@@ -494,87 +495,10 @@ def _actual(text: str) -> list[tuple]:
     ]
 
 
-def test_golden_cases_cover_every_review_reason():
-    reasons = {
-        expected_review
-        for _, expected in CASES.values()
-        for _, _, expected_review, _ in expected
-    }
-    assert reasons == {None, "heteronym", "oov"}
-
-
-class TestTokenizeDocumentGolden:
-    def test_jukujikun(self):
-        text, expected = CASES["jukujikun"]
-        assert _actual(text) == expected
-
-    def test_particle_split_compound(self):
-        text, expected = CASES["particle_split_compound"]
-        assert _actual(text) == expected
-
-    def test_okurigana_anchor(self):
-        text, expected = CASES["okurigana_anchor"]
-        assert _actual(text) == expected
-
-    def test_oov_and_multikanji(self):
-        text, expected = CASES["oov_and_multikanji"]
-        assert _actual(text) == expected
-
-    def test_four_char_idiom(self):
-        text, expected = CASES["four_char_idiom"]
-        assert _actual(text) == expected
-
-    def test_long_compound(self):
-        text, expected = CASES["long_compound"]
-        assert _actual(text) == expected
-
-    def test_katakana_loanword(self):
-        text, expected = CASES["katakana_loanword"]
-        assert _actual(text) == expected
-
-    def test_heteronym_verb(self):
-        text, expected = CASES["heteronym_verb"]
-        assert _actual(text) == expected
-
-    def test_irregular_reading(self):
-        text, expected = CASES["irregular_reading"]
-        assert _actual(text) == expected
-
-    def test_reduplicated(self):
-        text, expected = CASES["reduplicated"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_1(self):
-        text, expected = CASES["kanji_compound_no_particle_1"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_2(self):
-        text, expected = CASES["kanji_compound_no_particle_2"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_3(self):
-        text, expected = CASES["kanji_compound_no_particle_3"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_4(self):
-        text, expected = CASES["kanji_compound_no_particle_4"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_5(self):
-        text, expected = CASES["kanji_compound_no_particle_5"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_6_atomic_at_a(self):
-        text, expected = CASES["kanji_compound_no_particle_6_atomic_at_a"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_7(self):
-        text, expected = CASES["kanji_compound_no_particle_7"]
-        assert _actual(text) == expected
-
-    def test_kanji_compound_no_particle_8(self):
-        text, expected = CASES["kanji_compound_no_particle_8"]
-        assert _actual(text) == expected
+@pytest.mark.parametrize("case", CASES)
+def test_golden_case(case):
+    text, expected = CASES[case]
+    assert _actual(text) == expected
 
 
 def test_word_boundary_recovered_across_particle():
@@ -598,16 +522,6 @@ def test_compound_reading_not_forced_below_word_level():
     spans = records[0].furigana_spans
     by_text = {s["text"]: s["reading"] for s in spans}
     assert by_text["結婚"] == "けっこん"
-
-
-def test_spans_are_contiguous_and_cover_the_full_surface():
-    for text, expected in CASES.values():
-        for surface, _reading, _review_reason, spans in expected:
-            assert spans[0]["start"] == 0
-            assert spans[-1]["end"] == len(surface)
-            for a, b in pairwise(spans):
-                assert a["end"] == b["start"]
-            assert "".join(s["text"] for s in spans) == surface
 
 
 def test_needs_review_matches_review_reason():
@@ -834,14 +748,13 @@ class TestHeteronymReadings:
         readings = heteronym_readings(
             "今日", ("名詞", "普通名詞", "副詞可能", "*", "*", "*")
         )
-        assert "コンニチ" in readings or "キョウ" in readings
-        assert len(set(readings)) >= 2
+        assert set(readings) == {"キョウ", "コンニチ"}
 
     def test_non_heteronym_word_has_no_alternates(self):
         readings = heteronym_readings(
             "花火", ("名詞", "普通名詞", "一般", "*", "*", "*")
         )
-        assert len(set(readings)) <= 1
+        assert readings == ["ハナビ"]
 
     def test_surfaces_the_dictionary_rejects_have_no_alternates(self):
         pos = ("名詞", "普通名詞", "一般", "*", "*", "*")

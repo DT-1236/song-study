@@ -5,8 +5,11 @@ import types
 
 import pytest
 from fastapi import HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.testclient import TestClient
 from sqlalchemy import text
 
+from app import auth, main
 from app.auth import me, upsert_google_user
 from app.users import current_user_id
 
@@ -49,3 +52,79 @@ def test_me_returns_the_logged_in_user(committed_engine):
     finally:
         with committed_engine.begin() as conn:
             conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+
+
+@pytest.fixture
+def browser(monkeypatch):
+    """A client with a cookie jar of its own, whose requests act as whoever
+    their session says rather than as the test user. https, so the session
+    cookie comes back whether or not it's marked Secure."""
+    monkeypatch.delitem(main.app.dependency_overrides, current_user_id)
+    return TestClient(main.app, base_url="https://testserver")
+
+
+@pytest.fixture
+def google(monkeypatch, committed_engine):
+    """Google, standing in for the token exchange at the end of a login: it
+    vouches for whichever account `account` is set to."""
+    account = {"sub": "sub-callback", "email": "cb@example.com", "name": "CB"}
+
+    async def authorize_access_token(request):
+        return {"userinfo": account}
+
+    monkeypatch.setattr(
+        auth.oauth.google, "authorize_access_token", authorize_access_token
+    )
+    yield account
+    with committed_engine.begin() as conn:
+        # Every user a login created; the ones tests act as have no Google
+        # account.
+        conn.execute(text("DELETE FROM users WHERE google_sub IS NOT NULL"))
+
+
+def test_returning_from_google_logs_the_account_in(browser, google):
+    response = browser.get("/api/auth/callback", follow_redirects=False)
+
+    assert response.status_code == 307
+    assert response.headers["location"] == auth.APP_URL
+    assert browser.get("/api/auth/me").json()["email"] == "cb@example.com"
+
+
+def test_logging_out_ends_the_session(browser, google):
+    browser.get("/api/auth/callback", follow_redirects=False)
+
+    assert browser.post("/api/auth/logout").status_code == 204
+    assert browser.get("/api/auth/me").status_code == 401
+
+
+def test_logging_in_replaces_whoever_the_session_had(browser, google):
+    browser.get("/api/auth/callback", follow_redirects=False)
+    google.update(sub="sub-callback-2", email="cb2@example.com")
+
+    browser.get("/api/auth/callback", follow_redirects=False)
+
+    assert browser.get("/api/auth/me").json()["email"] == "cb2@example.com"
+
+
+def test_logging_in_is_refused_until_google_is_configured(browser, monkeypatch):
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+
+    assert browser.get("/api/auth/login").status_code == 503
+
+
+def test_logging_in_sends_google_the_callback_route(browser, monkeypatch):
+    # The address Google returns the browser to, which must also be
+    # registered in the Google Cloud console.
+    sent = []
+
+    async def authorize_redirect(request, redirect_uri):
+        sent.append(redirect_uri)
+        return RedirectResponse("https://accounts.google.com/")
+
+    monkeypatch.setenv("GOOGLE_CLIENT_ID", "client-id")
+    monkeypatch.setattr(auth.oauth.google, "authorize_redirect", authorize_redirect)
+
+    browser.get("/api/auth/login", follow_redirects=False)
+
+    # Served, as test_returning_from_google_logs_the_account_in shows.
+    assert sent == [f"{auth.APP_URL}/api/auth/callback"]

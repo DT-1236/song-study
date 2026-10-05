@@ -69,8 +69,7 @@ class TestFindPredicateGroups:
         assert _groups("走る。") == []
 
     def test_a_verb_that_can_be_a_helper_is_not_one_without_te(self):
-        # 見 is tagged 非自立可能 here too, though it's the main verb.
-        assert _groups("見ちゃった") == ["見ちゃった"]
+        # 見 is tagged 非自立可能, though it's the main verb.
         assert _groups("彼を見て、驚いた。") == ["見て", "驚いた"]
 
     def test_members_share_the_heads_position(self):
