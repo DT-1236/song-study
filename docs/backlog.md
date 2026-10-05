@@ -14,18 +14,6 @@ public `attach_group_glosses` that invited a second hand-composed caller, the
 single-caller `_gloss_phrase`, and two tests' hand-rolled reading picks and
 gloss clearing. What was left:
 
-- **The batched group re-gloss only serves the repair path.**
-  `_attach_group_glosses` (`conflicts.py`) re-glosses any set of groups in one
-  pass, but `select_reading` still loops over `_regloss_predicate_group`, one
-  count, member read, plan/store and `UPDATE` per group, and `resolve_conflict`
-  calls it for one. Fix: move everything after its `SELECT` into
-  `_regloss_groups(conn, document_id, starts)`, filter that `SELECT` by
-  `starts`, call it once with every `group_start` from `select_reading` and
-  with `[start]` from `resolve_conflict`, and delete
-  `_regloss_predicate_group`. Wants a round-trip test like
-  `test_repairing_cleared_links_glosses_each_group_as_before`. Opus 5 at high:
-  it's the rekeying code again, and a group linked to the wrong gloss raises
-  nothing.
 - **`TokenNotFound` and `ConflictNotFound` are still mapped to 404 route by
   route.** `TokenNotFound` is caught in four places (`unmerge_phrase_tokens`,
   `correct_token_reading`, `_token_group_errors`, `add_token_card`) and
