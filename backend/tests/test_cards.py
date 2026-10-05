@@ -37,11 +37,12 @@ def _grammar(term: str) -> CardKey:
 
 
 def _harvest(engine, document_id: int) -> dict[CardKey, int]:
-    """Each word the document harvests, with how often it occurs."""
+    """Each word the document harvests for the test user, with how often it
+    occurs."""
     with engine.begin() as conn:
         return {
             w.key: w.occurrences
-            for w in harvest(conn, document_units(conn, document_id))
+            for w in harvest(conn, document_units(conn, document_id), TEST_USER_ID)
         }
 
 

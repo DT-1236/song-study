@@ -8,7 +8,6 @@ FSRS's four ratings") and which cards a session is made of.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
@@ -17,7 +16,9 @@ from sqlalchemy import text
 
 from app.cards import (
     CARD_COLUMNS,
+    CARD_KEYS_JOIN_SQL,
     CardKind,
+    card_keys_param,
     song_card_keys,
 )
 from app.users import document_is_owned
@@ -240,16 +241,7 @@ def suspend_card(conn, user_id: int, card_id: int):
 def _due_cards(conn, user_id: int, keys=None) -> list:
     """The user's unsuspended cards that are due, oldest first; only those
     with one of `keys` if given."""
-    words = (
-        ""
-        if keys is None
-        else """
-            JOIN jsonb_to_recordset(CAST(:keys AS JSONB))
-                AS k(key_kind text, key_lookup_form text, key_reading text)
-              ON c.kind = k.key_kind AND c.lookup_form = k.key_lookup_form
-             AND c.reading IS NOT DISTINCT FROM k.key_reading
-        """
-    )
+    words = "" if keys is None else CARD_KEYS_JOIN_SQL
     return conn.execute(
         text(
             f"""
@@ -260,18 +252,7 @@ def _due_cards(conn, user_id: int, keys=None) -> list:
         ),
         {
             "user_id": user_id,
-            "keys": None
-            if keys is None
-            else json.dumps(
-                [
-                    {
-                        "key_kind": k.kind,
-                        "key_lookup_form": k.lookup_form,
-                        "key_reading": k.reading,
-                    }
-                    for k in keys
-                ]
-            ),
+            "keys": None if keys is None else card_keys_param(keys),
         },
     ).all()
 

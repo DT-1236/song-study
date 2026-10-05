@@ -47,6 +47,30 @@ class CardKey:
     reading: str | None
 
 
+# Joins `study_cards c` to the keys in a :keys parameter from card_keys_param.
+# Its columns are prefixed so an unqualified CARD_COLUMNS stays unambiguous.
+CARD_KEYS_JOIN_SQL = """
+    JOIN jsonb_to_recordset(CAST(:keys AS JSONB))
+        AS k(key_kind text, key_lookup_form text, key_reading text)
+      ON c.kind = k.key_kind AND c.lookup_form = k.key_lookup_form
+     AND c.reading IS NOT DISTINCT FROM k.key_reading
+"""
+
+
+def card_keys_param(keys: Iterable[CardKey]) -> str:
+    """`keys` as the :keys parameter CARD_KEYS_JOIN_SQL reads."""
+    return json.dumps(
+        [
+            {
+                "key_kind": k.kind,
+                "key_lookup_form": k.lookup_form,
+                "key_reading": k.reading,
+            }
+            for k in keys
+        ]
+    )
+
+
 @dataclass
 class HarvestedWord:
     """A word or grammar term of a document that becomes a card when
@@ -174,7 +198,7 @@ def gloss_summaries(
     with an alternate spelling as plan_glosses takes it. A key that isn't
     cached is looked up and cached first: the cache can be emptied underneath
     a card at any time."""
-    plan = plan_glosses(conn, list(requests))
+    plan = plan_glosses(conn, list(requests), with_summaries=True)
     store_glosses(conn, plan)
     return plan.summaries()
 
@@ -194,7 +218,7 @@ def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
     }
 
 
-def harvest(conn, units: list[list], user_id: int | None = None) -> list[HarvestedWord]:
+def harvest(conn, units: list[list], user_id: int) -> list[HarvestedWord]:
     """Every word and grammar term of a document's `units` (see _units) that
     becomes a card when enrolled, in order of first occurrence, except those
     the user `user_id` already has a card for, removed ones included.
@@ -216,7 +240,7 @@ def harvest(conn, units: list[list], user_id: int | None = None) -> list[Harvest
 
     # Dropped before _studyable, which would look up (and maybe fetch) the
     # gloss of every word the user already has a card for.
-    carded = _carded_keys(conn, user_id, list(found)) if user_id is not None else set()
+    carded = _carded_keys(conn, user_id, list(found))
     wanted = [w for w in found.values() if w.key not in carded]
     studyable = _studyable(
         conn, [(w.key, w.alt_lookup_form) for w in wanted if w.key.kind != "grammar"]
@@ -246,29 +270,13 @@ def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
         CardKey(row.kind, row.lookup_form, row.reading)
         for row in conn.execute(
             text(
-                """
+                f"""
                 SELECT c.kind, c.lookup_form, c.reading
-                FROM jsonb_to_recordset(CAST(:keys AS JSONB))
-                    AS k(kind text, lookup_form text, reading text)
-                JOIN study_cards c
-                  ON c.user_id = :user_id AND c.kind = k.kind
-                 AND c.lookup_form = k.lookup_form
-                 AND c.reading IS NOT DISTINCT FROM k.reading
+                FROM study_cards c {CARD_KEYS_JOIN_SQL}
+                WHERE c.user_id = :user_id
                 """
             ),
-            {
-                "user_id": user_id,
-                "keys": json.dumps(
-                    [
-                        {
-                            "kind": k.kind,
-                            "lookup_form": k.lookup_form,
-                            "reading": k.reading,
-                        }
-                        for k in keys
-                    ]
-                ),
-            },
+            {"user_id": user_id, "keys": card_keys_param(keys)},
         )
     }
 
@@ -288,10 +296,7 @@ def song_card_keys(
 def enroll_new_words(
     conn, user_id: int, document_id: int, limit: int | None = None
 ) -> list[int]:
-    """Give the user a card for each of up to `limit` of the document's
-    harvested words they have no card for yet, the most often sung first,
-    and return the new cards' ids. A card they removed still counts as one
-    they have: only adding it by hand restores it."""
+    """As _enroll_units, reading the document's units itself."""
     return _enroll_units(
         conn, user_id, document_id, document_units(conn, document_id), limit
     )
@@ -300,7 +305,11 @@ def enroll_new_words(
 def _enroll_units(
     conn, user_id: int, document_id: int, units: list[list], limit: int | None
 ) -> list[int]:
-    """enroll_new_words over the document's already-read `units` (see _units)."""
+    """Give the user a card for each of up to `limit` (all if None) of the
+    harvested words in `units`, the document's (see _units), that they have
+    no card for yet, the most often sung first, and return the new cards'
+    ids. A card they removed still counts as one they have: only adding it
+    by hand restores it."""
     words = sorted(
         harvest(conn, units, user_id),
         key=lambda w: (-w.occurrences, w.first_position),

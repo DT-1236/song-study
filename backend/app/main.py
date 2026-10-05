@@ -1,4 +1,3 @@
-import contextlib
 import dataclasses
 import json
 import re
@@ -97,6 +96,17 @@ def conflict_not_found(request: Request, exc: ConflictNotFound) -> JSONResponse:
     """A 404 for a conflict option that isn't in the document the route names."""
     return JSONResponse(
         status_code=404, content={"detail": "Conflict option not found."}
+    )
+
+
+@app.exception_handler(TokensNotGroupable)
+def tokens_not_groupable(request: Request, exc: TokensNotGroupable) -> JSONResponse:
+    """A 422 for tokens lock_token_group refused to decide for together."""
+    return JSONResponse(
+        status_code=422,
+        content={
+            "detail": "Those tokens aren't one word read and parsed the same way, so they can't be decided for together."
+        },
     )
 
 
@@ -990,9 +1000,7 @@ def get_alternate_readings(
             {"token_id": token_id, "document_id": document_id},
         ).one_or_none()
         if row is None:
-            raise HTTPException(
-                status_code=404, detail="Token not found for this document."
-            )
+            raise TokenNotFound()
         return alternate_reading_options(
             row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
         )
@@ -1035,18 +1043,6 @@ class TokenIds(BaseModel):
         return sorted(set(value))
 
 
-@contextlib.contextmanager
-def _token_group_errors():
-    """Raise the HTTP errors lock_token_group's refusals stand for."""
-    try:
-        yield
-    except TokensNotGroupable:
-        raise HTTPException(
-            status_code=422,
-            detail="Those tokens aren't one word read and parsed the same way, so they can't be decided for together.",
-        )
-
-
 class TokensReading(ReadingCorrection, TokenIds):
     # The furigana split to prefer among the tokens' options with `reading`.
     furigana_spans: list[dict] | None = None
@@ -1061,10 +1057,9 @@ def apply_tokens_reading(
     does. Returns every token whose gloss changed, which includes the rest
     of any group one of them is in."""
     with engine.begin() as conn:
-        with _token_group_errors():
-            affected = select_reading(
-                conn, document_id, body.token_ids, body.reading, body.furigana_spans
-            )
+        affected = select_reading(
+            conn, document_id, body.token_ids, body.reading, body.furigana_spans
+        )
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
 
@@ -1079,8 +1074,7 @@ def set_tokens_ignored(
     """Mark each of the document's tokens in `token_ids`, which must be one
     word read and parsed the same way, as needing no gloss, or not."""
     with engine.begin() as conn:
-        with _token_group_errors():
-            lock_token_group(conn, document_id, body.token_ids)
+        lock_token_group(conn, document_id, body.token_ids)
         conn.execute(
             text(
                 "UPDATE tokens SET gloss_ignored = :ignored WHERE id = ANY(:token_ids)"

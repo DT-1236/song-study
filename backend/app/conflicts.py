@@ -436,13 +436,7 @@ def repair_gloss_links(conn, document_id: int) -> None:
     """Link a gloss to every token of the document that should have one but
     has none, as a migration clearing stale glosses leaves them: each group
     member to its group's gloss, every other token to its own."""
-    _attach_group_glosses(conn, document_id)
-    attach_glosses(conn, document_id)
-
-
-def _attach_group_glosses(conn, document_id: int) -> None:
-    """Gloss again each of the document's predicate groups and accepted
-    phrases that has a token with no gloss linked."""
+    # Each group with a member linked to no gloss.
     starts = (
         conn.execute(
             text(
@@ -459,6 +453,7 @@ def _attach_group_glosses(conn, document_id: int) -> None:
         .all()
     )
     _regloss_groups(conn, document_id, starts)
+    attach_glosses(conn, document_id)
 
 
 def _regloss_groups(conn, document_id: int, starts: list[int]) -> list[int]:
