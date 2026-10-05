@@ -186,8 +186,8 @@ class TestSearchJmdict:
     the query begins, ends, or is inside, each of those capped."""
 
     def test_ranks_closer_matches_first_and_caps_the_looser_ones(self):
-        # 火 has two entries of its own, read ひ and か.
-        assert [_tier("火", entry) for entry in jmdict_search("火")] == [
+        # 柿 has two entries of its own: かき, "persimmon", and こけら, "wood chips".
+        assert [_tier("柿", entry) for entry in jmdict_search("柿")] == [
             *["exact"] * 2,
             *["prefix"] * 3,
             *["suffix"] * 3,
@@ -195,9 +195,9 @@ class TestSearchJmdict:
         ]
 
     def test_exact_matches_are_never_capped(self):
-        entries = jmdict_search("火", max_results_per_tier=1)
+        entries = jmdict_search("柿", max_results_per_tier=1)
 
-        assert [_tier("火", entry) for entry in entries] == [
+        assert [_tier("柿", entry) for entry in entries] == [
             *["exact"] * 2,
             "prefix",
             "suffix",
