@@ -4,9 +4,9 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on the backlog sweep (gloss-link repair, `song_queue`'s single token read, batched group glosses, study-route 404s)
+## `/simplify` on PR #40 (gloss-link repair, `song_queue`'s single token read, batched group glosses, study-route 404s)
 
-Run over `git diff main...HEAD` on `repair-gloss-links`. Fixed in that run:
+Run over `git diff main...HEAD` on the PR's branch. Fixed in that run:
 the four per-route `DocumentNotFound` catches (now one app exception
 handler), the accepted-phrase subquery written twice (now
 `ACCEPTED_PHRASE_SQL`, which `IS_ACCEPTED_PHRASE_SQL` derives from), the
