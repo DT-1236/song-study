@@ -26,16 +26,6 @@ CardKey join written in both `_carded_keys` and `_due_cards` (now
   `glosses.py` (`plan_glosses`' composite and katakana fallbacks). Opus 5 at
   medium: a missed check quietly changes which fallback a word gets, but the
   shape of the change is settled.
-- **Card exceptions are still mapped to HTTP route by route.**
-  `study.CardNotFound` is caught three times through `_card_not_found()`,
-  `study.CardSuspended` and `NotStudyable` once each, and five routes raise
-  `HTTPException(404, "Document not found.")` by hand where
-  `study.DocumentNotFound`'s handler already says the same thing
-  (`get_document`, `_lock_document`, `unlink_lrclib`, and twice in
-  `get_document_tokens`). Fix: an `app.exception_handler` per exception, as
-  `TokenNotFound` and `TokensNotGroupable` now have, and
-  `raise study.DocumentNotFound()` in place of those five. `main.py` only,
-  behavior unchanged. Sonnet 5 at low.
 
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 

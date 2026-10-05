@@ -85,6 +85,30 @@ def document_not_found(request: Request, exc: study.DocumentNotFound) -> JSONRes
     return JSONResponse(status_code=404, content={"detail": "Document not found."})
 
 
+@app.exception_handler(study.CardNotFound)
+def card_not_found(request: Request, exc: study.CardNotFound) -> JSONResponse:
+    """A 404 for a card that isn't the user's."""
+    return JSONResponse(status_code=404, content={"detail": "Card not found."})
+
+
+@app.exception_handler(study.CardSuspended)
+def card_suspended(request: Request, exc: study.CardSuspended) -> JSONResponse:
+    """A 409 for answering a card the user removed from study."""
+    return JSONResponse(
+        status_code=409,
+        content={"detail": "This card was removed from your list."},
+    )
+
+
+@app.exception_handler(NotStudyable)
+def not_studyable(request: Request, exc: NotStudyable) -> JSONResponse:
+    """A 422 for a token that isn't part of a word with a dictionary entry."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "This isn't a word with a dictionary entry to study."},
+    )
+
+
 @app.exception_handler(TokenNotFound)
 def token_not_found(request: Request, exc: TokenNotFound) -> JSONResponse:
     """A 404 for a token that isn't in the document the route names."""
@@ -247,7 +271,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
         row = owned_document_row(conn, document_id, user_id)
 
     if row is None:
-        raise HTTPException(status_code=404, detail="Document not found.")
+        raise study.DocumentNotFound()
 
     document = Document(**row._mapping)
     if document.lrclib_uri is None:
@@ -319,7 +343,7 @@ def _lock_document(conn, document_id: int, user_id: int):
     # document can't interleave with one.
     current = owned_document_row(conn, document_id, user_id, for_update=True)
     if current is None:
-        raise HTTPException(status_code=404, detail="Document not found.")
+        raise study.DocumentNotFound()
     return current
 
 
@@ -450,7 +474,7 @@ def unlink_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
         ).one_or_none()
 
     if row is None:
-        raise HTTPException(status_code=404, detail="Document not found.")
+        raise study.DocumentNotFound()
     return Document(**row._mapping)
 
 
@@ -888,7 +912,7 @@ def get_document_tokens(
                 return _fetch_tokens(conn, document_id)
 
         if document_text is None:
-            raise HTTPException(status_code=404, detail="Document not found.")
+            raise study.DocumentNotFound()
         processed = _process_document(document_text)
         if not processed.records:
             return []
@@ -902,7 +926,7 @@ def get_document_tokens(
             ).scalar_one_or_none()
 
             if current_text is None:
-                raise HTTPException(status_code=404, detail="Document not found.")
+                raise study.DocumentNotFound()
             # Its own statement, not part of the locking one: under READ
             # COMMITTED, only a statement started after the lock was granted
             # sees tokens that the lock's previous holder committed.
@@ -1103,13 +1127,7 @@ def add_token_card(
     """Add the word `token_id` is part of to the user's cards, or restore it
     if they removed it, as enroll_token does."""
     with engine.begin() as conn:
-        try:
-            row = enroll_token(conn, user_id, document_id, token_id)
-        except NotStudyable:
-            raise HTTPException(
-                status_code=422,
-                detail="This isn't a word with a dictionary entry to study.",
-            )
+        row = enroll_token(conn, user_id, document_id, token_id)
     return StudyCard(**row._mapping)
 
 
@@ -1130,10 +1148,6 @@ class PushOut(BaseModel):
     months: study.PushOutMonths
 
 
-def _card_not_found() -> HTTPException:
-    return HTTPException(status_code=404, detail="Card not found.")
-
-
 @api.post("/cards/{card_id}/review", response_model=ReviewResult)
 def review_card(
     card_id: int, answer: ReviewAnswer, user_id: CurrentUser
@@ -1141,21 +1155,14 @@ def review_card(
     """Schedule the user's card after an answer, rated from its correctness
     and how long it took."""
     with engine.begin() as conn:
-        try:
-            rating, row = study.review_card(
-                conn,
-                user_id,
-                card_id,
-                answer.correct,
-                answer.duration_ms,
-                answer.document_id,
-            )
-        except study.CardNotFound:
-            raise _card_not_found()
-        except study.CardSuspended:
-            raise HTTPException(
-                status_code=409, detail="This card was removed from your list."
-            )
+        rating, row = study.review_card(
+            conn,
+            user_id,
+            card_id,
+            answer.correct,
+            answer.duration_ms,
+            answer.document_id,
+        )
     return ReviewResult(rating=int(rating), card=StudyCard(**row._mapping))
 
 
@@ -1164,10 +1171,7 @@ def push_out_card(card_id: int, body: PushOut, user_id: CurrentUser) -> StudyCar
     """Reschedule the user's card 1, 3 or 6 months out, for a word they
     already knew. Not a review: nothing is logged."""
     with engine.begin() as conn:
-        try:
-            row = study.push_out(conn, user_id, card_id, body.months)
-        except study.CardNotFound:
-            raise _card_not_found()
+        row = study.push_out(conn, user_id, card_id, body.months)
     return StudyCard(**row._mapping)
 
 
@@ -1176,10 +1180,7 @@ def suspend_card(card_id: int, user_id: CurrentUser) -> StudyCard:
     """Remove the user's card from study, keeping its history; adding the
     word again (add_token_card) restores it."""
     with engine.begin() as conn:
-        try:
-            row = study.suspend_card(conn, user_id, card_id)
-        except study.CardNotFound:
-            raise _card_not_found()
+        row = study.suspend_card(conn, user_id, card_id)
     return StudyCard(**row._mapping)
 
 
