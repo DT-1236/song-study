@@ -4,7 +4,7 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on branch `batch-group-regloss` (PR #40's backlog: batched group re-gloss, 404 handlers, `song_card_keys`, carded-key join, gloss summaries from the plan)
+## `/simplify` on PR #41 (PR #40's backlog: batched group re-gloss, 404 handlers, `song_card_keys`, carded-key join, gloss summaries from the plan)
 
 Run over `git diff main...HEAD`. Fixed in that run: the gloss summary every
 `plan_glosses` caller paid for (now opt-in through `with_summaries`), the
