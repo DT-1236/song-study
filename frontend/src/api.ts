@@ -228,7 +228,8 @@ export type Gloss = {
   // (欲する＋てる＋ん＋だ＋って).
   lookup_form: string
   senses: GlossSense[]
-  source: 'jmdict' | 'english_stub' | 'composite'
+  // jmdict_miss: looked up in JMDict, with no entry found (senses empty).
+  source: 'jmdict' | 'jmdict_miss' | 'english_stub' | 'composite'
   pieces: GlossPiece[]
   // The hiragana this was looked up as, for katakana with no dictionary
   // entry of its own (ココロノコエ as こころのこえ).

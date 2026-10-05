@@ -26,7 +26,6 @@ import sqlite3
 import threading
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import NamedTuple
 
 from jamdict import Jamdict
 from sqlalchemy import text
@@ -479,52 +478,33 @@ def own_gloss_key(
     return None
 
 
-class GlossSummary(NamedTuple):
-    """What a card needs to know of a gloss: where it came from, and whether
-    it has any entries."""
-
-    source: str
-    has_entries: bool
-
-
 @dataclass
 class GlossPlan:
-    """Glosses for a set of cache keys: the ids of rows already cached (and
-    their summaries, if planned with_summaries), and newly computed
-    (entries, source) for the rest, not yet written."""
+    """Glosses for a set of cache keys: the ids and sources of rows already
+    cached, and newly computed (entries, source) for the rest, not yet
+    written."""
 
     cached_ids: dict[GlossKey, int]
+    cached_sources: dict[GlossKey, str]
     new_rows: dict[GlossKey, tuple[object, str]]
-    cached_summaries: dict[GlossKey, GlossSummary] | None = None
 
-    def summaries(self) -> dict[GlossKey, GlossSummary]:
-        """The summary of every planned key's gloss, cached or new. Only for
-        a plan made with_summaries."""
-        # None | dict raises, rather than leaving the cached keys out.
-        return self.cached_summaries | {
-            key: GlossSummary(source, bool(entries))
-            for key, (entries, source) in self.new_rows.items()
+    def sources(self) -> dict[GlossKey, str]:
+        """The source of every planned key's gloss, cached or new."""
+        return self.cached_sources | {
+            key: source for key, (_, source) in self.new_rows.items()
         }
 
 
-def _cached_rows(
-    conn, keys, *, with_entries: bool = False, with_summary: bool = False
-) -> dict:
-    """The cached gloss_lookups rows for these keys, by key. Entries are only
-    fetched when asked for — they're the bulk of each row; `with_summary`
-    adds just `source` and `has_entries`."""
+def _cached_rows(conn, keys, *, with_entries: bool = False) -> dict:
+    """The cached gloss_lookups rows for these keys, by key, with their id
+    and source. Entries are only fetched when asked for — they're the bulk
+    of each row."""
     if not keys:
         return {}
     forms, readings = zip(*keys)
+    columns = "id, lookup_form, reading, source"
     if with_entries:
-        columns = "id, lookup_form, reading, entries, source"
-    elif with_summary:
-        columns = (
-            "id, lookup_form, reading, source, "
-            "entries <> CAST('[]' AS JSONB) AS has_entries"
-        )
-    else:
-        columns = "id, lookup_form, reading"
+        columns += ", entries"
     rows = conn.execute(
         text(
             f"""
@@ -543,7 +523,9 @@ def _lookup(
     lookup_form: str, reading: str, alt_lookup_form: str | None = None
 ) -> tuple[object, str]:
     """(entries, source) for one key, from the English stub or JMDict, trying
-    alt_lookup_form too when lookup_form has no entry."""
+    alt_lookup_form too when lookup_form has no entry. A JMDict lookup that
+    finds nothing has a source of its own, "jmdict_miss", so `source` alone
+    tells a found headword apart without reading `entries`."""
     if is_probably_english(lookup_form):
         return _lookup_english_entries(lookup_form), "english_stub"
     found = _lookup_entries(lookup_form, reading)
@@ -555,7 +537,7 @@ def _lookup(
     # so both get tried.
     if not found and alt_lookup_form and alt_lookup_form != lookup_form:
         found = _lookup_entries(alt_lookup_form, reading)
-    return found, "jmdict"
+    return found, "jmdict" if found else "jmdict_miss"
 
 
 def _kanji_spelling(entries, senses) -> str | None:
@@ -805,11 +787,7 @@ def _piece_sources(
     }
     _add_composites(
         conn,
-        [
-            key
-            for key, (entries, source) in uncached.items()
-            if source == "jmdict" and not entries
-        ],
+        [key for key, (_, source) in uncached.items() if source == "jmdict_miss"],
         uncached,
     )
     new_rows.update(uncached)
@@ -856,7 +834,7 @@ def _add_katakana_readings(
     found = _piece_sources(conn, requests, new_rows)
     for key, units in readings.items():
         words = [unit for unit in units if isinstance(unit, GroupGlossRequest)]
-        if any(found[word.base_key] == ([], "jmdict") for word in words):
+        if any(found[word.base_key][1] == "jmdict_miss" for word in words):
             continue
         pieces = [
             piece
@@ -879,31 +857,19 @@ def plan_glosses(
     conn,
     requests: Iterable[tuple[GlossKey, str | None]],
     groups: Iterable[GroupGlossRequest] = (),
-    *,
-    with_summaries: bool = False,
 ) -> GlossPlan:
     """Resolve each requested key, and each of `groups`' composite keys,
     against the gloss cache and compute every miss (from JMDict, the English
     stub, or the compound and katakana fallbacks), without writing anything.
     Each request pairs a key with an alternate spelling to try when the key's
     own lookup_form has no JMDict entry; the first one given for a key is
-    used. `with_summaries` makes the plan's summaries() available, at the
-    cost of the database reading each cached row's entries."""
+    used."""
     groups = list(groups)
     alternates: dict[GlossKey, str | None] = {}
     for key, alt in requests:
         alternates.setdefault(key, alt)
-    cached = _cached_rows(
-        conn,
-        alternates.keys() | {g.key for g in groups},
-        with_summary=with_summaries,
-    )
+    cached = _cached_rows(conn, alternates.keys() | {g.key for g in groups})
     cached_ids = {key: row.id for key, row in cached.items()}
-    cached_summaries = (
-        {key: GlossSummary(row.source, row.has_entries) for key, row in cached.items()}
-        if with_summaries
-        else None
-    )
     new_rows = {
         key: _lookup(*key, alt)
         for key, alt in alternates.items()
@@ -911,24 +877,18 @@ def plan_glosses(
     }
     _add_composites(
         conn,
-        [
-            key
-            for key, (entries, source) in new_rows.items()
-            if source == "jmdict" and not entries
-        ],
+        [key for key, (_, source) in new_rows.items() if source == "jmdict_miss"],
         new_rows,
     )
     _add_katakana_readings(
         conn,
-        [
-            key
-            for key, (entries, source) in new_rows.items()
-            if source == "jmdict" and not entries
-        ],
+        [key for key, (_, source) in new_rows.items() if source == "jmdict_miss"],
         new_rows,
     )
     _add_group_glosses(conn, groups, cached_ids, new_rows)
-    return GlossPlan(cached_ids, new_rows, cached_summaries)
+    return GlossPlan(
+        cached_ids, {key: row.source for key, row in cached.items()}, new_rows
+    )
 
 
 def store_glosses(conn, plan: GlossPlan) -> dict[GlossKey, int]:
