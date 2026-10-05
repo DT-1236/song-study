@@ -6,21 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on PR #42 (test audit: low-value tests cut, coverage gaps filled, faster DB cleanup)
 
-Run over `git diff origin/main...HEAD`. Fixed in that run:
-- `committed_engine` now empties `users` too and inserts the test user
-  again (`support.insert_test_user`). That replaces the reset of
-  `desired_retention` by name, `other_user`'s second sweep, the `google`
-  fixture's own cleanup, and `test_me`'s try/finally.
-- The table order comes from `MetaData.sorted_tables` instead of a
-  hand-built foreign-key sort, and every `DELETE` goes in one round trip.
-- `support.make_document` replaces 16 copies of the document INSERT in
-  `test_conflicts.py`.
-- `_suggest_phrase` and `_ambiguous_run` replace the copied phrase
-  `TokenRecord` and 六右 setups.
-- `_tier` is flattened.
-
-What was left:
-
 - **`test_auth`'s `browser` fixture deletes the global `current_user_id`
   override.** It has to know that `tests/support.py` installs the override,
   and under which key, so how tests choose who they act as is split across
