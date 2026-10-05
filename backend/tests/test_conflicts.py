@@ -25,14 +25,15 @@ from app.conflicts import (
     ConflictNotFound,
     TokenNotFound,
     _recompute_phrase_furigana,
-    attach_group_glosses,
     correct_reading,
     create_conflicts,
     create_phrase_conflicts,
+    repair_gloss_links,
     resolve_conflict,
     resolve_phrase_furigana,
     unmerge_phrase,
 )
+from app.glosses import attach_glosses
 from app.tokenization import TokenRecord
 from tests.support import TEST_USER_ID, BackgroundCall, make_token, wait_for_lock_wait
 
@@ -350,7 +351,7 @@ class TestPhraseConflicts:
             {"id": token_ids[2]},
         )
 
-        attach_group_glosses(db_conn, document_id)
+        repair_gloss_links(db_conn, document_id)
 
         rows = db_conn.execute(
             text(
@@ -360,6 +361,21 @@ class TestPhraseConflicts:
         ).all()
         assert {row.gloss_lookup_id for row in rows} == {phrase_gloss_id}
         assert {row.phrase_start_position for row in rows} == {0}
+
+    def test_attach_glosses_leaves_an_unlinked_group_member_to_its_group(self, db_conn):
+        # Glossed as itself, 期 would be linked to き's gloss, and a later
+        # repair_gloss_links would find nothing left to repair.
+        document_id, token_ids = self._seed_phrase_tokens(db_conn)
+        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
+        db_conn.execute(
+            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE id = :id"),
+            {"id": token_ids[1]},
+        )
+
+        attach_glosses(db_conn, document_id)
+
+        assert _token_row(db_conn, token_ids[1]).gloss_lookup_id is None
 
     def test_unmerge_deselects_the_phrase_conflict_so_it_can_be_reaccepted(
         self, db_conn

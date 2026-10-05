@@ -7,7 +7,8 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import Literal
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -23,11 +24,11 @@ from app.conflicts import (
     TokenNotFound,
     TokensNotGroupable,
     accept_phrase_suggestions,
-    attach_group_glosses,
     correct_reading,
     create_conflicts,
     create_phrase_conflicts,
     lock_token_group,
+    repair_gloss_links,
     resolve_conflict,
     resolve_phrase_furigana,
     select_reading,
@@ -38,7 +39,6 @@ from app.glosses import (
     GlossKey,
     GlossPlan,
     alternate_reading_options,
-    attach_glosses,
     gloss_key,
     is_glossable,
     is_probably_english,
@@ -77,6 +77,14 @@ app.add_middleware(
     same_site="lax",
     https_only=APP_URL.startswith("https://"),
 )
+
+
+@app.exception_handler(study.DocumentNotFound)
+def document_not_found(request: Request, exc: study.DocumentNotFound) -> JSONResponse:
+    """A 404 for a study call naming a document that isn't the user's: one
+    from a request body, or one deleted after the route's own check."""
+    return JSONResponse(status_code=404, content={"detail": "Document not found."})
+
 
 api = APIRouter(prefix="/api")
 api.include_router(auth_router)
@@ -852,8 +860,7 @@ def get_document_tokens(
             # existed, or unlinked by a migration that reset the gloss cache
             # (as 0005 did).
             with engine.begin() as conn:
-                attach_group_glosses(conn, document_id)
-                attach_glosses(conn, document_id)
+                repair_gloss_links(conn, document_id)
                 return _fetch_tokens(conn, document_id)
 
         if document_text is None:
@@ -1174,8 +1181,6 @@ def review_card(
             raise HTTPException(
                 status_code=409, detail="This card was removed from your list."
             )
-        except study.DocumentNotFound:
-            raise HTTPException(status_code=404, detail="Document not found.")
     return ReviewResult(rating=int(rating), card=StudyCard(**row._mapping))
 
 

@@ -15,8 +15,10 @@ from sqlalchemy import text
 
 from app.db import json_param
 from app.glosses import (
+    GlossKey,
     GroupGlossRequest,
     GroupPart,
+    attach_glosses,
     get_or_create_gloss_lookup,
     own_gloss_key,
     plan_glosses,
@@ -42,15 +44,17 @@ from app.tokenization import (
 # that can be merged again after being split.
 NON_READING_KINDS = ("phrase", "phrase_furigana", "predicate")
 
-# Whether the group `t` is merged into is an accepted phrase (its head has
-# the phrase's conflict selected) rather than a predicate group.
-IS_ACCEPTED_PHRASE_SQL = """
-    EXISTS (
-        SELECT 1 FROM conflicts pc JOIN tokens ph ON ph.id = pc.token_id
+# The selected phrase suggestion on the head of the group `t` is merged
+# into: NULL unless that group is an accepted phrase rather than a predicate
+# group.
+ACCEPTED_PHRASE_SQL = """
+    (
+        SELECT pc.value FROM conflicts pc JOIN tokens ph ON ph.id = pc.token_id
         WHERE ph.document_id = t.document_id AND ph.position = t.phrase_start_position
           AND pc.kind = 'phrase' AND pc.selected
     )
 """
+IS_ACCEPTED_PHRASE_SQL = f"{ACCEPTED_PHRASE_SQL} IS NOT NULL"
 
 
 def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None:
@@ -292,52 +296,58 @@ def resolve_phrase_furigana(conn, document_id: int, conflict_id: int) -> list[in
     return [r.id for r in rows]
 
 
-def _project_onto_last_member(
-    conn, document_id: int, last_position: int, citation_reading_hiragana: str
-) -> str:
+def _project_onto_member(member, citation_reading_hiragana: str) -> str:
     """`citation_reading_hiragana`, a headword's reading, as spelled on the
-    page through the token at `last_position`, which can inflect the
-    headword's last word (まにうける -> まにうけ for 真に受け)."""
-    last = conn.execute(
-        text(
-            "SELECT reading_katakana, dictionary_form, normalized_form FROM tokens "
-            "WHERE document_id = :document_id AND position = :position"
-        ),
-        {"document_id": document_id, "position": last_position},
-    ).one()
-    dict_form_citation = citation_reading(last.dictionary_form)
-    conjugation_type = conjugation_type_of(last.normalized_form)
+    page through `member`, a token row that can inflect the headword's last
+    word (まにうける -> まにうけ for 真に受け)."""
+    dict_form_citation = citation_reading(member.dictionary_form)
+    conjugation_type = conjugation_type_of(member.normalized_form)
     projected = project_citation_reading(
         to_katakana(citation_reading_hiragana),
-        last.reading_katakana,
+        member.reading_katakana,
         dict_form_citation,
         conjugation_type,
     )
     return to_hiragana(projected)
 
 
-def _group_members(conn, document_id: int, position: int, token_count: int) -> list:
-    """The document's `token_count` tokens from `position`, in order, each
-    with its selected reading option's readings, if it has one."""
-    return conn.execute(
+def _members_by_start(conn, document_id: int, spans: dict[int, int]) -> dict[int, list]:
+    """The document's tokens in each of `spans`, a token count by start
+    position, keyed by that start: in order, each with its selected reading
+    option's readings, if it has one."""
+    rows = conn.execute(
         text(
             """
-            SELECT t.id, t.surface, t.reading_katakana, t.dictionary_form, t.normalized_form, t.part_of_speech,
+            SELECT s.start, t.id, t.surface, t.reading_katakana, t.dictionary_form, t.normalized_form, t.part_of_speech,
                    c.value ->> 'reading' AS selected_reading,
                    COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS selected_citation_reading
-            FROM tokens t
+            FROM jsonb_to_recordset(CAST(:spans AS JSONB)) AS s(start int, token_count int)
+            JOIN tokens t ON t.document_id = :document_id AND t.position >= s.start AND t.position < s.start + s.token_count
             LEFT JOIN conflicts c ON c.token_id = t.id AND c.selected AND c.kind <> ALL(:non_reading_kinds)
-            WHERE t.document_id = :document_id AND t.position >= :position AND t.position < :position + :token_count
             ORDER BY t.position
             """
         ),
         {
             "document_id": document_id,
-            "position": position,
-            "token_count": token_count,
+            "spans": json.dumps(
+                [
+                    {"start": start, "token_count": token_count}
+                    for start, token_count in spans.items()
+                ]
+            ),
             "non_reading_kinds": list(NON_READING_KINDS),
         },
     ).all()
+    members: dict[int, list] = {start: [] for start in spans}
+    for row in rows:
+        members[row.start].append(row)
+    return members
+
+
+def _group_members(conn, document_id: int, position: int, token_count: int) -> list:
+    """The document's `token_count` tokens from `position`, in order, each
+    with its selected reading option's readings, if it has one."""
+    return _members_by_start(conn, document_id, {position: token_count})[position]
 
 
 def _page_reading(member) -> str:
@@ -346,39 +356,49 @@ def _page_reading(member) -> str:
     return member.selected_reading or to_hiragana(member.reading_katakana)
 
 
-def _merge_tokens(
-    conn, document_id: int, position: int, token_count: int, gloss_lookup_id: int
+def _merge_groups(
+    conn, document_id: int, groups: list[tuple[int, int, int]]
 ) -> list[int]:
-    """Mark the document's `token_count` tokens from `position` as one group
-    sharing `gloss_lookup_id`. Returns their ids."""
+    """Mark each of `groups`, a (start position, token count, gloss lookup
+    id), as one group of the document's tokens sharing that gloss. Returns
+    their ids."""
     rows = conn.execute(
         text(
             """
-            UPDATE tokens
-            SET gloss_lookup_id = :gloss_lookup_id, phrase_start_position = :position
-            WHERE document_id = :document_id AND position >= :position AND position < :position + :token_count
-            RETURNING id
+            UPDATE tokens t
+            SET gloss_lookup_id = g.gloss_lookup_id, phrase_start_position = g.start
+            FROM jsonb_to_recordset(CAST(:groups AS JSONB))
+                AS g(start int, token_count int, gloss_lookup_id int)
+            WHERE t.document_id = :document_id AND t.position >= g.start AND t.position < g.start + g.token_count
+            RETURNING t.id
             """
         ),
         {
             "document_id": document_id,
-            "position": position,
-            "token_count": token_count,
-            "gloss_lookup_id": gloss_lookup_id,
+            "groups": json.dumps(
+                [
+                    {"start": start, "token_count": count, "gloss_lookup_id": gloss_id}
+                    for start, count, gloss_id in groups
+                ]
+            ),
         },
     ).all()
     return [row.id for row in rows]
 
 
-def merge_predicate_group(
-    conn, document_id: int, position: int, token_count: int
+def _merge_tokens(
+    conn, document_id: int, position: int, token_count: int, gloss_lookup_id: int
 ) -> list[int]:
-    """Merge the document's `token_count` tokens from `position` into a
-    predicate group (see app.grammar), glossed together under each token's
-    current reading. Returns their ids."""
-    members = _group_members(conn, document_id, position, token_count)
+    """Mark the document's `token_count` tokens from `position` as one group
+    sharing `gloss_lookup_id`. Returns their ids."""
+    return _merge_groups(conn, document_id, [(position, token_count, gloss_lookup_id)])
+
+
+def _predicate_request(members: list) -> GroupGlossRequest:
+    """The gloss request for a predicate group of `members`, token rows
+    from _group_members, under each one's current reading."""
     head = members[0]
-    request = predicate_group_request(
+    return predicate_group_request(
         members,
         [_page_reading(member) for member in members],
         own_gloss_key(
@@ -388,9 +408,27 @@ def merge_predicate_group(
             head.selected_citation_reading,
         ),
     )
-    gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[
-        request.key
-    ]
+
+
+def _gloss_ids(conn, requests: list[GlossKey | GroupGlossRequest]) -> list[int]:
+    """The gloss_lookups id of each of `requests`, a plain key or a group's
+    request, in order, caching any not cached yet."""
+    groups = [r for r in requests if isinstance(r, GroupGlossRequest)]
+    # A plain key here is a phrase's headword, which has no alternate
+    # spelling to try.
+    keys = [(r, None) for r in requests if not isinstance(r, GroupGlossRequest)]
+    ids = store_glosses(conn, plan_glosses(conn, keys, groups))
+    return [ids[r.key if isinstance(r, GroupGlossRequest) else r] for r in requests]
+
+
+def merge_predicate_group(
+    conn, document_id: int, position: int, token_count: int
+) -> list[int]:
+    """Merge the document's `token_count` tokens from `position` into a
+    predicate group (see app.grammar), glossed together under each token's
+    current reading. Returns their ids."""
+    members = _group_members(conn, document_id, position, token_count)
+    [gloss_lookup_id] = _gloss_ids(conn, [_predicate_request(members)])
     return _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
 
@@ -406,27 +444,55 @@ def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[i
     return merge_predicate_group(conn, document_id, group_start, token_count)
 
 
-def attach_group_glosses(conn, document_id: int) -> None:
+def repair_gloss_links(conn, document_id: int) -> None:
+    """Link a gloss to every token of the document that should have one but
+    has none, as a migration clearing stale glosses leaves them: each group
+    member to its group's gloss, every other token to its own."""
+    _attach_group_glosses(conn, document_id)
+    attach_glosses(conn, document_id)
+
+
+def _attach_group_glosses(conn, document_id: int) -> None:
     """Gloss again each of the document's predicate groups and accepted
-    phrases that has a token with no gloss linked, as a migration clearing
-    stale glosses leaves one, so that attach_glosses doesn't gloss its
-    tokens one by one."""
+    phrases that has a token with no gloss linked."""
     groups = conn.execute(
         text(
             f"""
-            SELECT DISTINCT t.phrase_start_position, {IS_ACCEPTED_PHRASE_SQL} AS is_phrase
+            SELECT t.phrase_start_position AS start, count(*) AS member_count,
+                   {ACCEPTED_PHRASE_SQL} AS phrase
             FROM tokens t
-            WHERE t.document_id = :document_id AND t.gloss_lookup_id IS NULL
-              AND t.phrase_start_position IS NOT NULL
+            WHERE t.document_id = :document_id AND t.phrase_start_position IS NOT NULL
+            GROUP BY t.document_id, t.phrase_start_position
+            HAVING bool_or(t.gloss_lookup_id IS NULL)
+            ORDER BY t.phrase_start_position
             """
         ),
         {"document_id": document_id},
     ).all()
-    for group in groups:
-        if group.is_phrase:
-            _regloss_accepted_phrase(conn, document_id, group.phrase_start_position)
-        else:
-            _regloss_predicate_group(conn, document_id, group.phrase_start_position)
+    if not groups:
+        return
+    # A phrase spans the tokens its suggestion covers; a predicate group,
+    # every token merged into it.
+    spans = {
+        group.start: group.phrase["token_count"] if group.phrase else group.member_count
+        for group in groups
+    }
+    members = _members_by_start(conn, document_id, spans)
+    requests = [
+        _phrase_request(members[group.start], group.phrase)[0]
+        if group.phrase
+        else _predicate_request(members[group.start])
+        for group in groups
+    ]
+    gloss_ids = _gloss_ids(conn, requests)
+    _merge_groups(
+        conn,
+        document_id,
+        [
+            (group.start, spans[group.start], gloss_id)
+            for group, gloss_id in zip(groups, gloss_ids)
+        ],
+    )
 
 
 def _unmerge_overlapping_groups(
@@ -460,62 +526,36 @@ def _unmerge_overlapping_groups(
     return affected
 
 
-def _gloss_phrase(
-    conn, document_id: int, position: int, value: dict
-) -> tuple[int, str]:
-    """The gloss lookup id and full reading of the phrase suggestion `value`
-    (see app.phrase_merge) starting at the document's token `position`: the
-    phrase's headword plus a piece per token of grammar attached after it."""
-    token_count = value["token_count"]
-    phrase_token_count = value.get("phrase_token_count", token_count)
-    members = _group_members(conn, document_id, position, token_count)
+def _phrase_request(
+    members: list, value: dict
+) -> tuple[GlossKey | GroupGlossRequest, str]:
+    """The gloss request and full reading of the phrase suggestion `value`
+    (see app.phrase_merge) over `members`, its token rows from
+    _group_members: the phrase's headword, plus a piece per token of grammar
+    attached after it if there is any."""
+    phrase_token_count = value.get("phrase_token_count", value["token_count"])
     attached = members[phrase_token_count:]
     # The headword's reading can spell more than the page does: まにうける
     # for 真に受け.
-    phrase_reading = _project_onto_last_member(
-        conn, document_id, position + phrase_token_count - 1, value["reading"]
+    phrase_reading = _project_onto_member(
+        members[phrase_token_count - 1], value["reading"]
     )
     reading = phrase_reading + "".join(_page_reading(member) for member in attached)
-
-    if attached:
-        request = GroupGlossRequest(
-            base_key=(value["lookup_form"], value["reading"]),
-            base_alt=None,
-            # No one token's part of speech is the phrase's, so its senses
-            # keep JMDict's order.
-            base_part_of_speech=("*",) * 6,
-            attached=tuple(
-                GroupPart.of(member, _page_reading(member)) for member in attached
-            ),
-            reading=reading,
-        )
-        gloss_lookup_id = store_glosses(conn, plan_glosses(conn, [], [request]))[
-            request.key
-        ]
-    else:
-        gloss_lookup_id = get_or_create_gloss_lookup(
-            conn, value["lookup_form"], value["reading"]
-        )
-    return gloss_lookup_id, reading
-
-
-def _regloss_accepted_phrase(conn, document_id: int, group_start: int) -> list[int]:
-    """Gloss the accepted phrase starting at `group_start` again, leaving its
-    furigana as is. Returns its token ids."""
-    value = conn.execute(
-        text(
-            """
-            SELECT c.value FROM conflicts c JOIN tokens t ON t.id = c.token_id
-            WHERE t.document_id = :document_id AND t.position = :group_start
-              AND c.kind = 'phrase' AND c.selected
-            """
+    base_key = (value["lookup_form"], value["reading"])
+    if not attached:
+        return base_key, reading
+    request = GroupGlossRequest(
+        base_key=base_key,
+        base_alt=None,
+        # No one token's part of speech is the phrase's, so its senses keep
+        # JMDict's order.
+        base_part_of_speech=("*",) * 6,
+        attached=tuple(
+            GroupPart.of(member, _page_reading(member)) for member in attached
         ),
-        {"document_id": document_id, "group_start": group_start},
-    ).scalar_one()
-    gloss_lookup_id, _ = _gloss_phrase(conn, document_id, group_start, value)
-    return _merge_tokens(
-        conn, document_id, group_start, value["token_count"], gloss_lookup_id
+        reading=reading,
     )
+    return request, reading
 
 
 def _apply_phrase_selection(
@@ -530,7 +570,10 @@ def _apply_phrase_selection(
         {"token_id": token_id},
     ).scalar_one()
     token_count = value["token_count"]
-    gloss_lookup_id, reading = _gloss_phrase(conn, document_id, position, value)
+    request, reading = _phrase_request(
+        _group_members(conn, document_id, position, token_count), value
+    )
+    [gloss_lookup_id] = _gloss_ids(conn, [request])
     ids = _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
     # A member can no longer start a phrase of its own inside this one:
