@@ -44,14 +44,11 @@ def test_first_login_creates_a_user_and_later_ones_reuse_it(db_conn):
 def test_me_returns_the_logged_in_user(committed_engine):
     with committed_engine.begin() as conn:
         user_id = upsert_google_user(conn, "sub-me", "me@example.com", "Me")
-    try:
-        assert me(user_id).email == "me@example.com"
-        with pytest.raises(HTTPException) as exc:
-            me(user_id + 1000)
-        assert exc.value.status_code == 401
-    finally:
-        with committed_engine.begin() as conn:
-            conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
+
+    assert me(user_id).email == "me@example.com"
+    with pytest.raises(HTTPException) as exc:
+        me(user_id + 1000)
+    assert exc.value.status_code == 401
 
 
 @pytest.fixture
@@ -66,7 +63,8 @@ def browser(monkeypatch):
 @pytest.fixture
 def google(monkeypatch, committed_engine):
     """Google, standing in for the token exchange at the end of a login: it
-    vouches for whichever account `account` is set to."""
+    vouches for whichever account the returned dict is set to. Logging in
+    commits a user, hence `committed_engine`."""
     account = {"sub": "sub-callback", "email": "cb@example.com", "name": "CB"}
 
     async def authorize_access_token(request):
@@ -75,11 +73,7 @@ def google(monkeypatch, committed_engine):
     monkeypatch.setattr(
         auth.oauth.google, "authorize_access_token", authorize_access_token
     )
-    yield account
-    with committed_engine.begin() as conn:
-        # Every user a login created; the ones tests act as have no Google
-        # account.
-        conn.execute(text("DELETE FROM users WHERE google_sub IS NOT NULL"))
+    return account
 
 
 def test_returning_from_google_logs_the_account_in(browser, google):

@@ -169,27 +169,25 @@ class TestGetOrCreateGlossLookup:
         assert row.entries == []
 
 
+def _tier(query, entry) -> str:
+    """How closely a search result's headword matches `query`."""
+    forms = entry.kanji_forms + entry.kana_forms
+    if query in forms:
+        return "exact"
+    if any(form.startswith(query) for form in forms):
+        return "prefix"
+    if any(form.endswith(query) for form in forms):
+        return "suffix"
+    return "substring"
+
+
 class TestSearchJmdict:
     """The sidebar's dictionary search: exact matches first, then entries
     the query begins, ends, or is inside, each of those capped."""
 
-    @staticmethod
-    def _tiers(query, entries):
-        def tier(entry):
-            forms = entry.kanji_forms + entry.kana_forms
-            if query in forms:
-                return "exact"
-            if any(form.startswith(query) for form in forms):
-                return "prefix"
-            if any(form.endswith(query) for form in forms):
-                return "suffix"
-            return "substring"
-
-        return [tier(entry) for entry in entries]
-
     def test_ranks_closer_matches_first_and_caps_the_looser_ones(self):
         # 火 has two entries of its own, read ひ and か.
-        assert self._tiers("火", jmdict_search("火")) == [
+        assert [_tier("火", entry) for entry in jmdict_search("火")] == [
             *["exact"] * 2,
             *["prefix"] * 3,
             *["suffix"] * 3,
@@ -197,9 +195,10 @@ class TestSearchJmdict:
         ]
 
     def test_exact_matches_are_never_capped(self):
-        assert self._tiers("火", jmdict_search("火", max_results_per_tier=1)) == [
-            "exact",
-            "exact",
+        entries = jmdict_search("火", max_results_per_tier=1)
+
+        assert [_tier("火", entry) for entry in entries] == [
+            *["exact"] * 2,
             "prefix",
             "suffix",
             "substring",
