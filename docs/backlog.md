@@ -14,14 +14,6 @@ public `attach_group_glosses` that invited a second hand-composed caller, the
 single-caller `_gloss_phrase`, and two tests' hand-rolled reading picks and
 gloss clearing. What was left:
 
-- **`TokenNotFound` and `ConflictNotFound` are still mapped to 404 route by
-  route.** `TokenNotFound` is caught in four places (`unmerge_phrase_tokens`,
-  `correct_token_reading`, `_token_group_errors`, `add_token_card`) and
-  `ConflictNotFound` in three, under two wordings ("for this token" and "for
-  this document"). Fix: an `app.exception_handler` for each, as
-  `document_not_found` does, after settling on one `ConflictNotFound` message or
-  carrying it on the exception. `main.py` only, behavior unchanged apart from
-  the wording. Sonnet 5 at low.
 - **`song_queue` handles `cards.py`'s unit shape.** To read the tokens once it
   calls `document_units` and hands the `list[list]` to both
   `enroll_new_words` and `document_card_keys`, so `enroll_new_words` takes a

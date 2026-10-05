@@ -86,6 +86,20 @@ def document_not_found(request: Request, exc: study.DocumentNotFound) -> JSONRes
     return JSONResponse(status_code=404, content={"detail": "Document not found."})
 
 
+@app.exception_handler(TokenNotFound)
+def token_not_found(request: Request, exc: TokenNotFound) -> JSONResponse:
+    """A 404 for a token that isn't in the document the route names."""
+    return JSONResponse(status_code=404, content={"detail": "Token not found."})
+
+
+@app.exception_handler(ConflictNotFound)
+def conflict_not_found(request: Request, exc: ConflictNotFound) -> JSONResponse:
+    """A 404 for a conflict option that isn't in the document the route names."""
+    return JSONResponse(
+        status_code=404, content={"detail": "Conflict option not found."}
+    )
+
+
 api = APIRouter(prefix="/api")
 api.include_router(auth_router)
 
@@ -907,12 +921,7 @@ def resolve_token_conflict(
     user_id: CurrentUser,
 ) -> Token:
     with engine.begin() as conn:
-        try:
-            resolve_conflict(conn, document_id, token_id, body.conflict_id)
-        except ConflictNotFound:
-            raise HTTPException(
-                status_code=404, detail="Conflict option not found for this token."
-            )
+        resolve_conflict(conn, document_id, token_id, body.conflict_id)
 
         return _fetch_token(conn, document_id, token_id)
 
@@ -929,12 +938,7 @@ def accept_phrase_suggestions_endpoint(
     groups to merge again — as accept_phrase_suggestions does. Returns every
     token they changed."""
     with engine.begin() as conn:
-        try:
-            affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
-        except ConflictNotFound:
-            raise HTTPException(
-                status_code=404, detail="Conflict option not found for this token."
-            )
+        affected = accept_phrase_suggestions(conn, document_id, body.conflict_ids)
 
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
@@ -946,12 +950,7 @@ def resolve_phrase_furigana_endpoint(
     """Apply `conflict_id`, one of a phrase's alternative furigana splits.
     Returns the tokens it changed."""
     with engine.begin() as conn:
-        try:
-            affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
-        except ConflictNotFound:
-            raise HTTPException(
-                status_code=404, detail="Conflict option not found for this document."
-            )
+        affected = resolve_phrase_furigana(conn, document_id, body.conflict_id)
 
         return _fetch_tokens(conn, document_id, token_ids=affected)
 
@@ -966,12 +965,7 @@ def unmerge_phrase_tokens(
     """Split the group token_id is merged into, found from any member of it.
     Returns the tokens it changed."""
     with engine.begin() as conn:
-        try:
-            affected = unmerge_phrase(conn, document_id, token_id)
-        except TokenNotFound:
-            raise HTTPException(
-                status_code=404, detail="Token not found for this document."
-            )
+        affected = unmerge_phrase(conn, document_id, token_id)
 
         if not affected:
             return []
@@ -1026,12 +1020,7 @@ def correct_token_reading(
     user_id: CurrentUser,
 ) -> Token:
     with engine.begin() as conn:
-        try:
-            correct_reading(conn, document_id, token_id, body.reading)
-        except TokenNotFound:
-            raise HTTPException(
-                status_code=404, detail="Token not found for this document."
-            )
+        correct_reading(conn, document_id, token_id, body.reading)
 
         return _fetch_token(conn, document_id, token_id)
 
@@ -1051,10 +1040,6 @@ def _token_group_errors():
     """Raise the HTTP errors lock_token_group's refusals stand for."""
     try:
         yield
-    except TokenNotFound:
-        raise HTTPException(
-            status_code=404, detail="Token not found for this document."
-        )
     except TokensNotGroupable:
         raise HTTPException(
             status_code=422,
@@ -1126,10 +1111,6 @@ def add_token_card(
     with engine.begin() as conn:
         try:
             row = enroll_token(conn, user_id, document_id, token_id)
-        except TokenNotFound:
-            raise HTTPException(
-                status_code=404, detail="Token not found for this document."
-            )
         except NotStudyable:
             raise HTTPException(
                 status_code=422,
