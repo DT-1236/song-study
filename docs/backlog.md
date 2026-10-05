@@ -4,14 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on PR #42 (test audit: low-value tests cut, coverage gaps filled, faster DB cleanup)
-
-- **`TestSearchJmdict` searches for 火 twice, about 0.35s together.** 火
-  was picked because it has two exact entries and fills every looser group.
-  A rarer query would be faster, but it has to meet the same conditions
-  and the saving is about 0.1–0.15s. Haiku 4.5 at low, if anyone finds such
-  a query.
-
 ## Test audit on `test-audit` (what the tests are worth, and what they cost to run)
 
 Fixed in that change: the fixture-only tests in `test_tokenization.py`, the
