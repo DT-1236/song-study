@@ -4,6 +4,43 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
+## Test audit on `test-audit` (what the tests are worth, and what they cost to run)
+
+Fixed in that change: the fixture-only tests in `test_tokenization.py`, the
+duplicate `test_merged_phrase_gloss.py`, the per-test `TRUNCATE` (now a
+`DELETE` in foreign-key order, which took the suite from about 11s to about
+6.5s), and the missing tests for cross-document conflicts, the Google login
+round trip, and the sidebar dictionary search. What was left:
+
+- **CI runs no backend tests.** `.github/workflows/format-check.yml` runs
+  only Prettier and Ruff, so the suite protects only what someone remembered
+  to run locally. Fix: a job with a `postgres` service container,
+  `pip install -r backend/requirements.txt` (which brings SudachiDict-full
+  and jamdict-data, both large downloads, so cache pip as the Ruff job
+  does), and `TEST_DATABASE_URL` pointing at a `song_study_test` database
+  next to a different `DATABASE_URL`, since `tests/support.py` refuses a
+  test database whose name doesn't end in `_test` or matches the app's.
+  Sonnet 5 at medium: the shape is standard, but the data packages' size
+  and the env vars `support.py` checks are the parts to get right.
+- **The frontend has no test runner.** About 6.2k lines of TypeScript in
+  `frontend/src` and nothing runs any of it outside a browser. Decide first
+  whether it's worth adding Vitest. If it is, start with whatever pure logic
+  the pages hold, such as `parseFurigana` (`furigana.tsx`) and the
+  line-timing arithmetic in `lastStartedBy` and `timingsFromStarts`
+  (`DocumentViewPage.tsx`), not component rendering. Those are module-private
+  now, so testing them means exporting them or moving them out.
+  Sonnet 5 at medium, once that decision is made.
+- **The statement-count test processes the whole fixture twice.**
+  `test_first_processing_takes_a_fixed_number_of_round_trips`
+  (`test_document_tokens.py`) is the slowest test at about 1.1s. It asserts
+  exact counts (13, 11, 3) over all of *Kumo no Ito*. Comparing a short
+  text with three copies of it, as
+  `test_deciding_for_more_tokens_takes_no_more_statements` does, would be
+  faster and wouldn't fail when a legitimate change adds a statement. It
+  also wouldn't catch one new constant statement, which the exact counts do,
+  so decide which you want before changing it. Sonnet 5 at low once
+  decided.
+
 ## `/simplify` on PR #41 (PR #40's backlog: batched group re-gloss, 404 handlers, `song_card_keys`, carded-key join, gloss summaries from the plan)
 
 Run over `git diff main...HEAD`. Fixed in that run: the gloss summary every
