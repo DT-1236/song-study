@@ -5,6 +5,8 @@ overlaps one."""
 
 from __future__ import annotations
 
+from sqlalchemy import text
+
 from app.main import (
     ConflictResolution,
     DocumentCreate,
@@ -17,6 +19,8 @@ from tests.support import (
     create_document,
     get_document_tokens,
     resolve_token_conflict,
+    round_trips,
+    statements_sent,
     unmerge_phrase_tokens,
 )
 
@@ -142,6 +146,61 @@ def test_a_typed_reading_never_selects_a_phrase_suggestion(committed_engine):
     [selected] = [c for c in updated.conflicts if c.selected]
     assert selected.kind == "custom"
     assert updated.phrase_start_position is None
+
+
+def test_repairing_cleared_links_glosses_each_group_as_before(committed_engine):
+    # Two accepted phrases, one with grammar attached and one without, and
+    # two predicate groups, one under a picked reading.
+    document_id, tokens = _tokens(
+        "この期に及んで\n真に受けてみて\n欲してるんだって\nドアが開いている"
+    )
+    accept_phrase_suggestions_endpoint(
+        document_id,
+        PhraseAcceptance(
+            conflict_ids=[
+                c.id
+                for t in tokens
+                for c in t.conflicts
+                if c.kind == "phrase"
+                and c.value["lookup_form"] in ("この期に及んで", "真に受ける")
+            ]
+        ),
+    )
+    head = next(t for t in get_document_tokens(document_id) if t.surface == "開い")
+    alternative = next(
+        c for c in head.conflicts if c.kind == "heteronym" and not c.selected
+    )
+    resolve_token_conflict(
+        document_id, head.id, ConflictResolution(conflict_id=alternative.id)
+    )
+    before = get_document_tokens(document_id)
+    groups = {(t.phrase_start_position, t.group_kind) for t in before}
+    assert sum(kind == "phrase" for _, kind in groups) == 2
+    assert sum(kind == "predicate" for _, kind in groups) == 2
+    # A gloss of its own per group, so one linked to the wrong group shows.
+    assert (
+        len(
+            {t.gloss.lookup_form for t in before if t.phrase_start_position is not None}
+        )
+        == 4
+    )
+    # As a migration clearing stale glosses would leave them.
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :d"),
+            {"d": document_id},
+        )
+
+    statements = statements_sent(
+        committed_engine, lambda: get_document_tokens(document_id)
+    )
+
+    after = get_document_tokens(document_id)
+    assert [(t.id, t.phrase_start_position, t.gloss) for t in after] == [
+        (t.id, t.phrase_start_position, t.gloss) for t in before
+    ]
+    # Every group at once, not a round trip per group.
+    assert round_trips(statements, "UPDATE tokens") == 2
 
 
 def test_accepting_a_phrase_replaces_the_group_it_overlaps(committed_engine):

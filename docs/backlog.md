@@ -12,15 +12,6 @@ times, the `CARD_COLUMNS` string-splitting in `_due_cards`, the fourth copy of
 the ownership query, and the song lock that blocked its own foreign-key
 inserts. What was left:
 
-- **`attach_group_glosses` costs several queries per group.** Each stale group
-  runs its own count, member read, `plan_glosses`, `store_glosses` and merge
-  `UPDATE` (`conflicts.py`), on the first load of each document after migration
-  0019 cleared its links; a song with hundreds of groups is hundreds of round
-  trips in one request. Fix: add `count(*)` to the query that already finds the
-  groups, load all members at once, and make one `plan_glosses` /
-  `store_glosses` call and one `UPDATE` through `jsonb_to_recordset`. Opus 5 at
-  high: the merge and phrase paths differ, and a slip mis-links glosses without
-  an error.
 - **The domain layer rechecks document ownership its routes already enforce.**
   `song_queue`, `get_new_cards_per_day` and `set_new_cards_per_day`
   (`study.py`) filter by `owner_id` and raise `DocumentNotFound`, but their
