@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import threading
 
-from sqlalchemy import text
-
 from app.glosses import is_glossable
 from app.main import (
     DocumentCreate,
@@ -20,6 +18,7 @@ from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
 from tests.support import (
     BackgroundCall,
+    clear_gloss_links,
     create_document,
     get_document_tokens,
     pick_reading,
@@ -115,11 +114,7 @@ def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_e
         DocumentCreate(title="test", text="今日は良い天気です。")
     ).id
     pick_reading(document_id, "今日", "こんにち")
-    with committed_engine.begin() as conn:
-        conn.execute(
-            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :id"),
-            {"id": document_id},
-        )
+    clear_gloss_links(document_id)
 
     tokens = get_document_tokens(document_id)
 

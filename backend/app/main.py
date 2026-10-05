@@ -7,7 +7,8 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import Literal
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
@@ -76,6 +77,14 @@ app.add_middleware(
     same_site="lax",
     https_only=APP_URL.startswith("https://"),
 )
+
+
+@app.exception_handler(study.DocumentNotFound)
+def document_not_found(request: Request, exc: study.DocumentNotFound) -> JSONResponse:
+    """A 404 for a study call naming a document that isn't the user's: one
+    from a request body, or one deleted after the route's own check."""
+    return JSONResponse(status_code=404, content={"detail": "Document not found."})
+
 
 api = APIRouter(prefix="/api")
 api.include_router(auth_router)
@@ -1172,8 +1181,6 @@ def review_card(
             raise HTTPException(
                 status_code=409, detail="This card was removed from your list."
             )
-        except study.DocumentNotFound:
-            raise HTTPException(status_code=404, detail="Document not found.")
     return ReviewResult(rating=int(rating), card=StudyCard(**row._mapping))
 
 
@@ -1216,10 +1223,7 @@ def start_song_session(
     """Start studying the song: enroll new words from it, up to its daily
     limit, and return the user's due cards for its words."""
     with engine.begin() as conn:
-        try:
-            rows = study.song_queue(conn, user_id, document_id)
-        except study.DocumentNotFound:
-            raise HTTPException(status_code=404, detail="Document not found.")
+        rows = study.song_queue(conn, user_id, document_id)
     return [StudyCard(**row._mapping) for row in rows]
 
 
@@ -1258,11 +1262,9 @@ def get_song_study_settings(
 ) -> SongStudySettings:
     """The study settings of one of the user's songs."""
     with engine.connect() as conn:
-        try:
-            new_cards_per_day = study.get_new_cards_per_day(conn, user_id, document_id)
-        except study.DocumentNotFound:
-            raise HTTPException(status_code=404, detail="Document not found.")
-    return SongStudySettings(new_cards_per_day=new_cards_per_day)
+        return SongStudySettings(
+            new_cards_per_day=study.get_new_cards_per_day(conn, user_id, document_id)
+        )
 
 
 @api.put("/documents/{document_id}/study/settings", response_model=SongStudySettings)
@@ -1271,13 +1273,11 @@ def save_song_study_settings(
 ) -> SongStudySettings:
     """Save the study settings of one of the user's songs."""
     with engine.begin() as conn:
-        try:
-            new_cards_per_day = study.set_new_cards_per_day(
+        return SongStudySettings(
+            new_cards_per_day=study.set_new_cards_per_day(
                 conn, user_id, document_id, settings.new_cards_per_day
             )
-        except study.DocumentNotFound:
-            raise HTTPException(status_code=404, detail="Document not found.")
-    return SongStudySettings(new_cards_per_day=new_cards_per_day)
+        )
 
 
 app.include_router(api)

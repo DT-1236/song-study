@@ -5,8 +5,6 @@ overlaps one."""
 
 from __future__ import annotations
 
-from sqlalchemy import text
-
 from app.main import (
     ConflictResolution,
     DocumentCreate,
@@ -16,8 +14,10 @@ from app.main import (
 from tests.support import (
     accept_phrase_suggestions_endpoint,
     apply_tokens_reading,
+    clear_gloss_links,
     create_document,
     get_document_tokens,
+    pick_reading,
     resolve_token_conflict,
     round_trips,
     statements_sent,
@@ -166,13 +166,7 @@ def test_repairing_cleared_links_glosses_each_group_as_before(committed_engine):
             ]
         ),
     )
-    head = next(t for t in get_document_tokens(document_id) if t.surface == "開い")
-    alternative = next(
-        c for c in head.conflicts if c.kind == "heteronym" and not c.selected
-    )
-    resolve_token_conflict(
-        document_id, head.id, ConflictResolution(conflict_id=alternative.id)
-    )
+    pick_reading(document_id, "開い", "あい")
     before = get_document_tokens(document_id)
     groups = {(t.phrase_start_position, t.group_kind) for t in before}
     assert sum(kind == "phrase" for _, kind in groups) == 2
@@ -184,12 +178,7 @@ def test_repairing_cleared_links_glosses_each_group_as_before(committed_engine):
         )
         == 4
     )
-    # As a migration clearing stale glosses would leave them.
-    with committed_engine.begin() as conn:
-        conn.execute(
-            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :d"),
-            {"d": document_id},
-        )
+    clear_gloss_links(document_id)
 
     statements = statements_sent(
         committed_engine, lambda: get_document_tokens(document_id)

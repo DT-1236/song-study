@@ -243,6 +243,16 @@ def document_tokens(document_id: int, surface: str) -> list:
     return [t for t in get_document_tokens(document_id) if t.surface == surface]
 
 
+def clear_gloss_links(document_id: int) -> None:
+    """Unlink every token of the document from its gloss, as a migration
+    clearing stale glosses leaves them."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE document_id = :id"),
+            {"id": document_id},
+        )
+
+
 def pick_reading(document_id: int, surface: str, reading: str) -> None:
     """Select `reading` among the options of the document's first token with
     `surface`."""

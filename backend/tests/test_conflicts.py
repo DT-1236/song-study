@@ -364,7 +364,7 @@ class TestPhraseConflicts:
 
     def test_attach_glosses_leaves_an_unlinked_group_member_to_its_group(self, db_conn):
         # Glossed as itself, 期 would be linked to き's gloss, and a later
-        # attach_group_glosses would find nothing left to repair.
+        # repair_gloss_links would find nothing left to repair.
         document_id, token_ids = self._seed_phrase_tokens(db_conn)
         phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
         resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)

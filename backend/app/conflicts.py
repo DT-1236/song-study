@@ -44,15 +44,17 @@ from app.tokenization import (
 # that can be merged again after being split.
 NON_READING_KINDS = ("phrase", "phrase_furigana", "predicate")
 
-# Whether the group `t` is merged into is an accepted phrase (its head has
-# the phrase's conflict selected) rather than a predicate group.
-IS_ACCEPTED_PHRASE_SQL = """
-    EXISTS (
-        SELECT 1 FROM conflicts pc JOIN tokens ph ON ph.id = pc.token_id
+# The selected phrase suggestion on the head of the group `t` is merged
+# into: NULL unless that group is an accepted phrase rather than a predicate
+# group.
+ACCEPTED_PHRASE_SQL = """
+    (
+        SELECT pc.value FROM conflicts pc JOIN tokens ph ON ph.id = pc.token_id
         WHERE ph.document_id = t.document_id AND ph.position = t.phrase_start_position
           AND pc.kind = 'phrase' AND pc.selected
     )
 """
+IS_ACCEPTED_PHRASE_SQL = f"{ACCEPTED_PHRASE_SQL} IS NOT NULL"
 
 
 def create_conflicts(conn, document_id: int, records: list[TokenRecord]) -> None:
@@ -446,24 +448,18 @@ def repair_gloss_links(conn, document_id: int) -> None:
     """Link a gloss to every token of the document that should have one but
     has none, as a migration clearing stale glosses leaves them: each group
     member to its group's gloss, every other token to its own."""
-    attach_group_glosses(conn, document_id)
+    _attach_group_glosses(conn, document_id)
     attach_glosses(conn, document_id)
 
 
-def attach_group_glosses(conn, document_id: int) -> None:
+def _attach_group_glosses(conn, document_id: int) -> None:
     """Gloss again each of the document's predicate groups and accepted
     phrases that has a token with no gloss linked."""
-    # `phrase` is the selected phrase suggestion on the group's head, if the
-    # group is an accepted phrase rather than a predicate group.
     groups = conn.execute(
         text(
-            """
+            f"""
             SELECT t.phrase_start_position AS start, count(*) AS member_count,
-                   (
-                       SELECT c.value FROM conflicts c JOIN tokens h ON h.id = c.token_id
-                       WHERE h.document_id = t.document_id AND h.position = t.phrase_start_position
-                         AND c.kind = 'phrase' AND c.selected
-                   ) AS phrase
+                   {ACCEPTED_PHRASE_SQL} AS phrase
             FROM tokens t
             WHERE t.document_id = :document_id AND t.phrase_start_position IS NOT NULL
             GROUP BY t.document_id, t.phrase_start_position
@@ -562,17 +558,6 @@ def _phrase_request(
     return request, reading
 
 
-def _gloss_phrase(
-    conn, document_id: int, position: int, value: dict
-) -> tuple[int, str]:
-    """The gloss lookup id and full reading of the phrase suggestion `value`
-    (see app.phrase_merge) starting at the document's token `position`."""
-    members = _group_members(conn, document_id, position, value["token_count"])
-    request, reading = _phrase_request(members, value)
-    [gloss_lookup_id] = _gloss_ids(conn, [request])
-    return gloss_lookup_id, reading
-
-
 def _apply_phrase_selection(
     conn, document_id: int, token_id: int, value: dict
 ) -> list[int]:
@@ -585,7 +570,10 @@ def _apply_phrase_selection(
         {"token_id": token_id},
     ).scalar_one()
     token_count = value["token_count"]
-    gloss_lookup_id, reading = _gloss_phrase(conn, document_id, position, value)
+    request, reading = _phrase_request(
+        _group_members(conn, document_id, position, token_count), value
+    )
+    [gloss_lookup_id] = _gloss_ids(conn, [request])
     ids = _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
     # A member can no longer start a phrase of its own inside this one:
