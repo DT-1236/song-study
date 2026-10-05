@@ -39,20 +39,6 @@ from tests.support import (
 )
 
 
-@pytest.fixture
-def other_user(committed_engine):
-    with committed_engine.begin() as conn:
-        user_id = conn.execute(
-            text("INSERT INTO users (name) VALUES ('other') RETURNING id")
-        ).scalar_one()
-    yield user_id
-    with committed_engine.begin() as conn:
-        conn.execute(
-            text("DELETE FROM documents WHERE owner_id = :id"), {"id": user_id}
-        )
-        conn.execute(text("DELETE FROM users WHERE id = :id"), {"id": user_id})
-
-
 def test_documents_are_created_for_the_calling_user(committed_engine, other_user):
     mine = create_document(DocumentCreate(title="mine", text="あ"))
     with as_user(other_user):

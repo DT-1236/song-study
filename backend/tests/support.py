@@ -228,6 +228,15 @@ def make_token(conn, **overrides) -> int:
     ).scalar_one()
 
 
+def create_tokenized_document(text: str = "", title: str = "test") -> int:
+    """The id of a new document of `text`, already tokenized."""
+    from app.main import DocumentCreate
+
+    document_id = create_document(DocumentCreate(title=title, text=text)).id
+    get_document_tokens(document_id)
+    return document_id
+
+
 def document_tokens(document_id: int, surface: str) -> list:
     """The document's tokens with `surface`, in order, processing it first
     if it hasn't been."""

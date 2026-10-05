@@ -20,6 +20,16 @@ def current_user_id(request: Request) -> int:
 CurrentUser = Annotated[int, Depends(current_user_id)]
 
 
+def document_is_owned(conn, document_id: int, user_id: int) -> bool:
+    """Whether the document exists and belongs to the user."""
+    return conn.execute(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"
+        ),
+        {"id": document_id, "owner_id": user_id},
+    ).scalar_one()
+
+
 def owned_document_id(document_id: int, user_id: CurrentUser) -> int:
     """The path's document id, once the document is known to belong to the
     logged-in user; a 404 otherwise, since one user must not learn which of
@@ -30,12 +40,7 @@ def owned_document_id(document_id: int, user_id: CurrentUser) -> int:
     # can't change hands (nothing transfers or deletes one), and the routes
     # that go on to write still re-scope by owner_id under their own lock.
     with engine.connect() as conn:
-        owned = conn.execute(
-            text(
-                "SELECT EXISTS (SELECT 1 FROM documents WHERE id = :id AND owner_id = :owner_id)"
-            ),
-            {"id": document_id, "owner_id": user_id},
-        ).scalar_one()
+        owned = document_is_owned(conn, document_id, user_id)
     if not owned:
         raise HTTPException(status_code=404, detail="Document not found.")
     return document_id

@@ -1145,7 +1145,7 @@ class ReviewResult(BaseModel):
 
 
 class PushOut(BaseModel):
-    months: Literal[1, 3, 6]
+    months: study.PushOutMonths
 
 
 def _card_not_found() -> HTTPException:

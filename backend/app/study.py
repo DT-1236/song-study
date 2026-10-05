@@ -16,6 +16,7 @@ from fsrs import Card, Rating, Scheduler, State
 from sqlalchemy import text
 
 from app.cards import CARD_COLUMNS, CardKind, document_card_keys, enroll_new_words
+from app.users import document_is_owned
 
 # Answering under `fast` is fast, and over `slow` is slow, for a card of each
 # kind. Flat constants until there's a review log to take a personal median
@@ -29,8 +30,10 @@ LATENCY_MS: dict[CardKind, tuple[int, int]] = {
 # keeps a fast answer from counting as Easy.
 MULTIPLE_CHOICE_KINDS: set[CardKind] = {"recognition", "grammar"}
 
-# How far each rung of the "I know this" ladder pushes a card out.
-PUSH_OUT_DAYS = {1: 30, 3: 90, 6: 180}
+# The "I know this" ladder: how many days out each rung, in months, pushes a
+# card.
+PushOutMonths = Literal[1, 3, 6]
+PUSH_OUT_DAYS: dict[PushOutMonths, int] = {1: 30, 3: 90, 6: 180}
 
 # Retention targets the settings offer.
 MIN_RETENTION, MAX_RETENTION = 0.75, 0.95
@@ -66,10 +69,6 @@ def rating_for(
     if duration_ms < fast_ms and not multiple_choice:
         return Rating.Easy
     return Rating.Good
-
-
-def _scheduler(desired_retention: float) -> Scheduler:
-    return Scheduler(desired_retention=desired_retention)
 
 
 def _fsrs_card(row) -> Card:
@@ -148,13 +147,7 @@ def review_card(
     row = _locked_card(conn, user_id, card_id)
     if row.suspended:
         raise CardSuspended()
-    if (
-        document_id is not None
-        and not conn.execute(
-            text("SELECT 1 FROM documents WHERE id = :id AND owner_id = :user_id"),
-            {"id": document_id, "user_id": user_id},
-        ).scalar()
-    ):
+    if document_id is not None and not document_is_owned(conn, document_id, user_id):
         raise DocumentNotFound()
 
     fast_ms, slow_ms = LATENCY_MS[row.kind]
@@ -162,7 +155,7 @@ def review_card(
         correct, duration_ms, fast_ms, slow_ms, row.kind in MULTIPLE_CHOICE_KINDS
     )
     reviewed_at = datetime.now(UTC)
-    card, _ = _scheduler(row.desired_retention).review_card(
+    card, _ = Scheduler(desired_retention=row.desired_retention).review_card(
         _fsrs_card(row), rating, reviewed_at
     )
 
@@ -189,7 +182,7 @@ def review_card(
     return rating, _store_schedule(conn, card)
 
 
-def push_out(conn, user_id: int, card_id: int, months: Literal[1, 3, 6]):
+def push_out(conn, user_id: int, card_id: int, months: PushOutMonths):
     """Reschedule the user's card to fall due `months` from now, as though
     it had been recalled across that whole interval, and return its new row.
     The card's history is untouched and nothing is logged, since this is the
@@ -206,7 +199,7 @@ def push_out(conn, user_id: int, card_id: int, months: Literal[1, 3, 6]):
         # Easy answer to it would start with, which is what knowing the word
         # already amounts to.
         card.difficulty = (
-            _scheduler(row.desired_retention)
+            Scheduler(desired_retention=row.desired_retention)
             .review_card(card, Rating.Easy, now)[0]
             .difficulty
         )
@@ -248,16 +241,15 @@ def _due_cards(conn, user_id: int, keys=None) -> list:
         if keys is None
         else """
             JOIN jsonb_to_recordset(CAST(:keys AS JSONB))
-                AS k(kind text, lookup_form text, reading text)
-              ON c.kind = k.kind AND c.lookup_form = k.lookup_form
-             AND c.reading IS NOT DISTINCT FROM k.reading
+                AS k(key_kind text, key_lookup_form text, key_reading text)
+              ON c.kind = k.key_kind AND c.lookup_form = k.key_lookup_form
+             AND c.reading IS NOT DISTINCT FROM k.key_reading
         """
     )
-    columns = ", ".join(f"c.{column}" for column in CARD_COLUMNS.split(", "))
     return conn.execute(
         text(
             f"""
-            SELECT {columns} FROM study_cards c {words}
+            SELECT {CARD_COLUMNS} FROM study_cards c {words}
             WHERE c.user_id = :user_id AND NOT c.suspended AND c.due <= now()
             ORDER BY c.due, c.id
             """
@@ -268,7 +260,11 @@ def _due_cards(conn, user_id: int, keys=None) -> list:
             if keys is None
             else json.dumps(
                 [
-                    {"kind": k.kind, "lookup_form": k.lookup_form, "reading": k.reading}
+                    {
+                        "key_kind": k.kind,
+                        "key_lookup_form": k.lookup_form,
+                        "key_reading": k.reading,
+                    }
                     for k in keys
                 ]
             ),
@@ -289,7 +285,8 @@ def song_queue(conn, user_id: int, document_id: int) -> list:
 
     Raises DocumentNotFound if the document isn't the user's."""
     # Locked so two sessions started at once can't both find room under the
-    # limit and enroll past it.
+    # limit and enroll past it. NO KEY UPDATE, so that reviews and cards
+    # being created against the song (foreign keys to it) needn't wait.
     limit = conn.execute(
         text(
             """
@@ -303,7 +300,7 @@ def song_queue(conn, user_id: int, document_id: int) -> list:
             )
             FROM documents d
             WHERE d.id = :document_id AND d.owner_id = :user_id
-            FOR UPDATE OF d
+            FOR NO KEY UPDATE OF d
             """
         ),
         {"user_id": user_id, "document_id": document_id},
