@@ -12,16 +12,6 @@ duplicate `test_merged_phrase_gloss.py`, the per-test `TRUNCATE` (now a
 6.5s), and the missing tests for cross-document conflicts, the Google login
 round trip, and the sidebar dictionary search. What was left:
 
-- **CI runs no backend tests.** `.github/workflows/format-check.yml` runs
-  only Prettier and Ruff, so the suite protects only what someone remembered
-  to run locally. Fix: a job with a `postgres` service container,
-  `pip install -r backend/requirements.txt` (which brings SudachiDict-full
-  and jamdict-data, both large downloads, so cache pip as the Ruff job
-  does), and `TEST_DATABASE_URL` pointing at a `song_study_test` database
-  next to a different `DATABASE_URL`, since `tests/support.py` refuses a
-  test database whose name doesn't end in `_test` or matches the app's.
-  Sonnet 5 at medium: the shape is standard, but the data packages' size
-  and the env vars `support.py` checks are the parts to get right.
 - **The frontend has no test runner.** About 6.2k lines of TypeScript in
   `frontend/src` and nothing runs any of it outside a browser. Decide first
   whether it's worth adding Vitest. If it is, start with whatever pure logic
