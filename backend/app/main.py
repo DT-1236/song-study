@@ -1216,7 +1216,10 @@ def start_song_session(
     """Start studying the song: enroll new words from it, up to its daily
     limit, and return the user's due cards for its words."""
     with engine.begin() as conn:
-        rows = study.song_queue(conn, user_id, document_id)
+        try:
+            rows = study.song_queue(conn, user_id, document_id)
+        except study.DocumentNotFound:
+            raise HTTPException(status_code=404, detail="Document not found.")
     return [StudyCard(**row._mapping) for row in rows]
 
 
@@ -1255,9 +1258,11 @@ def get_song_study_settings(
 ) -> SongStudySettings:
     """The study settings of one of the user's songs."""
     with engine.connect() as conn:
-        return SongStudySettings(
-            new_cards_per_day=study.get_new_cards_per_day(conn, user_id, document_id)
-        )
+        try:
+            new_cards_per_day = study.get_new_cards_per_day(conn, user_id, document_id)
+        except study.DocumentNotFound:
+            raise HTTPException(status_code=404, detail="Document not found.")
+    return SongStudySettings(new_cards_per_day=new_cards_per_day)
 
 
 @api.put("/documents/{document_id}/study/settings", response_model=SongStudySettings)
@@ -1266,11 +1271,13 @@ def save_song_study_settings(
 ) -> SongStudySettings:
     """Save the study settings of one of the user's songs."""
     with engine.begin() as conn:
-        return SongStudySettings(
-            new_cards_per_day=study.set_new_cards_per_day(
+        try:
+            new_cards_per_day = study.set_new_cards_per_day(
                 conn, user_id, document_id, settings.new_cards_per_day
             )
-        )
+        except study.DocumentNotFound:
+            raise HTTPException(status_code=404, detail="Document not found.")
+    return SongStudySettings(new_cards_per_day=new_cards_per_day)
 
 
 app.include_router(api)

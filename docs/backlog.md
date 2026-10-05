@@ -12,15 +12,6 @@ times, the `CARD_COLUMNS` string-splitting in `_due_cards`, the fourth copy of
 the ownership query, and the song lock that blocked its own foreign-key
 inserts. What was left:
 
-- **The domain layer rechecks document ownership its routes already enforce.**
-  `song_queue`, `get_new_cards_per_day` and `set_new_cards_per_day`
-  (`study.py`) filter by `owner_id` and raise `DocumentNotFound`, but their
-  routes take `OwnedDocument` and never catch it, so it can only surface as a
-  500. It isn't dead by design: writes re-scope by owner under their own lock
-  (`users.py`), and `song_queue`'s check is also its lock. Fix: either map
-  `DocumentNotFound` to a 404 in those routes, or drop it from the two getters
-  and say in `song_queue`'s docstring that ownership is the caller's. Sonnet 5
-  at low: pattern application, once you pick a side.
 - **`LATENCY_MS` and `MULTIPLE_CHOICE_KINDS` are two parallel per-kind tables
   that say nothing per kind yet.** Both cover every `CardKind` with identical
   values, so `rating_for`'s `multiple_choice` flag is always true today. Left
