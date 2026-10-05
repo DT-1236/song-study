@@ -129,6 +129,31 @@ def test_applying_a_reading_to_a_grouped_token_returns_the_whole_group(
     assert all(t.gloss.reading == "あいている" for t in updated)
 
 
+def test_applying_a_reading_across_groups_glosses_each_group_again(committed_engine):
+    document_id, tokens = _tokens("ドアが開いている\n窓が開いていた")
+    heads = [t for t in tokens if t.surface == "開い"]
+    starts = [head.position for head in heads]
+    assert [len(_group(tokens, start)) for start in starts] == [3, 4]
+
+    statements = statements_sent(
+        committed_engine,
+        lambda: apply_tokens_reading(
+            document_id,
+            TokensReading(token_ids=[head.id for head in heads], reading="あい"),
+        ),
+    )
+
+    after = get_document_tokens(document_id)
+    groups = [_group(after, start) for start in starts]
+    assert [group[0].gloss.reading for group in groups] == [
+        "あいている",
+        "あいていた",
+    ]
+    assert all(t.gloss == group[0].gloss for group in groups for t in group)
+    # The heads' own readings, then every group at once.
+    assert round_trips(statements, "UPDATE tokens") == 2
+
+
 def test_a_typed_reading_never_selects_a_phrase_suggestion(committed_engine):
     # 今日は's phrase suggestion also has the reading こんにちは, but it isn't
     # one of 今日's reading options.

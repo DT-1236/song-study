@@ -432,45 +432,50 @@ def merge_predicate_group(
     return _merge_tokens(conn, document_id, position, token_count, gloss_lookup_id)
 
 
-def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[int]:
-    """Gloss the predicate group starting at `group_start` again, after one
-    of its tokens' readings changed. Returns its token ids."""
-    token_count = conn.execute(
-        text(
-            "SELECT count(*) FROM tokens WHERE document_id = :document_id AND phrase_start_position = :group_start"
-        ),
-        {"document_id": document_id, "group_start": group_start},
-    ).scalar_one()
-    return merge_predicate_group(conn, document_id, group_start, token_count)
-
-
 def repair_gloss_links(conn, document_id: int) -> None:
     """Link a gloss to every token of the document that should have one but
     has none, as a migration clearing stale glosses leaves them: each group
     member to its group's gloss, every other token to its own."""
-    _attach_group_glosses(conn, document_id)
+    # Each group with a member linked to no gloss.
+    starts = (
+        conn.execute(
+            text(
+                """
+                SELECT phrase_start_position FROM tokens
+                WHERE document_id = :document_id AND phrase_start_position IS NOT NULL
+                GROUP BY phrase_start_position
+                HAVING bool_or(gloss_lookup_id IS NULL)
+                """
+            ),
+            {"document_id": document_id},
+        )
+        .scalars()
+        .all()
+    )
+    _regloss_groups(conn, document_id, starts)
     attach_glosses(conn, document_id)
 
 
-def _attach_group_glosses(conn, document_id: int) -> None:
-    """Gloss again each of the document's predicate groups and accepted
-    phrases that has a token with no gloss linked."""
+def _regloss_groups(conn, document_id: int, starts: list[int]) -> list[int]:
+    """Gloss again each of the document's groups starting at one of
+    `starts`, under its members' current readings: an accepted phrase under
+    its headword, a predicate group as its word plus its grammar. Returns
+    their token ids."""
+    if not starts:
+        return []
     groups = conn.execute(
         text(
             f"""
             SELECT t.phrase_start_position AS start, count(*) AS member_count,
                    {ACCEPTED_PHRASE_SQL} AS phrase
             FROM tokens t
-            WHERE t.document_id = :document_id AND t.phrase_start_position IS NOT NULL
+            WHERE t.document_id = :document_id AND t.phrase_start_position = ANY(:starts)
             GROUP BY t.document_id, t.phrase_start_position
-            HAVING bool_or(t.gloss_lookup_id IS NULL)
             ORDER BY t.phrase_start_position
             """
         ),
-        {"document_id": document_id},
+        {"document_id": document_id, "starts": starts},
     ).all()
-    if not groups:
-        return
     # A phrase spans the tokens its suggestion covers; a predicate group,
     # every token merged into it.
     spans = {
@@ -485,7 +490,7 @@ def _attach_group_glosses(conn, document_id: int) -> None:
         for group in groups
     ]
     gloss_ids = _gloss_ids(conn, requests)
-    _merge_groups(
+    return _merge_groups(
         conn,
         document_id,
         [
@@ -823,7 +828,7 @@ def resolve_conflict(
     affected = {token_id, *unmerged}
     if owner.phrase_start_position is not None and not owner.in_accepted_phrase:
         affected.update(
-            _regloss_predicate_group(conn, document_id, owner.phrase_start_position)
+            _regloss_groups(conn, document_id, [owner.phrase_start_position])
         )
     return list(affected)
 
@@ -1096,8 +1101,7 @@ def select_reading(
             )
         },
     )
-    for group_start in group_starts:
-        affected.update(_regloss_predicate_group(conn, document_id, group_start))
+    affected.update(_regloss_groups(conn, document_id, list(group_starts)))
     return list(affected)
 
 

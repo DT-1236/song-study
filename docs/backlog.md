@@ -4,59 +4,38 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on PR #40 (gloss-link repair, `song_queue`'s single token read, batched group glosses, study-route 404s)
+## `/simplify` on PR #41 (PR #40's backlog: batched group re-gloss, 404 handlers, `song_card_keys`, carded-key join, gloss summaries from the plan)
 
-Run over `git diff main...HEAD` on the PR's branch. Fixed in that run:
-the four per-route `DocumentNotFound` catches (now one app exception
-handler), the accepted-phrase subquery written twice (now
-`ACCEPTED_PHRASE_SQL`, which `IS_ACCEPTED_PHRASE_SQL` derives from), the
-public `attach_group_glosses` that invited a second hand-composed caller, the
-single-caller `_gloss_phrase`, and two tests' hand-rolled reading picks and
-gloss clearing. What was left:
+Run over `git diff main...HEAD`. Fixed in that run: the gloss summary every
+`plan_glosses` caller paid for (now opt-in through `with_summaries`), the
+CardKey join written in both `_carded_keys` and `_due_cards` (now
+`CARD_KEYS_JOIN_SQL` and `card_keys_param`), `harvest`'s test-only optional
+`user_id`, `enroll_new_words`' docstring sitting on the wrapper rather than
+`_enroll_units`, the one-caller `_attach_group_glosses`,
+`get_alternate_readings`' hand-raised token 404, and `_token_group_errors`
+(now a `TokensNotGroupable` handler). What was left:
 
-- **The batched group re-gloss only serves the repair path.**
-  `_attach_group_glosses` (`conflicts.py`) re-glosses any set of groups in one
-  pass, but `select_reading` still loops over `_regloss_predicate_group`, one
-  count, member read, plan/store and `UPDATE` per group, and `resolve_conflict`
-  calls it for one. Fix: move everything after its `SELECT` into
-  `_regloss_groups(conn, document_id, starts)`, filter that `SELECT` by
-  `starts`, call it once with every `group_start` from `select_reading` and
-  with `[start]` from `resolve_conflict`, and delete
-  `_regloss_predicate_group`. Wants a round-trip test like
-  `test_repairing_cleared_links_glosses_each_group_as_before`. Opus 5 at high:
-  it's the rekeying code again, and a group linked to the wrong gloss raises
-  nothing.
-- **`TokenNotFound` and `ConflictNotFound` are still mapped to 404 route by
-  route.** `TokenNotFound` is caught in four places (`unmerge_phrase_tokens`,
-  `correct_token_reading`, `_token_group_errors`, `add_token_card`) and
-  `ConflictNotFound` in three, under two wordings ("for this token" and "for
-  this document"). Fix: an `app.exception_handler` for each, as
-  `document_not_found` does, after settling on one `ConflictNotFound` message or
-  carrying it on the exception. `main.py` only, behavior unchanged apart from
-  the wording. Sonnet 5 at low.
-- **`song_queue` handles `cards.py`'s unit shape.** To read the tokens once it
-  calls `document_units` and hands the `list[list]` to both
-  `enroll_new_words` and `document_card_keys`, so `enroll_new_words` takes a
-  `document_id` and `units` that nothing checks agree, and every test helper
-  builds units itself. Fix: one `cards.py` entry point (e.g.
-  `song_card_keys(conn, user_id, document_id, enroll_limit)`) that reads the
-  units, enrolls and returns the keys, with `harvest` and `enroll_new_words`
-  internal or kept in a `document_id` form for tests. Sonnet 5 at low.
-- **`_carded_keys` loads every card the user has to filter one song's
-  harvest.** `enroll_new_words` (`cards.py`) reads all of the user's
-  `study_cards` keys on each session start, so it grows with the whole
-  collection rather than the song. Fix: join the harvested keys against
-  `study_cards` through `jsonb_to_recordset`, as `_due_cards` does, which
-  means `harvest` takes `user_id` instead of `skip`. A few milliseconds at a
-  few thousand cards; worth it around tens of thousands. Sonnet 5 at low.
-- **`gloss_rows` re-reads the rows `plan_glosses` just read.**
-  `_cached_rows` (`glosses.py`) already selects the same `gloss_lookups` rows,
-  and the plan holds the new ones in memory, but `gloss_rows` (`cards.py`)
-  selects them again by id for `source` and `has_entries`: one extra round trip
-  per enrolling session start. Fix: let `_cached_rows` optionally return those
-  two columns and read new rows from the plan. Not worth the API change on
-  its own; fold it into the next change to `plan_glosses`. Sonnet 5 at medium:
-  `plan_glosses` has several callers, and the plan's shape is shared.
+- **A JMDict miss is told apart only by its empty `entries`.** A
+  `gloss_lookups` row of `([], "jmdict")` means "looked up, nothing found",
+  so `_studyable` (`cards.py`) needs `has_entries` beside `source`, and
+  reading that makes the database load each cached row's `entries`. That's
+  why `plan_glosses` takes `with_summaries`. Fix: store such a miss under a
+  source of its own, so `source == "jmdict"` alone means a headword was found
+  and `source` can always be selected for free. Takes a migration rewriting
+  existing rows, plus every `source == "jmdict" and not entries` check in
+  `glosses.py` (`plan_glosses`' composite and katakana fallbacks). Opus 5 at
+  medium: a missed check quietly changes which fallback a word gets, but the
+  shape of the change is settled.
+- **Card exceptions are still mapped to HTTP route by route.**
+  `study.CardNotFound` is caught three times through `_card_not_found()`,
+  `study.CardSuspended` and `NotStudyable` once each, and five routes raise
+  `HTTPException(404, "Document not found.")` by hand where
+  `study.DocumentNotFound`'s handler already says the same thing
+  (`get_document`, `_lock_document`, `unlink_lrclib`, and twice in
+  `get_document_tokens`). Fix: an `app.exception_handler` per exception, as
+  `TokenNotFound` and `TokensNotGroupable` now have, and
+  `raise study.DocumentNotFound()` in place of those five. `main.py` only,
+  behavior unchanged. Sonnet 5 at low.
 
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 

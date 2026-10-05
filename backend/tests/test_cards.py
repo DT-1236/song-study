@@ -11,7 +11,7 @@ from app.cards import (
     CardKey,
     document_units,
     enroll_new_words,
-    gloss_rows,
+    gloss_summaries,
     harvest,
 )
 from app.main import PhraseAcceptance, TokensIgnored
@@ -37,20 +37,19 @@ def _grammar(term: str) -> CardKey:
 
 
 def _harvest(engine, document_id: int) -> dict[CardKey, int]:
-    """Each word the document harvests, with how often it occurs."""
+    """Each word the document harvests for the test user, with how often it
+    occurs."""
     with engine.begin() as conn:
         return {
             w.key: w.occurrences
-            for w in harvest(conn, document_units(conn, document_id))
+            for w in harvest(conn, document_units(conn, document_id), TEST_USER_ID)
         }
 
 
 def _enroll(engine, document_id: int, limit: int | None = None) -> list[CardKey]:
     """The words enroll_new_words gave the test user new cards for."""
     with engine.begin() as conn:
-        ids = enroll_new_words(
-            conn, TEST_USER_ID, document_id, document_units(conn, document_id), limit
-        )
+        ids = enroll_new_words(conn, TEST_USER_ID, document_id, limit)
         rows = conn.execute(
             text(
                 "SELECT kind, lookup_form, reading FROM study_cards WHERE id = ANY(:ids) ORDER BY id"
@@ -231,7 +230,7 @@ def test_a_cards_gloss_is_looked_up_again_after_the_cache_is_emptied(
     [card] = _cards(committed_engine).values()
     key = (card.lookup_form, card.reading)
     with committed_engine.begin() as conn:
-        gloss = gloss_rows(conn, [(key, card.alt_lookup_form)])[key]
+        gloss = gloss_summaries(conn, [(key, card.alt_lookup_form)])[key]
 
     assert gloss.source == "jmdict"
     assert gloss.has_entries
@@ -314,7 +313,7 @@ def test_each_user_has_their_own_cards(committed_engine, other_user):
     _enroll(committed_engine, mine)
 
     with committed_engine.begin() as conn:
-        enroll_new_words(conn, other_user, theirs, document_units(conn, theirs))
+        enroll_new_words(conn, other_user, theirs)
 
     assert set(_cards(committed_engine)) == set(_cards(committed_engine, other_user))
 
