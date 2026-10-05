@@ -951,7 +951,11 @@ def attach_glosses(conn, document_id: int) -> None:
     overwrite a resolved reading's gloss with the generic default every
     time that happens, discarding a correction that's still sitting right
     there in `conflicts`.
+
+    Tokens in a predicate group or accepted phrase are left alone too: each
+    shares its group's gloss, which only the group as a whole can produce.
     """
+    # A group member is any token with a phrase_start_position.
     unlinked = conn.execute(
         text(
             """
@@ -960,6 +964,7 @@ def attach_glosses(conn, document_id: int) -> None:
             FROM tokens t
             LEFT JOIN conflicts c ON c.token_id = t.id AND c.selected
             WHERE t.document_id = :document_id AND t.gloss_lookup_id IS NULL
+              AND t.phrase_start_position IS NULL
             ORDER BY t.position
             """
         ),

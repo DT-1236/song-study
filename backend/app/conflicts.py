@@ -17,6 +17,7 @@ from app.db import json_param
 from app.glosses import (
     GroupGlossRequest,
     GroupPart,
+    attach_glosses,
     get_or_create_gloss_lookup,
     own_gloss_key,
     plan_glosses,
@@ -406,11 +407,17 @@ def _regloss_predicate_group(conn, document_id: int, group_start: int) -> list[i
     return merge_predicate_group(conn, document_id, group_start, token_count)
 
 
+def repair_gloss_links(conn, document_id: int) -> None:
+    """Link a gloss to every token of the document that should have one but
+    has none, as a migration clearing stale glosses leaves them: each group
+    member to its group's gloss, every other token to its own."""
+    attach_group_glosses(conn, document_id)
+    attach_glosses(conn, document_id)
+
+
 def attach_group_glosses(conn, document_id: int) -> None:
     """Gloss again each of the document's predicate groups and accepted
-    phrases that has a token with no gloss linked, as a migration clearing
-    stale glosses leaves one, so that attach_glosses doesn't gloss its
-    tokens one by one."""
+    phrases that has a token with no gloss linked."""
     groups = conn.execute(
         text(
             f"""

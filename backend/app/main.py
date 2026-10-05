@@ -23,11 +23,11 @@ from app.conflicts import (
     TokenNotFound,
     TokensNotGroupable,
     accept_phrase_suggestions,
-    attach_group_glosses,
     correct_reading,
     create_conflicts,
     create_phrase_conflicts,
     lock_token_group,
+    repair_gloss_links,
     resolve_conflict,
     resolve_phrase_furigana,
     select_reading,
@@ -38,7 +38,6 @@ from app.glosses import (
     GlossKey,
     GlossPlan,
     alternate_reading_options,
-    attach_glosses,
     gloss_key,
     is_glossable,
     is_probably_english,
@@ -852,8 +851,7 @@ def get_document_tokens(
             # existed, or unlinked by a migration that reset the gloss cache
             # (as 0005 did).
             with engine.begin() as conn:
-                attach_group_glosses(conn, document_id)
-                attach_glosses(conn, document_id)
+                repair_gloss_links(conn, document_id)
                 return _fetch_tokens(conn, document_id)
 
         if document_text is None:

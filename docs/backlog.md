@@ -12,18 +12,6 @@ times, the `CARD_COLUMNS` string-splitting in `_due_cards`, the fourth copy of
 the ownership query, and the song lock that blocked its own foreign-key
 inserts. What was left:
 
-- **Gloss-link repair is composed by hand at the route, and its order
-  matters.** `get_document_tokens` (`main.py`) must call
-  `attach_group_glosses` (`conflicts.py`) before `attach_glosses`
-  (`glosses.py`); reversed, `attach_glosses` glosses a group's members one by
-  one and links them individually. The two can't live together because
-  `glosses.py` can't import `conflicts.py`, so any second caller (a repair
-  job, a migration path) silently gets wrong glosses. Fix: one
-  `repair_gloss_links(conn, document_id)` next to `attach_group_glosses` that
-  calls both in order, or, deeper, make `attach_glosses` skip tokens with a
-  `phrase_start_position`. Reaches into the delicate rekeying code from #34
-  and #35, so it wants its own PR and tests. Opus 5 at high: a wrong order
-  fails silently.
 - **`song_queue` reads the document's tokens twice, and re-fetches glosses for
   words the user already has.** `harvest` (via `enroll_new_words`) and
   `document_card_keys` each run `_token_rows` and `_units`; `harvest` then runs
