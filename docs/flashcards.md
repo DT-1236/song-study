@@ -1010,7 +1010,7 @@ break — they call route functions directly rather than over HTTP.
   nothing to test. A particle after a noun outside any group gives no card.
 - Cards store `alt_lookup_form` (the token's dictionary form): the second spelling
   `plan_glosses()` needs to rehydrate a word like さり気ない, whose normalized form さり気無い has no
-  JMDict entry. It's a lookup input, not gloss content. `gloss_rows()` is the rehydration call.
+  JMDict entry. It's a lookup input, not gloss content. `gloss_summaries()` is the rehydration call.
 - The FSRS columns default to py-fsrs 6's new card: state 1 (Learning), step 0, due now.
 - `study_reviews` has no cascade from cards, so a card with history can't be deleted; it records
   `correct`, `duration_ms` and the `fast_ms` / `slow_ms` thresholds beside `rating`.

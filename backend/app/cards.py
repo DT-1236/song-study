@@ -18,7 +18,13 @@ from typing import Literal
 from sqlalchemy import text
 
 from app.conflicts import NON_READING_KINDS, TokenNotFound
-from app.glosses import GlossKey, own_gloss_key, plan_glosses, store_glosses
+from app.glosses import (
+    GlossKey,
+    GlossSummary,
+    own_gloss_key,
+    plan_glosses,
+    store_glosses,
+)
 from app.grammar import has_grammar_note, is_grammar_word
 
 CardKind = Literal["recognition", "grammar"]
@@ -161,31 +167,23 @@ def _unit_cards(
     return word, grammar
 
 
-def gloss_rows(conn, requests: Iterable[tuple[GlossKey, str | None]]) -> dict:
-    """The gloss_lookups row (lookup_form, reading, has_entries, source) of each
-    requested key, each paired with an alternate spelling as plan_glosses
-    takes it. A key that isn't cached is looked up and cached first: the
-    cache can be emptied underneath a card at any time."""
-    ids = store_glosses(conn, plan_glosses(conn, list(requests)))
-    rows = conn.execute(
-        text(
-            """
-            -- Only whether there are entries is read, so the blob stays put.
-            SELECT lookup_form, reading, entries <> CAST('[]' AS JSONB) AS has_entries, source
-            FROM gloss_lookups
-            WHERE id = ANY(:ids)
-            """
-        ),
-        {"ids": list(ids.values())},
-    )
-    return {(row.lookup_form, row.reading): row for row in rows}
+def gloss_summaries(
+    conn, requests: Iterable[tuple[GlossKey, str | None]]
+) -> dict[GlossKey, GlossSummary]:
+    """The source and has_entries of each requested key's gloss, each paired
+    with an alternate spelling as plan_glosses takes it. A key that isn't
+    cached is looked up and cached first: the cache can be emptied underneath
+    a card at any time."""
+    plan = plan_glosses(conn, list(requests))
+    store_glosses(conn, plan)
+    return plan.summaries()
 
 
 def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
     """Those of `words` glossed from a JMDict headword. An English word, or a
     compound or katakana fallback, has a gloss that explains it rather than
     defines it, so there's nothing to test."""
-    rows = gloss_rows(
+    rows = gloss_summaries(
         conn, [((key.lookup_form, key.reading), alt) for key, alt in words]
     )
     return {
