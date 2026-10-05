@@ -6,14 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on PR #42 (test audit: low-value tests cut, coverage gaps filled, faster DB cleanup)
 
-- **`test_auth`'s `browser` fixture deletes the global `current_user_id`
-  override.** It has to know that `tests/support.py` installs the override,
-  and under which key, so how tests choose who they act as is split across
-  two files. If support.py changed its mechanism these tests would fail
-  loudly rather than pass, so the cost is low. Fix: an
-  `as_session_user()` next to `as_user` in support.py that makes the
-  override fall through to the real dependency, which `browser` would use
-  instead. Sonnet 5 at low.
 - **Three `TokenRecord` literals in `test_conflicts.py` still spell out
   every field** (`TestCreateConflicts` twice, and
   `test_no_rows_when_no_token_has_a_suggestion`). They predate PR #42 and

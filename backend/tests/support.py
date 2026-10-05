@@ -25,7 +25,7 @@ from pathlib import Path
 
 from alembic import command
 from alembic.config import Config
-from fastapi import HTTPException
+from fastapi import HTTPException, Request
 from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from pydantic import BaseModel, TypeAdapter
@@ -280,11 +280,18 @@ def selected_reading(token) -> str:
     return next(c for c in token.conflicts if c.selected).value["reading"]
 
 
-_acting_user = [TEST_USER_ID]
+# None means no one is impersonated: the request's own session decides.
+_acting_user: list[int | None] = [TEST_USER_ID]
+
+
+def _acting_user_or_session(request: Request) -> int:
+    user_id = _acting_user[-1]
+    return current_user_id(request) if user_id is None else user_id
+
 
 # Who the routes below act as. Overriding the dependency, rather than logging
 # a user in over HTTP, keeps the Google flow out of every test.
-main.app.dependency_overrides[current_user_id] = lambda: _acting_user[-1]
+main.app.dependency_overrides[current_user_id] = _acting_user_or_session
 
 client = TestClient(main.app)
 
@@ -296,6 +303,17 @@ def as_user(user_id: int):
     _acting_user.append(user_id)
     try:
         yield user_id
+    finally:
+        _acting_user.pop()
+
+
+@contextmanager
+def as_session_user():
+    """Route calls inside the block act as whoever their request's session
+    says, rather than as TEST_USER_ID."""
+    _acting_user.append(None)
+    try:
+        yield
     finally:
         _acting_user.pop()
 

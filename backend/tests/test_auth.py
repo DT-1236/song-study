@@ -12,6 +12,7 @@ from sqlalchemy import text
 from app import auth, main
 from app.auth import me, upsert_google_user
 from app.users import current_user_id
+from tests.support import as_session_user
 
 
 def request_with(session: dict):
@@ -52,12 +53,12 @@ def test_me_returns_the_logged_in_user(committed_engine):
 
 
 @pytest.fixture
-def browser(monkeypatch):
+def browser():
     """A client with a cookie jar of its own, whose requests act as whoever
     their session says rather than as the test user. https, so the session
     cookie comes back whether or not it's marked Secure."""
-    monkeypatch.delitem(main.app.dependency_overrides, current_user_id)
-    return TestClient(main.app, base_url="https://testserver")
+    with as_session_user():
+        yield TestClient(main.app, base_url="https://testserver")
 
 
 @pytest.fixture
