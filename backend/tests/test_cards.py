@@ -48,9 +48,7 @@ def _harvest(engine, document_id: int) -> dict[CardKey, int]:
 def _enroll(engine, document_id: int, limit: int | None = None) -> list[CardKey]:
     """The words enroll_new_words gave the test user new cards for."""
     with engine.begin() as conn:
-        ids = enroll_new_words(
-            conn, TEST_USER_ID, document_id, document_units(conn, document_id), limit
-        )
+        ids = enroll_new_words(conn, TEST_USER_ID, document_id, limit)
         rows = conn.execute(
             text(
                 "SELECT kind, lookup_form, reading FROM study_cards WHERE id = ANY(:ids) ORDER BY id"
@@ -314,7 +312,7 @@ def test_each_user_has_their_own_cards(committed_engine, other_user):
     _enroll(committed_engine, mine)
 
     with committed_engine.begin() as conn:
-        enroll_new_words(conn, other_user, theirs, document_units(conn, theirs))
+        enroll_new_words(conn, other_user, theirs)
 
     assert set(_cards(committed_engine)) == set(_cards(committed_engine, other_user))
 

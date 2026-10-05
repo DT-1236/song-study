@@ -254,18 +254,34 @@ def _carded_keys(conn, user_id: int) -> set[CardKey]:
     }
 
 
+def song_card_keys(
+    conn, user_id: int, document_id: int, enroll_limit: int
+) -> set[CardKey]:
+    """The key of every word and grammar term in the document, after giving
+    the user cards for up to `enroll_limit` of its new words (none if it's
+    zero or less)."""
+    units = document_units(conn, document_id)
+    if enroll_limit > 0:
+        _enroll_units(conn, user_id, document_id, units, enroll_limit)
+    return document_card_keys(units)
+
+
 def enroll_new_words(
-    conn,
-    user_id: int,
-    document_id: int,
-    units: list[list],
-    limit: int | None = None,
+    conn, user_id: int, document_id: int, limit: int | None = None
 ) -> list[int]:
     """Give the user a card for each of up to `limit` of the document's
     harvested words they have no card for yet, the most often sung first,
-    and return the new cards' ids. `units` are the document's (see _units).
-    A card they removed still counts as one they have: only adding it by
-    hand restores it."""
+    and return the new cards' ids. A card they removed still counts as one
+    they have: only adding it by hand restores it."""
+    return _enroll_units(
+        conn, user_id, document_id, document_units(conn, document_id), limit
+    )
+
+
+def _enroll_units(
+    conn, user_id: int, document_id: int, units: list[list], limit: int | None
+) -> list[int]:
+    """enroll_new_words over the document's already-read `units` (see _units)."""
     words = sorted(
         harvest(conn, units, skip=_carded_keys(conn, user_id)),
         key=lambda w: (-w.occurrences, w.first_position),

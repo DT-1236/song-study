@@ -18,9 +18,7 @@ from sqlalchemy import text
 from app.cards import (
     CARD_COLUMNS,
     CardKind,
-    document_card_keys,
-    document_units,
-    enroll_new_words,
+    song_card_keys,
 )
 from app.users import document_is_owned
 
@@ -313,10 +311,8 @@ def song_queue(conn, user_id: int, document_id: int) -> list:
     ).scalar_one_or_none()
     if limit is None:
         raise DocumentNotFound()
-    units = document_units(conn, document_id)
-    if limit > 0:
-        enroll_new_words(conn, user_id, document_id, units, limit)
-    return _due_cards(conn, user_id, document_card_keys(units))
+    keys = song_card_keys(conn, user_id, document_id, limit)
+    return _due_cards(conn, user_id, keys)
 
 
 def get_desired_retention(conn, user_id: int) -> float:

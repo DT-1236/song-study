@@ -14,14 +14,6 @@ public `attach_group_glosses` that invited a second hand-composed caller, the
 single-caller `_gloss_phrase`, and two tests' hand-rolled reading picks and
 gloss clearing. What was left:
 
-- **`song_queue` handles `cards.py`'s unit shape.** To read the tokens once it
-  calls `document_units` and hands the `list[list]` to both
-  `enroll_new_words` and `document_card_keys`, so `enroll_new_words` takes a
-  `document_id` and `units` that nothing checks agree, and every test helper
-  builds units itself. Fix: one `cards.py` entry point (e.g.
-  `song_card_keys(conn, user_id, document_id, enroll_limit)`) that reads the
-  units, enrolls and returns the keys, with `harvest` and `enroll_new_words`
-  internal or kept in a `document_id` form for tests. Sonnet 5 at low.
 - **`_carded_keys` loads every card the user has to filter one song's
   harvest.** `enroll_new_words` (`cards.py`) reads all of the user's
   `study_cards` keys on each session start, so it grows with the whole
