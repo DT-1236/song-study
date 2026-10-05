@@ -67,24 +67,38 @@ def _token_row(conn, token_id):
     ).one()
 
 
+def _record(**overrides):
+    """TokenRecord with test defaults, overridden by kwargs."""
+    defaults = {
+        "position": 0,
+        "char_begin": 0,
+        "char_end": 1,
+        "surface": "test",
+        "dictionary_form": "test",
+        "normalized_form": "test",
+        "reading_katakana": "テスト",
+        "part_of_speech": ["名詞", "*", "*", "*", "*", "*"],
+        "is_oov": False,
+        "furigana_spans": [],
+        "needs_review": False,
+        "review_reason": None,
+        "conflict_options": [],
+    }
+    defaults.update(overrides)
+    return TokenRecord(**defaults)
+
+
 def _suggest_phrase(conn, document_id, surface, reading, token_count) -> None:
     """Suggest the phrase `surface`, read `reading`, over the document's
     first `token_count` tokens."""
     # create_phrase_conflicts reads only a record's position and suggestion.
-    record = TokenRecord(
-        position=0,
-        char_begin=0,
+    record = _record(
         char_end=len(surface),
         surface=surface,
         dictionary_form=surface,
         normalized_form=surface,
         reading_katakana="",
         part_of_speech=["*"] * 6,
-        is_oov=False,
-        furigana_spans=[],
-        needs_review=False,
-        review_reason=None,
-        conflict_options=[],
         phrase_suggestion={
             "surface": surface,
             "lookup_form": surface,
@@ -109,21 +123,7 @@ class TestCreateConflicts:
         document_id = make_document(db_conn)
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
-        record = TokenRecord(
-            position=0,
-            char_begin=0,
-            char_end=1,
-            surface="test",
-            dictionary_form="test",
-            normalized_form="test",
-            reading_katakana="テスト",
-            part_of_speech=["名詞", "普通名詞", "一般", "*", "*", "*"],
-            is_oov=False,
-            furigana_spans=[],
-            needs_review=False,
-            review_reason=None,
-            conflict_options=[],
-        )
+        record = _record(part_of_speech=["名詞", "普通名詞", "一般", "*", "*", "*"])
         create_conflicts(db_conn, document_id, [record])
 
         assert _conflicts_for(db_conn, token_id) == []
@@ -143,16 +143,13 @@ class TestCreateConflicts:
             ],
             "citation_reading": "こんにち",
         }
-        record = TokenRecord(
-            position=0,
-            char_begin=0,
+        record = _record(
             char_end=2,
             surface="今日",
             dictionary_form="今日",
             normalized_form="今日",
             reading_katakana="キョウ",
             part_of_speech=["名詞", "普通名詞", "副詞可能", "*", "*", "*"],
-            is_oov=False,
             furigana_spans=[
                 {"start": 0, "end": 2, "text": "今日", "reading": "きょう"}
             ],
@@ -236,21 +233,7 @@ class TestPhraseConflicts:
     def test_no_rows_when_no_token_has_a_suggestion(self, db_conn):
         document_id = make_document(db_conn)
         token_id = make_token(db_conn, document_id=document_id, position=0)
-        record = TokenRecord(
-            position=0,
-            char_begin=0,
-            char_end=1,
-            surface="test",
-            dictionary_form="test",
-            normalized_form="test",
-            reading_katakana="テスト",
-            part_of_speech=["名詞", "*", "*", "*", "*", "*"],
-            is_oov=False,
-            furigana_spans=[],
-            needs_review=False,
-            review_reason=None,
-            conflict_options=[],
-        )
+        record = _record()
         create_phrase_conflicts(db_conn, document_id, [record], [])
 
         assert _conflicts_for(db_conn, token_id) == []

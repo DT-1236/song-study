@@ -6,12 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on PR #42 (test audit: low-value tests cut, coverage gaps filled, faster DB cleanup)
 
-- **Three `TokenRecord` literals in `test_conflicts.py` still spell out
-  every field** (`TestCreateConflicts` twice, and
-  `test_no_rows_when_no_token_has_a_suggestion`). They predate PR #42 and
-  aren't phrase suggestions, so `_suggest_phrase` doesn't fit them. A
-  `_record(**overrides)` with defaults would shorten each to the fields that
-  matter. Haiku 4.5 at low.
 - **`TestSearchJmdict` searches for 火 twice, about 0.35s together.** 火
   was picked because it has two exact entries and fills every looser group.
   A rarer query would be faster, but it has to meet the same conditions
