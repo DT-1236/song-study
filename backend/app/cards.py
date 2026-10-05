@@ -11,7 +11,7 @@ stored: it's whichever documents have a token that harvests to it now.
 from __future__ import annotations
 
 import json
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -99,6 +99,11 @@ def _units(rows: list) -> list[list]:
     return units
 
 
+def document_units(conn, document_id: int) -> list[list]:
+    """The document's tokens in order, grouped into what's glossed together."""
+    return _units(_token_rows(conn, document_id))
+
+
 def _own_word(row, explicit: bool) -> tuple[CardKey, str | None] | None:
     """The word token `row` is glossed as on its own, with its alternate
     spelling, or None if it isn't one to study. `explicit` as for
@@ -157,7 +162,7 @@ def _unit_cards(
 
 
 def gloss_rows(conn, requests: Iterable[tuple[GlossKey, str | None]]) -> dict:
-    """The gloss_lookups row (lookup_form, reading, entries, source) of each
+    """The gloss_lookups row (lookup_form, reading, has_entries, source) of each
     requested key, each paired with an alternate spelling as plan_glosses
     takes it. A key that isn't cached is looked up and cached first: the
     cache can be emptied underneath a card at any time."""
@@ -165,7 +170,9 @@ def gloss_rows(conn, requests: Iterable[tuple[GlossKey, str | None]]) -> dict:
     rows = conn.execute(
         text(
             """
-            SELECT lookup_form, reading, entries, source FROM gloss_lookups
+            -- Only whether there are entries is read, so the blob stays put.
+            SELECT lookup_form, reading, entries <> CAST('[]' AS JSONB) AS has_entries, source
+            FROM gloss_lookups
             WHERE id = ANY(:ids)
             """
         ),
@@ -185,13 +192,16 @@ def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
         key
         for key, _ in words
         if (row := rows[(key.lookup_form, key.reading)]).source == "jmdict"
-        and row.entries
+        and row.has_entries
     }
 
 
-def harvest(conn, document_id: int) -> list[HarvestedWord]:
-    """Every word and grammar term of the document that becomes a card when
-    enrolled, in order of first occurrence.
+def harvest(
+    conn, units: list[list], skip: Collection[CardKey] = ()
+) -> list[HarvestedWord]:
+    """Every word and grammar term of a document's `units` (see _units) that
+    becomes a card when enrolled, in order of first occurrence, except those
+    in `skip`.
 
     A word is left out if it's a particle or auxiliary, if it was marked as
     needing no gloss, or if its reading is still an unreviewed guess, since
@@ -200,7 +210,7 @@ def harvest(conn, document_id: int) -> list[HarvestedWord]:
     grammar attached to it, or to a phrase, gives grammar terms, when they
     have an explanation of their own."""
     found: dict[CardKey, HarvestedWord] = {}
-    for unit in _units(_token_rows(conn, document_id)):
+    for unit in units:
         word, grammar = _unit_cards(unit, explicit=False)
         for key, alt in [*([word] if word else []), *((key, None) for key in grammar)]:
             if key in found:
@@ -208,20 +218,22 @@ def harvest(conn, document_id: int) -> list[HarvestedWord]:
             else:
                 found[key] = HarvestedWord(key, alt, 1, unit[0].position)
 
+    # Dropped before _studyable, which would look up (and maybe fetch) the
+    # gloss of every word the user already has a card for.
+    wanted = [w for w in found.values() if w.key not in skip]
     studyable = _studyable(
-        conn,
-        [(w.key, w.alt_lookup_form) for w in found.values() if w.key.kind != "grammar"],
+        conn, [(w.key, w.alt_lookup_form) for w in wanted if w.key.kind != "grammar"]
     )
-    return [w for w in found.values() if w.key.kind == "grammar" or w.key in studyable]
+    return [w for w in wanted if w.key.kind == "grammar" or w.key in studyable]
 
 
-def document_card_keys(conn, document_id: int) -> set[CardKey]:
-    """The key of every word and grammar term the document has a token for:
-    which cards belong to the song, if the user has them. Unlike harvest, it
-    counts a word marked as needing no gloss, or read as a guess, since a
-    card for one can only exist because the user added it by hand."""
+def document_card_keys(units: list[list]) -> set[CardKey]:
+    """The key of every word and grammar term in a document's `units` (see
+    _units): which cards belong to the song, if the user has them. Unlike
+    harvest, it counts a word marked as needing no gloss, or read as a guess,
+    since a card for one can only exist because the user added it by hand."""
     keys: set[CardKey] = set()
-    for unit in _units(_token_rows(conn, document_id)):
+    for unit in units:
         word, grammar = _unit_cards(unit, explicit=True)
         if word:
             keys.add(word[0])
@@ -229,15 +241,34 @@ def document_card_keys(conn, document_id: int) -> set[CardKey]:
     return keys
 
 
+def _carded_keys(conn, user_id: int) -> set[CardKey]:
+    """The key of every card the user has, removed ones included."""
+    return {
+        CardKey(row.kind, row.lookup_form, row.reading)
+        for row in conn.execute(
+            text(
+                "SELECT kind, lookup_form, reading FROM study_cards WHERE user_id = :user_id"
+            ),
+            {"user_id": user_id},
+        )
+    }
+
+
 def enroll_new_words(
-    conn, user_id: int, document_id: int, limit: int | None = None
+    conn,
+    user_id: int,
+    document_id: int,
+    units: list[list],
+    limit: int | None = None,
 ) -> list[int]:
     """Give the user a card for each of up to `limit` of the document's
     harvested words they have no card for yet, the most often sung first,
-    and return the new cards' ids. A card they removed still counts as one
-    they have: only adding it by hand restores it."""
+    and return the new cards' ids. `units` are the document's (see _units).
+    A card they removed still counts as one they have: only adding it by
+    hand restores it."""
     words = sorted(
-        harvest(conn, document_id), key=lambda w: (-w.occurrences, w.first_position)
+        harvest(conn, units, skip=_carded_keys(conn, user_id)),
+        key=lambda w: (-w.occurrences, w.first_position),
     )
     if not words:
         return []
@@ -300,7 +331,7 @@ def enroll_token(conn, user_id: int, document_id: int, token_id: int):
     unit = next(
         (
             unit
-            for unit in _units(_token_rows(conn, document_id))
+            for unit in document_units(conn, document_id)
             if any(row.id == token_id for row in unit)
         ),
         None,

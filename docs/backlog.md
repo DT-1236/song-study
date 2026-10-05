@@ -12,17 +12,6 @@ times, the `CARD_COLUMNS` string-splitting in `_due_cards`, the fourth copy of
 the ownership query, and the song lock that blocked its own foreign-key
 inserts. What was left:
 
-- **`song_queue` reads the document's tokens twice, and re-fetches glosses for
-  words the user already has.** `harvest` (via `enroll_new_words`) and
-  `document_card_keys` each run `_token_rows` and `_units`; `harvest` then runs
-  `_studyable` over every distinct word in the song on every session start, and
-  the `INSERT`'s `NOT EXISTS` discards the ones already carded. `gloss_rows`
-  also pulls each row's whole `entries` blob only for `_studyable` to test it
-  for emptiness. Fix: drop the keys the user has a card for before
-  `_studyable`, hand one `_units(...)` result to both callers, and select
-  `entries <> '[]'` instead of `entries`. Changes the `harvest` and
-  `enroll_new_words` signatures, which the tests and step 4 use. Sonnet 5 at
-  medium: a clear spec, but check `entries` is always a JSON array first.
 - **`attach_group_glosses` costs several queries per group.** Each stale group
   runs its own count, member read, `plan_glosses`, `store_glosses` and merge
   `UPDATE` (`conflicts.py`), on the first load of each document after migration
