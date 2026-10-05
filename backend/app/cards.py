@@ -20,7 +20,6 @@ from sqlalchemy import text
 from app.conflicts import NON_READING_KINDS, TokenNotFound
 from app.glosses import (
     GlossKey,
-    GlossSummary,
     own_gloss_key,
     plan_glosses,
     store_glosses,
@@ -191,30 +190,27 @@ def _unit_cards(
     return word, grammar
 
 
-def gloss_summaries(
+def gloss_sources(
     conn, requests: Iterable[tuple[GlossKey, str | None]]
-) -> dict[GlossKey, GlossSummary]:
-    """The source and has_entries of each requested key's gloss, each paired
-    with an alternate spelling as plan_glosses takes it. A key that isn't
-    cached is looked up and cached first: the cache can be emptied underneath
-    a card at any time."""
-    plan = plan_glosses(conn, list(requests), with_summaries=True)
+) -> dict[GlossKey, str]:
+    """The source of each requested key's gloss, each paired with an
+    alternate spelling as plan_glosses takes it. A key that isn't cached is
+    looked up and cached first: the cache can be emptied underneath a card
+    at any time."""
+    plan = plan_glosses(conn, list(requests))
     store_glosses(conn, plan)
-    return plan.summaries()
+    return plan.sources()
 
 
 def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
     """Those of `words` glossed from a JMDict headword. An English word, or a
     compound or katakana fallback, has a gloss that explains it rather than
     defines it, so there's nothing to test."""
-    rows = gloss_summaries(
+    sources = gloss_sources(
         conn, [((key.lookup_form, key.reading), alt) for key, alt in words]
     )
     return {
-        key
-        for key, _ in words
-        if (row := rows[(key.lookup_form, key.reading)]).source == "jmdict"
-        and row.has_entries
+        key for key, _ in words if sources[(key.lookup_form, key.reading)] == "jmdict"
     }
 
 

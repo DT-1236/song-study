@@ -11,7 +11,7 @@ from app.cards import (
     CardKey,
     document_units,
     enroll_new_words,
-    gloss_summaries,
+    gloss_sources,
     harvest,
 )
 from app.main import PhraseAcceptance, TokensIgnored
@@ -230,10 +230,9 @@ def test_a_cards_gloss_is_looked_up_again_after_the_cache_is_emptied(
     [card] = _cards(committed_engine).values()
     key = (card.lookup_form, card.reading)
     with committed_engine.begin() as conn:
-        gloss = gloss_summaries(conn, [(key, card.alt_lookup_form)])[key]
+        source = gloss_sources(conn, [(key, card.alt_lookup_form)])[key]
 
-    assert gloss.source == "jmdict"
-    assert gloss.has_entries
+    assert source == "jmdict"
 
 
 def test_emptying_the_gloss_cache_keeps_every_card(committed_engine):

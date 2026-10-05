@@ -108,7 +108,7 @@ class TestKatakanaGlosses:
             db_conn,
             get_or_create_gloss_lookup(db_conn, "ギガンティック", "ギガンティック"),
         )
-        assert (gloss.entries, gloss.source) == ([], "jmdict")
+        assert (gloss.entries, gloss.source) == ([], "jmdict_miss")
 
 
 def test_a_document_shows_katakana_glossed_as_hiragana(committed_engine):

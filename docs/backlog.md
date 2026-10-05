@@ -4,29 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on PR #41 (PR #40's backlog: batched group re-gloss, 404 handlers, `song_card_keys`, carded-key join, gloss summaries from the plan)
-
-Run over `git diff main...HEAD`. Fixed in that run: the gloss summary every
-`plan_glosses` caller paid for (now opt-in through `with_summaries`), the
-CardKey join written in both `_carded_keys` and `_due_cards` (now
-`CARD_KEYS_JOIN_SQL` and `card_keys_param`), `harvest`'s test-only optional
-`user_id`, `enroll_new_words`' docstring sitting on the wrapper rather than
-`_enroll_units`, the one-caller `_attach_group_glosses`,
-`get_alternate_readings`' hand-raised token 404, and `_token_group_errors`
-(now a `TokensNotGroupable` handler). What was left:
-
-- **A JMDict miss is told apart only by its empty `entries`.** A
-  `gloss_lookups` row of `([], "jmdict")` means "looked up, nothing found",
-  so `_studyable` (`cards.py`) needs `has_entries` beside `source`, and
-  reading that makes the database load each cached row's `entries`. That's
-  why `plan_glosses` takes `with_summaries`. Fix: store such a miss under a
-  source of its own, so `source == "jmdict"` alone means a headword was found
-  and `source` can always be selected for free. Takes a migration rewriting
-  existing rows, plus every `source == "jmdict" and not entries` check in
-  `glosses.py` (`plan_glosses`' composite and katakana fallbacks). Opus 5 at
-  medium: a missed check quietly changes which fallback a word gets, but the
-  shape of the change is settled.
-
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 
 Run together, after the fact, over `git diff d8e5e22 HEAD`. Fixed in that run:

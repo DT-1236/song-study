@@ -117,7 +117,7 @@ function hasAmbiguousCompositePiece(token: Token): boolean {
 // JMDict entry of its own, shown broken into parts instead — see
 // gloss.source): those already found real content via their pieces, just
 // not as one entry, so an empty top-level senses list there doesn't mean
-// the same thing it does for a plain jmdict/english_stub gloss.
+// the same thing it does for a jmdict_miss or english_stub gloss.
 function hasMissingGloss(token: Token): boolean {
   return (
     token.gloss !== null &&
