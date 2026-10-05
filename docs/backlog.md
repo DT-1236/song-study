@@ -14,13 +14,6 @@ public `attach_group_glosses` that invited a second hand-composed caller, the
 single-caller `_gloss_phrase`, and two tests' hand-rolled reading picks and
 gloss clearing. What was left:
 
-- **`_carded_keys` loads every card the user has to filter one song's
-  harvest.** `enroll_new_words` (`cards.py`) reads all of the user's
-  `study_cards` keys on each session start, so it grows with the whole
-  collection rather than the song. Fix: join the harvested keys against
-  `study_cards` through `jsonb_to_recordset`, as `_due_cards` does, which
-  means `harvest` takes `user_id` instead of `skip`. A few milliseconds at a
-  few thousand cards; worth it around tens of thousands. Sonnet 5 at low.
 - **`gloss_rows` re-reads the rows `plan_glosses` just read.**
   `_cached_rows` (`glosses.py`) already selects the same `gloss_lookups` rows,
   and the plan holds the new ones in memory, but `gloss_rows` (`cards.py`)

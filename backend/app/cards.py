@@ -11,7 +11,7 @@ stored: it's whichever documents have a token that harvests to it now.
 from __future__ import annotations
 
 import json
-from collections.abc import Collection, Iterable
+from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
@@ -196,12 +196,10 @@ def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
     }
 
 
-def harvest(
-    conn, units: list[list], skip: Collection[CardKey] = ()
-) -> list[HarvestedWord]:
+def harvest(conn, units: list[list], user_id: int | None = None) -> list[HarvestedWord]:
     """Every word and grammar term of a document's `units` (see _units) that
     becomes a card when enrolled, in order of first occurrence, except those
-    in `skip`.
+    the user `user_id` already has a card for, removed ones included.
 
     A word is left out if it's a particle or auxiliary, if it was marked as
     needing no gloss, or if its reading is still an unreviewed guess, since
@@ -220,7 +218,8 @@ def harvest(
 
     # Dropped before _studyable, which would look up (and maybe fetch) the
     # gloss of every word the user already has a card for.
-    wanted = [w for w in found.values() if w.key not in skip]
+    carded = _carded_keys(conn, user_id, list(found)) if user_id is not None else set()
+    wanted = [w for w in found.values() if w.key not in carded]
     studyable = _studyable(
         conn, [(w.key, w.alt_lookup_form) for w in wanted if w.key.kind != "grammar"]
     )
@@ -241,15 +240,37 @@ def document_card_keys(units: list[list]) -> set[CardKey]:
     return keys
 
 
-def _carded_keys(conn, user_id: int) -> set[CardKey]:
-    """The key of every card the user has, removed ones included."""
+def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
+    """Those of `keys` the user has a card for, removed ones included."""
+    if not keys:
+        return set()
     return {
         CardKey(row.kind, row.lookup_form, row.reading)
         for row in conn.execute(
             text(
-                "SELECT kind, lookup_form, reading FROM study_cards WHERE user_id = :user_id"
+                """
+                SELECT c.kind, c.lookup_form, c.reading
+                FROM jsonb_to_recordset(CAST(:keys AS JSONB))
+                    AS k(kind text, lookup_form text, reading text)
+                JOIN study_cards c
+                  ON c.user_id = :user_id AND c.kind = k.kind
+                 AND c.lookup_form = k.lookup_form
+                 AND c.reading IS NOT DISTINCT FROM k.reading
+                """
             ),
-            {"user_id": user_id},
+            {
+                "user_id": user_id,
+                "keys": json.dumps(
+                    [
+                        {
+                            "kind": k.kind,
+                            "lookup_form": k.lookup_form,
+                            "reading": k.reading,
+                        }
+                        for k in keys
+                    ]
+                ),
+            },
         )
     }
 
@@ -283,7 +304,7 @@ def _enroll_units(
 ) -> list[int]:
     """enroll_new_words over the document's already-read `units` (see _units)."""
     words = sorted(
-        harvest(conn, units, skip=_carded_keys(conn, user_id)),
+        harvest(conn, units, user_id),
         key=lambda w: (-w.occurrences, w.first_position),
     )
     if not words:
