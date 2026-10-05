@@ -90,15 +90,18 @@ cp .env.example .env
 docker compose up -d postgres
 
 cd backend
-pip install -r requirements.txt
-alembic upgrade head
-uvicorn app.main:app --reload
+make start
 
 # in a second terminal
 cd frontend
 npm install
 npm run dev
 ```
+
+`make start` creates `backend/.venv` if needed, installs `requirements.txt`
+when it has changed, applies pending migrations, then runs the dev server
+(`PORT` and `RELOAD` can be overridden, e.g. `make start RELOAD=`). `make
+test`, `make format` and `make lint` are the other targets.
 
 Open `http://localhost:5173`. The backend runs at `http://localhost:8000`, but
 the browser only talks to the frontend's origin: the Vite dev server proxies
