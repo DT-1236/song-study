@@ -19,7 +19,6 @@ from app.main import (
 )
 from app.study import rating_for
 from tests.support import (
-    TEST_USER_ID,
     add_token_card,
     as_user,
     create_tokenized_document,
@@ -99,18 +98,6 @@ def _days_from_now(moment: datetime) -> float:
     return _seconds_from_now(moment) / 86_400
 
 
-@pytest.fixture(autouse=True)
-def default_retention(committed_engine):
-    """The test user's retention put back after a test saves its own; users
-    aren't emptied between tests."""
-    yield
-    with committed_engine.begin() as conn:
-        conn.execute(
-            text("UPDATE users SET desired_retention = DEFAULT WHERE id = :id"),
-            {"id": TEST_USER_ID},
-        )
-
-
 # Rating an answer
 
 
@@ -168,19 +155,13 @@ def test_a_wrong_answer_returns_a_new_card_to_its_first_step(committed_engine):
 
 
 def test_a_fast_answer_to_a_multiple_choice_card_is_only_good(committed_engine):
+    # The rating table is covered above; this checks the route rates a
+    # card as multiple choice.
     card_id = _new_card()
 
     assert review_card(card_id, ReviewAnswer(correct=True, duration_ms=0)).rating == (
         Rating.Good
     )
-
-
-def test_a_slow_correct_answer_is_hard(committed_engine):
-    card_id = _new_card()
-
-    result = review_card(card_id, ReviewAnswer(correct=True, duration_ms=10_001))
-
-    assert result.rating == Rating.Hard
 
 
 def test_a_review_is_logged_with_the_thresholds_it_was_rated_with(committed_engine):
@@ -556,14 +537,12 @@ def test_saved_settings_are_read_back(committed_engine):
 
 
 @pytest.mark.parametrize("retention", [0.74, 0.96, 1.0])
-def test_a_desired_retention_outside_the_offered_range_is_refused(
-    committed_engine, retention
-):
+def test_a_desired_retention_outside_the_offered_range_is_refused(retention):
     with pytest.raises(ValidationError):
         StudySettings(desired_retention=retention)
 
 
-def test_a_negative_new_card_limit_is_refused(committed_engine):
+def test_a_negative_new_card_limit_is_refused():
     with pytest.raises(ValidationError):
         SongStudySettings(new_cards_per_day=-1)
 

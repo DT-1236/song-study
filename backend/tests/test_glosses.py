@@ -15,8 +15,10 @@ from app.glosses import (
     get_or_create_gloss_lookup,
     is_probably_english,
     rank_senses,
+    search_jmdict,
     search_readings,
 )
+from tests.support import jmdict_search
 
 
 class TestIsProbablyEnglish:
@@ -86,7 +88,7 @@ class TestSearchReadings:
         # き is JMDict-priority-tagged (news2/nf27), ご isn't.
         assert search_readings("期")[0] == "キ"
 
-    def test_empty_for_a_word_with_only_one_reading(self):
+    def test_a_word_with_one_reading_has_only_that_one(self):
         assert search_readings("受ける") == ["ウケル"]
 
 
@@ -165,3 +167,42 @@ class TestGetOrCreateGlossLookup:
         ).one()
         assert row.source == "english_stub"
         assert row.entries == []
+
+
+def _tier(query, entry) -> str:
+    """How closely a search result's headword matches `query`."""
+    forms = entry.kanji_forms + entry.kana_forms
+    if query in forms:
+        return "exact"
+    if any(form.startswith(query) for form in forms):
+        return "prefix"
+    if any(form.endswith(query) for form in forms):
+        return "suffix"
+    return "substring"
+
+
+class TestSearchJmdict:
+    """The sidebar's dictionary search: exact matches first, then entries
+    the query begins, ends, or is inside, each of those capped."""
+
+    def test_ranks_closer_matches_first_and_caps_the_looser_ones(self):
+        # 火 has two entries of its own, read ひ and か.
+        assert [_tier("火", entry) for entry in jmdict_search("火")] == [
+            *["exact"] * 2,
+            *["prefix"] * 3,
+            *["suffix"] * 3,
+            *["substring"] * 3,
+        ]
+
+    def test_exact_matches_are_never_capped(self):
+        entries = jmdict_search("火", max_results_per_tier=1)
+
+        assert [_tier("火", entry) for entry in entries] == [
+            *["exact"] * 2,
+            "prefix",
+            "suffix",
+            "substring",
+        ]
+
+    def test_a_blank_query_finds_nothing(self):
+        assert search_jmdict("  ") == []

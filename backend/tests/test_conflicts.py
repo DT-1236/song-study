@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 
+import pytest
 from sqlalchemy import text
 
 from app.conflicts import (
@@ -35,7 +36,12 @@ from app.conflicts import (
 )
 from app.glosses import attach_glosses
 from app.tokenization import TokenRecord
-from tests.support import TEST_USER_ID, BackgroundCall, make_token, wait_for_lock_wait
+from tests.support import (
+    BackgroundCall,
+    make_document,
+    make_token,
+    wait_for_lock_wait,
+)
 
 
 def _conflicts_for(conn, token_id):
@@ -61,13 +67,46 @@ def _token_row(conn, token_id):
     ).one()
 
 
+def _suggest_phrase(conn, document_id, surface, reading, token_count) -> None:
+    """Suggest the phrase `surface`, read `reading`, over the document's
+    first `token_count` tokens."""
+    # create_phrase_conflicts reads only a record's position and suggestion.
+    record = TokenRecord(
+        position=0,
+        char_begin=0,
+        char_end=len(surface),
+        surface=surface,
+        dictionary_form=surface,
+        normalized_form=surface,
+        reading_katakana="",
+        part_of_speech=["*"] * 6,
+        is_oov=False,
+        furigana_spans=[],
+        needs_review=False,
+        review_reason=None,
+        conflict_options=[],
+        phrase_suggestion={
+            "surface": surface,
+            "lookup_form": surface,
+            "reading": reading,
+            "token_count": token_count,
+        },
+    )
+    create_phrase_conflicts(conn, document_id, [record], [])
+
+
+def _ambiguous_run(conn) -> tuple[int, int, int]:
+    """A new document of 六右, which read むゆう splits as む/ゆう or
+    むゆ/う: the document's id and its two tokens'."""
+    document_id = make_document(conn)
+    roku = make_token(conn, document_id=document_id, position=0, surface="六")
+    u = make_token(conn, document_id=document_id, position=1, surface="右")
+    return document_id, roku, u
+
+
 class TestCreateConflicts:
     def test_no_rows_for_records_with_no_conflict_options(self, db_conn):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
         record = TokenRecord(
@@ -92,11 +131,7 @@ class TestCreateConflicts:
     def test_flagged_record_gets_a_selected_default_plus_unselected_alternatives(
         self, db_conn
     ):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
         token_id = make_token(
             db_conn, document_id=document_id, position=0, surface="今日"
         )
@@ -145,11 +180,7 @@ class TestPhraseConflicts:
 
     def _seed_phrase_tokens(self, conn):
         # この/期/に/及ん/で, whose idiom reads 期 as ご, unlike the token.
-        document_id = conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(conn)
         # Real token data, so each token's own gloss after a split differs.
         tokens_data = [
             ("この", "この", "この", "コノ", ["連体詞", "*", "*", "*", "*", "*"]),
@@ -183,28 +214,7 @@ class TestPhraseConflicts:
                 part_of_speech,
             ) in enumerate(tokens_data)
         ]
-        record = TokenRecord(
-            position=0,
-            char_begin=0,
-            char_end=7,
-            surface="この",
-            dictionary_form="この",
-            normalized_form="この",
-            reading_katakana="コノ",
-            part_of_speech=["連体詞", "*", "*", "*", "*", "*"],
-            is_oov=False,
-            furigana_spans=[],
-            needs_review=False,
-            review_reason=None,
-            conflict_options=[],
-            phrase_suggestion={
-                "surface": "この期に及んで",
-                "lookup_form": "この期に及んで",
-                "reading": "このごにおよんで",
-                "token_count": 5,
-            },
-        )
-        create_phrase_conflicts(conn, document_id, [record], [])
+        _suggest_phrase(conn, document_id, "この期に及んで", "このごにおよんで", 5)
         return document_id, token_ids
 
     def test_create_phrase_conflicts_inserts_one_unselected_row(self, db_conn):
@@ -224,11 +234,7 @@ class TestPhraseConflicts:
         assert _conflicts_for(db_conn, token_ids[1]) == []
 
     def test_no_rows_when_no_token_has_a_suggestion(self, db_conn):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
         token_id = make_token(db_conn, document_id=document_id, position=0)
         record = TokenRecord(
             position=0,
@@ -456,47 +462,39 @@ class TestPhraseConflicts:
         assert _conflicts_for(db_conn, token_ids[0])[0].selected is False
 
     def test_unmerge_is_a_noop_for_a_token_that_was_never_merged(self, db_conn):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
         token_id = make_token(db_conn, document_id=document_id, position=0)
 
         assert unmerge_phrase(db_conn, document_id, token_id) == []
 
     def test_unmerge_raises_for_a_token_outside_the_document(self, db_conn):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
-        other_document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t2', 't2', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
+        other_document_id = make_document(db_conn)
         token_id = make_token(db_conn, document_id=other_document_id, position=0)
 
-        try:
+        with pytest.raises(TokenNotFound):
             unmerge_phrase(db_conn, document_id, token_id)
-            assert False, "expected TokenNotFound"
-        except TokenNotFound:
-            pass
 
     def test_unmerge_clears_the_phrase_furigana_override_and_its_conflicts(
         self, db_conn
     ):
-        document_id, token_ids = self._seed_phrase_tokens(db_conn)
-        phrase_conflict_id = _conflicts_for(db_conn, token_ids[0])[0].id
-        resolve_conflict(db_conn, document_id, token_ids[0], phrase_conflict_id)
-        assert _token_row(db_conn, token_ids[1]).furigana_override is not None
+        # Accepting 六右 also offers its other split as a phrase_furigana row.
+        document_id, *token_ids = _ambiguous_run(db_conn)
+        _suggest_phrase(db_conn, document_id, "六右", "むゆう", 2)
+        [phrase] = _conflicts_for(db_conn, token_ids[0])
+        resolve_conflict(db_conn, document_id, token_ids[0], phrase.id)
+        assert all(_token_row(db_conn, tid).furigana_override for tid in token_ids)
+        assert [r.kind for r in _conflicts_for(db_conn, token_ids[0])] == [
+            "phrase",
+            "phrase_furigana",
+        ]
 
         unmerge_phrase(db_conn, document_id, token_ids[0])
 
         assert all(
             _token_row(db_conn, tid).furigana_override is None for tid in token_ids
         )
+        assert [r.kind for r in _conflicts_for(db_conn, token_ids[0])] == ["phrase"]
 
 
 class TestPhraseFurigana:
@@ -506,11 +504,7 @@ class TestPhraseFurigana:
     def test_leaves_furigana_untouched_when_the_reading_does_not_align(self, db_conn):
         # まにうける spells a る that 真に受け doesn't, and the kana に and け
         # leave nowhere to put it.
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
         shin = make_token(db_conn, document_id=document_id, position=0, surface="真")
         ni = make_token(db_conn, document_id=document_id, position=1, surface="に")
         uke = make_token(db_conn, document_id=document_id, position=2, surface="受け")
@@ -531,14 +525,7 @@ class TestPhraseFurigana:
         ] == originals
 
     def test_offers_a_pick_for_a_genuinely_ambiguous_run(self, db_conn):
-        # 六右 read むゆう splits as む/ゆう or むゆ/う.
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
-        roku = make_token(db_conn, document_id=document_id, position=0, surface="六")
-        u = make_token(db_conn, document_id=document_id, position=1, surface="右")
+        document_id, roku, u = _ambiguous_run(db_conn)
 
         _recompute_phrase_furigana(
             db_conn, document_id, position=0, token_count=2, reading_hiragana="むゆう"
@@ -569,26 +556,32 @@ class TestPhraseFurigana:
         assert _conflicts_for(db_conn, roku)[0].selected is False
 
     def test_raises_for_a_nonexistent_conflict_id(self, db_conn):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
 
-        try:
+        with pytest.raises(ConflictNotFound):
             resolve_phrase_furigana(db_conn, document_id, -1)
-            assert False, "expected ConflictNotFound"
-        except ConflictNotFound:
-            pass
+
+    def test_raises_for_another_documents_conflict(self, db_conn):
+        document_id = make_document(db_conn)
+        other_document_id, roku, _ = _ambiguous_run(db_conn)
+        _recompute_phrase_furigana(
+            db_conn,
+            other_document_id,
+            position=0,
+            token_count=2,
+            reading_hiragana="むゆう",
+        )
+        [alternative] = _conflicts_for(db_conn, roku)
+
+        with pytest.raises(ConflictNotFound):
+            resolve_phrase_furigana(db_conn, document_id, alternative.id)
+
+        assert _token_row(db_conn, roku).furigana_override[0]["reading"] == "む"
 
 
 class TestResolveConflict:
     def _seed_heteronym_token(self, conn):
-        document_id = conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(conn)
         token_id = make_token(
             conn,
             document_id=document_id,
@@ -669,20 +662,23 @@ class TestResolveConflict:
         )
         other_token_id = make_token(db_conn, document_id=document_id, position=1)
 
-        try:
+        with pytest.raises(ConflictNotFound):
             resolve_conflict(db_conn, document_id, other_token_id, default_id)
-            assert False, "expected ConflictNotFound"
-        except ConflictNotFound:
-            pass
+
+    def test_raises_for_a_token_in_another_document(self, db_conn):
+        _document_id, token_id, default_id, alt_id = self._seed_heteronym_token(db_conn)
+        other_document_id = make_document(db_conn)
+
+        with pytest.raises(ConflictNotFound):
+            resolve_conflict(db_conn, other_document_id, token_id, alt_id)
+
+        rows = _conflicts_for(db_conn, token_id)
+        assert {r.id: r.selected for r in rows} == {default_id: True, alt_id: False}
 
 
 class TestCorrectReading:
     def _seed_uncorrected_token(self, conn):
-        document_id = conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(conn)
         token_id = make_token(
             conn,
             document_id=document_id,
@@ -776,14 +772,7 @@ class TestCorrectReading:
         assert [r.value["reading"] for r in rows if r.selected] == ["みつまた"]
 
     def test_raises_when_token_not_found(self, db_conn):
-        document_id = db_conn.execute(
-            text(
-                f"INSERT INTO documents (title, text, owner_id) VALUES ('t', 't', {TEST_USER_ID}) RETURNING id"
-            )
-        ).scalar_one()
+        document_id = make_document(db_conn)
 
-        try:
+        with pytest.raises(TokenNotFound):
             correct_reading(db_conn, document_id, -1, "さんまた")
-            assert False, "expected TokenNotFound"
-        except TokenNotFound:
-            pass

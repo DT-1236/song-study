@@ -69,10 +69,18 @@ from app import main
 from app.db import engine
 from app.users import current_user_id
 
-# The user tests act as, inserted by recreate_test_database and kept by the
+# The user tests act as, inserted by recreate_test_database and again by the
 # `committed_engine` cleanup. Its id is far from any the tests' own inserts
 # would hand out.
 TEST_USER_ID = 1000
+
+
+def insert_test_user(conn) -> None:
+    """Insert the user tests act as, with every setting at its default."""
+    conn.execute(
+        text("INSERT INTO users (id, name) VALUES (:id, 'test')"),
+        {"id": TEST_USER_ID},
+    )
 
 
 def recreate_test_database() -> None:
@@ -92,10 +100,7 @@ def recreate_test_database() -> None:
     )
     command.upgrade(config, "head")
     with engine.begin() as conn:
-        conn.execute(
-            text("INSERT INTO users (id, name) VALUES (:id, 'test')"),
-            {"id": TEST_USER_ID},
-        )
+        insert_test_user(conn)
 
 
 def statements_sent(engine, fn) -> list[tuple[str, int]]:
@@ -173,10 +178,10 @@ class BackgroundCall(threading.Thread):
         return self._result
 
 
-def make_token(conn, **overrides) -> int:
-    """Insert a throwaway document + token row in the caller's transaction
-    and return the token id."""
-    document_id = conn.execute(
+def make_document(conn) -> int:
+    """Insert a throwaway document of the test user's in the caller's
+    transaction and return its id."""
+    return conn.execute(
         text(
             """
             INSERT INTO documents (title, text, owner_id)
@@ -187,8 +192,11 @@ def make_token(conn, **overrides) -> int:
         {"owner_id": TEST_USER_ID},
     ).scalar_one()
 
+
+def make_token(conn, **overrides) -> int:
+    """Insert a token row in the caller's transaction and return its id. It
+    goes in a throwaway document unless `document_id` is given."""
     defaults = {
-        "document_id": document_id,
         "position": 0,
         "char_begin": 0,
         "char_end": 1,
@@ -203,6 +211,8 @@ def make_token(conn, **overrides) -> int:
         "review_reason": None,
     }
     defaults.update(overrides)
+    if "document_id" not in overrides:
+        defaults["document_id"] = make_document(conn)
 
     return conn.execute(
         text(
@@ -362,6 +372,7 @@ accept_phrase_suggestions_endpoint = _via_client(
 resolve_phrase_furigana_endpoint = _via_client(main.resolve_phrase_furigana_endpoint)
 unmerge_phrase_tokens = _via_client(main.unmerge_phrase_tokens)
 get_alternate_readings = _via_client(main.get_alternate_readings)
+jmdict_search = _via_client(main.jmdict_search)
 correct_token_reading = _via_client(main.correct_token_reading)
 apply_tokens_reading = _via_client(main.apply_tokens_reading)
 set_tokens_ignored = _via_client(main.set_tokens_ignored)
