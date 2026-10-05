@@ -12,14 +12,6 @@ duplicate `test_merged_phrase_gloss.py`, the per-test `TRUNCATE` (now a
 6.5s), and the missing tests for cross-document conflicts, the Google login
 round trip, and the sidebar dictionary search. What was left:
 
-- **The frontend has no test runner.** About 6.2k lines of TypeScript in
-  `frontend/src` and nothing runs any of it outside a browser. Decide first
-  whether it's worth adding Vitest. If it is, start with whatever pure logic
-  the pages hold, such as `parseFurigana` (`furigana.tsx`) and the
-  line-timing arithmetic in `lastStartedBy` and `timingsFromStarts`
-  (`DocumentViewPage.tsx`), not component rendering. Those are module-private
-  now, so testing them means exporting them or moving them out.
-  Sonnet 5 at medium, once that decision is made.
 - **The statement-count test processes the whole fixture twice.**
   `test_first_processing_takes_a_fixed_number_of_round_trips`
   (`test_document_tokens.py`) is the slowest test at about 1.1s. It asserts

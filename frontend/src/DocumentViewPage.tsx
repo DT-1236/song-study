@@ -40,6 +40,17 @@ import type {
 import { ConfirmDialog } from './ConfirmDialog'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { useTabs } from './TabsContext'
+import {
+  formatTimestamp,
+  lastStartedBy,
+  lineToStamp,
+  linesOf,
+  nudgedStart,
+  overlapFor,
+  roundedToMs,
+  timingsFromStarts,
+} from './timing'
+import type { LyricsLine } from './timing'
 import { usePersistentState } from './usePersistentState'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
@@ -76,59 +87,6 @@ const LRCLIB_SYNC_NOTE =
   'Lyrics load from LRCLIB each time this page opens. If they change there (say, someone uploads a corrected ' +
   "version), they replace these and any readings you've manually selected are reset — a timing-only update " +
   'keeps them.'
-
-// The last line to start by `time`, given each line's timing in order (null
-// for an untimed line), or -1 before any: the line being sung, or in a gap
-// after one, that line. Of lines that start together, it's the last, the
-// only one with any length. Searches from `from`, the line last found, since
-// playback mostly moves on a line at a time; -1 searches from the top.
-function lastStartedBy(
-  lines: (LineTiming | null)[],
-  time: number,
-  from: number,
-): number {
-  let i = Math.min(from, lines.length - 1)
-  // Back past lines that haven't started (after a seek back)...
-  while (i >= 0 && (lines[i]?.start ?? Infinity) > time) i--
-  // ...then on through lines that have started since.
-  for (let j = i + 1; j < lines.length; j++) {
-    const start = lines[j]?.start
-    if (start === undefined) continue
-    if (start > time) break
-    i = j
-  }
-  return i
-}
-
-// Each line's timing, given its start (null for an untimed line): until the
-// next timed line starts, as in LRC, and for the last timed line, until
-// `songEnd`.
-function timingsFromStarts(
-  starts: (number | null)[],
-  songEnd: number,
-): (LineTiming | null)[] {
-  let end = songEnd
-  const result: (LineTiming | null)[] = starts.map(() => null)
-  for (let i = starts.length - 1; i >= 0; i--) {
-    const start = starts[i]
-    if (start === null) continue
-    // Every other line ends where the next timed one starts, but the last
-    // can start after `songEnd`: past LRCLIB's end (its track can be shorter
-    // than the video), or while the video's length isn't known yet (0). It
-    // then gets no length, rather than ending before it starts, which the
-    // backend refuses.
-    result[i] = { start, end: Math.max(end, start) }
-    end = start
-  }
-  return result
-}
-
-// `seconds` as m:ss.cc, the precision LRC timestamps have.
-function formatTimestamp(seconds: number): string {
-  const centiseconds = Math.round(seconds * 100)
-  const minutes = Math.floor(centiseconds / 6000)
-  return `${minutes}:${((centiseconds % 6000) / 100).toFixed(2).padStart(5, '0')}`
-}
 
 // Whether keys pressed while `element` has focus type into it.
 function isTypingTarget(element: Element | null): boolean {
@@ -1865,35 +1823,6 @@ const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 const TOAST_MS = 2500
 
-// A token on a line, or `text` alone: what follows the last line break in
-// a token spanning one (such as the space a line starts with).
-type LinePiece = { token: Token; text?: string }
-
-// A line of the lyrics: its pieces, and whether they have any text (blank
-// lines, between stanzas, may go untimed).
-type LyricsLine = { pieces: LinePiece[]; hasText: boolean }
-
-// Each line of `tokens`, without the line breaks between lines.
-function linesOf(tokens: Token[]): LyricsLine[] {
-  const lines: LinePiece[][] = [[]]
-  for (const token of tokens) {
-    const parts = token.surface.split('\n')
-    if (parts.length === 1) {
-      lines[lines.length - 1].push({ token })
-      continue
-    }
-    for (let k = 1; k < parts.length; k++) lines.push([])
-    const rest = parts[parts.length - 1]
-    if (rest) lines[lines.length - 1].push({ token, text: rest })
-  }
-  return lines.map((pieces) => ({
-    pieces,
-    hasText: pieces.some(
-      ({ token, text }) => (text ?? token.surface).trim() !== '',
-    ),
-  }))
-}
-
 // A change to a line's timing that's confirmed first.
 type TimingAction =
   | { kind: 'delete'; line: number }
@@ -2018,41 +1947,11 @@ const TimingEditor = memo(function TimingEditor({
     setPending(action)
   }
 
-  // The start of the nearest timed line in `direction` (-1 or 1) from `line`.
-  function startFrom(line: number, direction: number): number | null {
-    for (
-      let i = line + direction;
-      i >= 0 && i < starts.length;
-      i += direction
-    ) {
-      const start = starts[i]
-      if (start !== null) return start
-    }
-    return null
-  }
-
-  // Why `line` can't start at `start`, or null if it can: a line may start
-  // with a neighbor, but not past it.
-  function overlapFor(line: number, start: number): string | null {
-    const before = startFrom(line, -1)
-    const after = startFrom(line, 1)
-    if (start < (before ?? 0)) {
-      return before === null
-        ? "A line can't start before the song does."
-        : "Can't overlap with the previous line."
-    }
-    return after !== null && start > after
-      ? "Can't overlap with the next line."
-      : null
-  }
-
   function nudge(direction: number) {
     const start = starts[selected] ?? null
     if (start === null) return onToast('This line has no timing to nudge.')
-    // In whole milliseconds, the precision starts are kept to, so nudges
-    // don't pile up floating-point error.
-    const moved = (Math.round(start * 1000) + direction * nudgeMs) / 1000
-    const overlap = overlapFor(selected, moved)
+    const moved = nudgedStart(start, direction * nudgeMs)
+    const overlap = overlapFor(starts, selected, moved)
     if (overlap) return onToast(overlap)
     setStart(selected, moved)
     onPlayLine(moved)
@@ -2064,17 +1963,10 @@ const TimingEditor = memo(function TimingEditor({
   function timeNextLine() {
     const time = getTime()
     if (time === null) return onToast("The video isn't ready yet.")
-    const start = Math.round(time * 1000) / 1000
-    // The last timed line to start by then: the one being sung or, between
-    // lines, the nearest before. -1 before any, which makes the first line
-    // the one after it.
-    let sung = -1
-    starts.forEach((s, i) => {
-      if (s !== null && s <= start) sung = i
-    })
-    const line = sung + 1
+    const start = roundedToMs(time)
+    const line = lineToStamp(starts, start)
     if (line >= lines.length) return onToast('There are no more lines to time.')
-    const overlap = overlapFor(line, start)
+    const overlap = overlapFor(starts, line, start)
     if (overlap) return onToast(overlap)
     if ((starts[line] ?? null) === null) return stamp(line, start)
     confirmThen({ kind: 'overwrite', line, start })
