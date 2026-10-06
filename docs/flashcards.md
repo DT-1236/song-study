@@ -1063,6 +1063,45 @@ whatever song is being studied. The all-songs queue must still return a card who
 song, with no line.
 *Watch:* the line is chosen when the queue is built and never stored (§5), so the queue endpoints
 grow a line field rather than the cards gaining a column.
+*As built* (`backend/app/card_content.py`, `grammar.py`, migration 0022) — what later steps build on:
+- Both queues return `QueuedCard`s: the card's row plus `line`, `options`, `answer` (an index into
+  `options`) and, for a word, `senses` — all of them, ranked for the line's part of speech, for the
+  reveal. Line and options are drawn afresh on every queue build and never stored. The client still
+  grades the pick itself and sends only `correct`.
+- `line` has the song, the line's `index` (into `text.split("\n")`, which is also its timing's
+  index — `line_index()` is the backend helper from §8), its `text`, and `focus` / `group` as
+  [begin, end) offsets in it: 聞こえ within 聞こえてるんだって for a group's head word, the token for a
+  grammar term, the whole phrase for an accepted one. `token_id` is for step 8's reading
+  correction. `audio` (video id, start, end) is present only when the song has a video and the line
+  a timing with some length, edited timings taking LRCLIB's place as on the song's page.
+- The per-song queue plays a line of the studied song; the all-songs queue, any song with the word.
+  Within those, a line that plays beats a text-only one, and otherwise it's chosen at random so the
+  line rotates. A card in no song gets no line, and its senses keep JMDict's order, since there's
+  no part of speech to rank them for.
+- Type A: every option shows `OPTION_SENSE_LIMIT = 2` senses, or the target's one. Wrong options
+  come from the line's song first (its words as the harvest finds them), then the user's other
+  carded words (only then are every song's tokens loaded, and 30 are sampled), then another part
+  of speech. The POS class is Sudachi's major POS, or `phrase` for an accepted phrase. A wrong
+  option with fewer senses than the others is used after every full one but before another part
+  of speech. The near-synonym guard turns away a candidate sharing a gloss, a meaning-bearing word,
+  or a JMDict entry with the target's first five senses (as many as the reading view shows), or a
+  meaning with another option. Matching words is light stemming over the gloss without its
+  parentheticals and function words, so an irregular form slips through ("heard" against "hear").
+  The same spelling under another reading is never an option. When the song and the deck run dry,
+  a card gets fewer than four options rather than none.
+- Type B: `_GRAMMAR_NOTES` is grouped by category — `auxiliary` (taking in the そう/よう/みたい
+  stems), `particle`, `helper` — and wrong notes come from the term's own category. Category alone
+  wasn't enough: many notes describe their grammar alike (ば "if" and たら "if, when"; から and ので;
+  the five sentence-final emphasis particles), and either would be a defensible answer for the
+  other. `_OVERLAPPING_NOTES` lists those groups, and no two of a group share a card. Being
+  confusable doesn't put grammar there — を/が/は and ば/ても are the distinctions to test. A test
+  checks that every term gets four options of its own category with no overlap.
+- Found on the way: `rank_senses` put する's "to do" last. `_SUDACHI_TO_JMDICT_POS` listed only the
+  verb classes seen in one document, missing the suru, several Godan and every archaic class, and
+  that sense carries no transitivity tag to match on instead. A 動詞 sense is now any tag naming a
+  verb (`_is_verb_sense`), less auxiliaries and nouns taking する. Migration 0022 drops the cached
+  group glosses whose pieces carry a newly counted tag, since a group's pieces are ranked when it's
+  cached.
 
 **5 — Kanji sidebar data.** Backend only: KANJIDIC2 and KRADFILE lookups through the existing
 `jamdict` dependency, the contextual kun'yomi matched against `furigana_spans`, the classical
@@ -1118,7 +1157,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 1 — Users and ownership | Done | Sonnet 5 | medium | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing |
 | 2 — Card storage and harvest | Done | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
 | 3 — Scheduling | Done | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
-| 4 — Card content | Not started | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
+| 4 — Card content | Done | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
 | 5 — Kanji sidebar data | Not started | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
 | 6 — Study UI | Not started | Sonnet 5 | medium | A new page is conventional React against a specified layout |
 | 6 — …the `DocumentViewPage` extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |

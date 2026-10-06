@@ -13,96 +13,160 @@ would start a new bunsetsu at them (見て|いる).
 
 from __future__ import annotations
 
+from typing import Literal
+
 _HEAD_POS = frozenset({"動詞", "形容詞", "形状詞"})
 
+GrammarCategory = Literal["auxiliary", "particle", "helper"]
+
 # Short explanations for grammar words and helper verbs in a group, keyed by
-# Sudachi's normalized_form (ん as a negative is ず, ん as explanatory is の).
-_GRAMMAR_NOTES: dict[str, str] = {
-    # Auxiliaries (助動詞)
-    "た": "past tense or completed action (たら: if/when)",
-    "だ": "copula: is (だろう: probably; なら: if; で: and/being)",
-    "です": "polite copula: is (でしょう: probably)",
-    "ます": "polite verb ending",
-    "ない": "negation: not",
-    "ず": "negation: not (ぬ/ん in speech)",
-    "まい": "won't, or probably not",
-    "たい": "want to",
-    "たがる": "(someone else) wants to",
-    "れる": "passive, can, or respectful form",
-    "られる": "passive, can, or respectful form",
-    "せる": "make or let (someone) do",
-    "させる": "make or let (someone) do",
-    "てる": "short for ている: is doing, or the resulting state",
-    "ちゃう": "short for てしまう: end up doing, or do completely",
-    "ちまう": "short for てしまう: end up doing, or do completely",
-    "とく": "short for ておく: do in advance, or leave as is",
-    "てく": "short for ていく: go on doing from now",
-    "らしい": "seems, apparently",
-    "べし": "should, ought to",
-    "やがる": "(contemptuous) has the nerve to",
-    # Stems of そうだ/ようだ/みたいだ (形状詞-助動詞語幹)
-    "そう": "looks like, or I hear that (after a plain form)",
-    "よう": "seems, or like",
-    "みたい": "seems, or like (casual)",
-    # Particles (助詞)
-    "て": "and, then; links to what follows (ちゃ: short for ては)",
-    "で": "and, then; links to what follows",
-    "ば": "if",
-    "たら": "if, when",
-    "ても": "even if",
-    "けれど": "but, although",
-    "から": "because, or from",
-    "ので": "because",
-    "のに": "although, even though",
-    "し": "and also (listing reasons)",
-    "たり": "doing things like (listing actions)",
-    "ながら": "while",
-    "の": "of, 's; or makes a clause a noun (のだ/んだ explains)",
-    "って": "quoting: says that, or I hear that",
-    "と": "and, with; quoting: that; or when, if",
-    "に": "to, at, in, for",
-    "を": "object marker",
-    "が": "subject marker, or but",
-    "は": "topic marker, or contrast",
-    "も": "also, even",
-    "へ": "toward, to",
-    "や": "and (among others)",
-    "より": "than, from",
-    "まで": "until, even",
-    "ほど": "to the extent that",
-    "くらい": "about, to the degree that",
-    "だけ": "only",
-    "ばかり": "only, or just did",
-    "しか": "nothing but (with a negative)",
-    "こそ": "precisely, it is ... that",
-    "よ": "sentence-final: asserts or informs",
-    "ね": "sentence-final: seeks agreement, softens",
-    "な": "sentence-final: don't (after a plain verb), or musing",
-    "か": "question marker, or",
-    "わ": "sentence-final: soft emphasis",
-    "ぞ": "sentence-final: strong emphasis",
-    "ぜ": "sentence-final: casual emphasis",
-    "さ": "sentence-final: casual assertion",
-    "じゃん": "casual: isn't it, you know",
-    # Helper verbs and adjectives (補助動詞/補助形容詞)
-    "居る": "ている: is doing, or the resulting state",
-    "有る": "てある: has been done and left that way",
-    "仕舞う": "てしまう: end up doing, or do completely",
-    "見る": "てみる: try doing",
-    "おく": "ておく: do in advance, or leave as is",
-    "置く": "ておく: do in advance, or leave as is",
-    "行く": "ていく: go on doing from now",
-    "来る": "てくる: has been doing up to now, or go and do",
-    "貰う": "てもらう: have (someone) do for you",
-    "呉れる": "てくれる: (someone) does for you",
-    "上げる": "てあげる: do for (someone)",
-    "遣る": "てやる: do for (someone), or do defiantly",
-    "見せる": "てみせる: show you can, or will definitely do",
-    "回る": "て回る: go around doing",
-    "欲しい": "てほしい: want (someone) to do",
-    "無い": "ない: not",
-    "為る": "する: makes the word before it a verb",
+# Sudachi's normalized_form (ん as a negative is ず, ん as explanatory is の),
+# by the kind of grammar they are. A grammar card's wrong options come from
+# its own kind first: those are the ones it's plausibly confused with.
+_NOTES_BY_CATEGORY: dict[GrammarCategory, dict[str, str]] = {
+    "auxiliary": {
+        # Auxiliaries (助動詞)
+        "た": "past tense or completed action (たら: if/when)",
+        "だ": "copula: is (だろう: probably; なら: if; で: and/being)",
+        "です": "polite copula: is (でしょう: probably)",
+        "ます": "polite verb ending",
+        "ない": "negation: not",
+        "ず": "negation: not (ぬ/ん in speech)",
+        "まい": "won't, or probably not",
+        "たい": "want to",
+        "たがる": "(someone else) wants to",
+        "れる": "passive, can, or respectful form",
+        "られる": "passive, can, or respectful form",
+        "せる": "make or let (someone) do",
+        "させる": "make or let (someone) do",
+        "てる": "short for ている: is doing, or the resulting state",
+        "ちゃう": "short for てしまう: end up doing, or do completely",
+        "ちまう": "short for てしまう: end up doing, or do completely",
+        "とく": "short for ておく: do in advance, or leave as is",
+        "てく": "short for ていく: go on doing from now",
+        "らしい": "seems, apparently",
+        "べし": "should, ought to",
+        "やがる": "(contemptuous) has the nerve to",
+        # Stems of そうだ/ようだ/みたいだ (形状詞-助動詞語幹)
+        "そう": "looks like, or I hear that (after a plain form)",
+        "よう": "seems, or like",
+        "みたい": "seems, or like (casual)",
+    },
+    "particle": {
+        # Particles (助詞)
+        "て": "and, then; links to what follows (ちゃ: short for ては)",
+        "で": "and, then; links to what follows",
+        "ば": "if",
+        "たら": "if, when",
+        "ても": "even if",
+        "けれど": "but, although",
+        "から": "because, or from",
+        "ので": "because",
+        "のに": "although, even though",
+        "し": "and also (listing reasons)",
+        "たり": "doing things like (listing actions)",
+        "ながら": "while",
+        "の": "of, 's; or makes a clause a noun (のだ/んだ explains)",
+        "って": "quoting: says that, or I hear that",
+        "と": "and, with; quoting: that; or when, if",
+        "に": "to, at, in, for",
+        "を": "object marker",
+        "が": "subject marker, or but",
+        "は": "topic marker, or contrast",
+        "も": "also, even",
+        "へ": "toward, to",
+        "や": "and (among others)",
+        "より": "than, from",
+        "まで": "until, even",
+        "ほど": "to the extent that",
+        "くらい": "about, to the degree that",
+        "だけ": "only",
+        "ばかり": "only, or just did",
+        "しか": "nothing but (with a negative)",
+        "こそ": "precisely, it is ... that",
+        "よ": "sentence-final: asserts or informs",
+        "ね": "sentence-final: seeks agreement, softens",
+        "な": "sentence-final: don't (after a plain verb), or musing",
+        "か": "question marker, or",
+        "わ": "sentence-final: soft emphasis",
+        "ぞ": "sentence-final: strong emphasis",
+        "ぜ": "sentence-final: casual emphasis",
+        "さ": "sentence-final: casual assertion",
+        "じゃん": "casual: isn't it, you know",
+    },
+    "helper": {
+        # Helper verbs and adjectives (補助動詞/補助形容詞)
+        "居る": "ている: is doing, or the resulting state",
+        "有る": "てある: has been done and left that way",
+        "仕舞う": "てしまう: end up doing, or do completely",
+        "見る": "てみる: try doing",
+        "おく": "ておく: do in advance, or leave as is",
+        "置く": "ておく: do in advance, or leave as is",
+        "行く": "ていく: go on doing from now",
+        "来る": "てくる: has been doing up to now, or go and do",
+        "貰う": "てもらう: have (someone) do for you",
+        "呉れる": "てくれる: (someone) does for you",
+        "上げる": "てあげる: do for (someone)",
+        "遣る": "てやる: do for (someone), or do defiantly",
+        "見せる": "てみせる: show you can, or will definitely do",
+        "回る": "て回る: go around doing",
+        "欲しい": "てほしい: want (someone) to do",
+        "無い": "ない: not",
+        "為る": "する: makes the word before it a verb",
+    },
 }
+
+_GRAMMAR_NOTES: dict[str, str] = {
+    term: note for notes in _NOTES_BY_CATEGORY.values() for term, note in notes.items()
+}
+
+_CATEGORY_OF: dict[str, GrammarCategory] = {
+    term: category for category, notes in _NOTES_BY_CATEGORY.items() for term in notes
+}
+
+# Grammar whose notes overlap in meaning, so that either note would be a
+# defensible answer for the other: no two of a group are ever options on the
+# same card. Being confusable isn't enough to be here (を/が/は, ば/ても,
+# てくる/ていく are the distinctions a card should test); being described
+# alike is, whatever the grammar's actual difference.
+_OVERLAPPING_NOTES: tuple[frozenset[str], ...] = tuple(
+    frozenset(group)
+    for group in (
+        {"れる", "られる"},
+        {"せる", "させる"},
+        # The resulting state, and what's left in it.
+        {"てる", "居る", "有る"},
+        {"とく", "おく", "置く", "有る"},
+        # Completed action.
+        {"た", "ちゃう", "ちまう", "仕舞う"},
+        {"てく", "行く"},
+        {"ない", "ず", "無い", "まい"},
+        {"だ", "です"},
+        # だろう, でしょう: probably.
+        {"だ", "です", "まい"},
+        # たら and なら in the notes of た and だ.
+        {"た", "だ", "ば", "たら", "と"},
+        # And: で in the note of だ.
+        {"だ", "て", "で", "と", "や", "し", "たり"},
+        {"も", "し"},
+        {"も", "まで", "ても"},
+        {"けれど", "のに", "が", "ても"},
+        {"から", "ので"},
+        {"から", "より"},
+        {"に", "へ"},
+        {"だけ", "ばかり", "しか"},
+        {"ほど", "くらい"},
+        {"そう", "よう", "みたい", "らしい"},
+        # Hearsay.
+        {"そう", "って", "らしい"},
+        {"って", "と"},
+        {"よ", "わ", "ぞ", "ぜ", "さ"},
+        {"ね", "じゃん"},
+        {"たい", "たがる", "欲しい"},
+        {"貰う", "呉れる"},
+        {"上げる", "遣る"},
+    )
+)
 
 
 def grammar_note(normalized_form: str, part_of_speech) -> str:
@@ -122,6 +186,25 @@ def has_grammar_note(normalized_form: str) -> bool:
     """Whether `normalized_form` is a grammar term with its own explanation,
     rather than one grammar_note can only name the kind of."""
     return normalized_form in _GRAMMAR_NOTES
+
+
+def grammar_notes() -> dict[str, str]:
+    """Every grammar term with an explanation of its own, and the
+    explanation."""
+    return dict(_GRAMMAR_NOTES)
+
+
+def grammar_category(term: str) -> GrammarCategory:
+    """The kind of grammar `term`, one with its own explanation, is."""
+    return _CATEGORY_OF[term]
+
+
+def notes_overlap(term: str, other: str) -> bool:
+    """Whether the explanations of two grammar terms describe them alike
+    enough that either could be taken for the other's."""
+    return term == other or any(
+        term in group and other in group for group in _OVERLAPPING_NOTES
+    )
 
 
 def is_grammar_word(part_of_speech) -> bool:

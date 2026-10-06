@@ -16,6 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import study
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
+from app.card_content import Line, Option
 from app.cards import CardKind, NotStudyable, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
@@ -1120,6 +1121,26 @@ class StudyCard(BaseModel):
     first_seen_document_id: int | None
 
 
+class QueuedCard(StudyCard):
+    # None when the card's word is in none of the user's songs any more.
+    line: Line | None
+    # In the order to show them.
+    options: list[Option]
+    # The index of the right option; None, with no options, for a word with
+    # no dictionary entry to ask about any more.
+    answer: int | None
+    # A word's every sense, ranked, for the reveal; its options show the
+    # first two.
+    senses: list[GlossSense]
+
+
+def _queued_cards(queue: list) -> list[QueuedCard]:
+    return [
+        QueuedCard(**row._mapping, **dataclasses.asdict(content))
+        for row, content in queue
+    ]
+
+
 @api.put("/documents/{document_id}/tokens/{token_id}/card", response_model=StudyCard)
 def add_token_card(
     document_id: OwnedDocument, token_id: int, user_id: CurrentUser
@@ -1184,23 +1205,26 @@ def suspend_card(card_id: int, user_id: CurrentUser) -> StudyCard:
     return StudyCard(**row._mapping)
 
 
-@api.get("/study/queue", response_model=list[StudyCard])
-def get_all_songs_queue(user_id: CurrentUser) -> list[StudyCard]:
-    """The user's cards that are due, from every song."""
-    with engine.connect() as conn:
-        rows = study.all_songs_queue(conn, user_id)
-    return [StudyCard(**row._mapping) for row in rows]
+@api.get("/study/queue", response_model=list[QueuedCard])
+def get_all_songs_queue(user_id: CurrentUser) -> list[QueuedCard]:
+    """The user's cards that are due, from every song, each with a line to
+    play from any song that has its word and the options to answer it
+    from."""
+    # A transaction, since a gloss the cache has lost is looked up again
+    # and stored.
+    with engine.begin() as conn:
+        return _queued_cards(study.all_songs_queue(conn, user_id))
 
 
-@api.post("/documents/{document_id}/study", response_model=list[StudyCard])
+@api.post("/documents/{document_id}/study", response_model=list[QueuedCard])
 def start_song_session(
     document_id: OwnedDocument, user_id: CurrentUser
-) -> list[StudyCard]:
+) -> list[QueuedCard]:
     """Start studying the song: enroll new words from it, up to its daily
-    limit, and return the user's due cards for its words."""
+    limit, and return the user's due cards for its words, each with a line
+    of the song to play and the options to answer it from."""
     with engine.begin() as conn:
-        rows = study.song_queue(conn, user_id, document_id)
-    return [StudyCard(**row._mapping) for row in rows]
+        return _queued_cards(study.song_queue(conn, user_id, document_id))
 
 
 class StudySettings(BaseModel):

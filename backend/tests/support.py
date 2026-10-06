@@ -263,6 +263,14 @@ def clear_gloss_links(document_id: int) -> None:
         )
 
 
+def empty_gloss_cache() -> None:
+    """Empty gloss_lookups, as migrations 0013-0015 do whenever gloss logic
+    changes."""
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE tokens SET gloss_lookup_id = NULL"))
+        conn.execute(text("DELETE FROM gloss_lookups"))
+
+
 def pick_reading(document_id: int, surface: str, reading: str) -> None:
     """Select `reading` among the options of the document's first token with
     `surface`."""
