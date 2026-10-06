@@ -1169,7 +1169,7 @@ label.apply-to-all {
   margin-bottom: 0.25rem;
 }
 
-.gloss-popup-empty {
+.gloss-senses-empty {
   color: var(--text-muted);
 }
 
@@ -1469,20 +1469,6 @@ label.apply-to-all {
 
 .study-word {
   font-size: 1.4rem;
-}
-
-.study-senses {
-  margin: 0.25rem 0;
-  padding-left: 1.5rem;
-}
-
-.study-tag {
-  color: var(--text-muted);
-}
-
-.study-link-button {
-  padding: 0.2rem 0.6rem;
-  font-size: 0.85rem;
 }
 
 .study-next {

@@ -1,8 +1,5 @@
-import { useState } from 'react'
-import type { CardOption, GlossSense, QueuedCard } from './api'
-
-// How many of a word's senses the reveal lists before its expander.
-const SENSE_LIMIT = 5
+import type { CardOption, QueuedCard } from './api'
+import { SenseList } from './SenseList'
 
 // The code points of `text` from `begin` to `end`, which is how the backend
 // counts the offsets of a line.
@@ -51,38 +48,6 @@ function LineText({ card, revealed }: { card: QueuedCard; revealed: boolean }) {
 function optionText(option: CardOption): string {
   if (option.note !== null) return option.note
   return (option.senses ?? []).map((gloss) => gloss.join(', ')).join(' · ')
-}
-
-function SenseList({ senses }: { senses: GlossSense[] }) {
-  const [expanded, setExpanded] = useState(false)
-  const shown = senses.slice(0, expanded ? undefined : SENSE_LIMIT)
-
-  return (
-    <>
-      <ol className="study-senses">
-        {shown.map((sense, i) => (
-          <li key={`${sense.entry_idseq}-${i}`}>
-            {sense.gloss.join('; ')}
-            {(sense.field.length > 0 || sense.misc.length > 0) && (
-              <span className="study-tag">
-                {' '}
-                ({[...sense.field, ...sense.misc].join(', ')})
-              </span>
-            )}
-          </li>
-        ))}
-      </ol>
-      {!expanded && senses.length > SENSE_LIMIT && (
-        <button
-          type="button"
-          className="study-link-button"
-          onClick={() => setExpanded(true)}
-        >
-          Show {senses.length - SENSE_LIMIT} more
-        </button>
-      )}
-    </>
-  )
 }
 
 function question(card: QueuedCard): string {

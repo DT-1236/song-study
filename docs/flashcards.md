@@ -1180,9 +1180,8 @@ reveal.
 - Audio is one `YouTubePlayer` kept across cards, playing the line from `start` and pausing at `end`
   (polled, since the player has no end-time). `YouTubePlayer` gained `pause` and `onReady`. Mute is
   `usePersistentState('study-muted')` and silences autoplay and replay alike.
-- The reveal's gloss is its own `SenseList` (`SENSE_LIMIT = 5` with an expander), the duplication
-  step 7 removes. The reading shows beside the word, not as furigana over the line, which the queue
-  doesn't carry.
+- The reading shows beside the word, not as furigana over the line, which the queue doesn't
+  carry.
 - The sidebar lists five deck words (`MAX_DECK_WORDS`) after leaving out the card itself, a number
   the backend's `kanji.py` also holds.
 - Not checked in a browser: playback itself (a mocked API stood in for the backend, with no video).
@@ -1190,6 +1189,14 @@ reveal.
 **7 — Extract the gloss rendering.** Pull the gloss rendering the document page and the study UI
 now both carry out of `DocumentViewPage.tsx` into a shared module, shaped by what the two actually
 share. No behavior change.
+*As built* (`SenseList.tsx`) — what later steps build on:
+- What the two shared was only the list of senses: each sense's glosses and field/misc tags, five
+  shown before a "Show N more" expander, and "No dictionary entry found." for none. `SenseList`
+  is that, and `GlossDetails` (the headword, part of speech and composite pieces around it) stays
+  in `DocumentViewPage.tsx`, since a card has no token to describe.
+- It keeps the popup's `gloss-*` classes, so the study reveal now looks like the popup's list. The
+  expander no longer stops its click from propagating: the popup and the selection panel each stop
+  their own clicks, which the button's predates.
 
 **8 — Progress.** Song readiness (§6), its surfacing on the documents list, and run-through mode.
 
@@ -1238,7 +1245,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 4 — Card content | Done | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
 | 5 — Kanji sidebar data | Done | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
 | 6 — Study UI | Done | Sonnet 5 | medium | A new page is conventional React against a specified layout |
-| 7 — Gloss rendering extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
+| 7 — Gloss rendering extraction | Done | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
 | 8 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
 | 9 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
 
