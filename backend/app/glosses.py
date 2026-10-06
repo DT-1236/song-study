@@ -564,35 +564,87 @@ def _kanji_spelling(entries, senses) -> str | None:
 def gloss_piece(
     surface: str,
     reading: str,
-    entries,
-    source: str,
+    key: GlossKey,
+    alt_lookup_form: str | None,
     part_of_speech,
     *,
     senses_pos_major: str | None = None,
     note: str | None = None,
     spell_with_kanji: bool = False,
 ) -> dict:
-    """A composite gloss piece for `surface` read as `reading`, with the
-    senses in `entries` ranked for `part_of_speech`, a full Sudachi tag, or
-    for `senses_pos_major` when the piece's role differs from its tag (a
-    helper verb like the みる of 見てみる, ranked as 助動詞). `note` explains
-    a grammar word. `spell_with_kanji` shows the piece as its entry is
-    usually written, for a word only spelled in kana here (see
-    app/katakana.py)."""
-    pos_major = senses_pos_major if senses_pos_major is not None else part_of_speech[0]
-    senses = (
-        rank_senses(entries, pos_major) if source in ("jmdict", "english_stub") else []
-    )
+    """A composite gloss piece for `surface` read as `reading`, as stored:
+    glossed from the lookup under `key` (with `alt_lookup_form` as its
+    alternate spelling), its senses to be ranked for `part_of_speech`, a full
+    Sudachi tag, or for `senses_pos_major` when the piece's role differs from
+    its tag (a helper verb like the みる of 見てみる, ranked as 助動詞).
+    `note` explains a grammar word. `spell_with_kanji` shows the piece as its
+    entry is usually written, for a word only spelled in kana here (see
+    app/katakana.py).
+
+    The lookup's entries, their ranking and the spelling that follows from
+    it are all left to shown_pieces, so a change to any of them reaches every
+    cached composite."""
     return {
-        "surface": (spell_with_kanji and _kanji_spelling(entries, senses)) or surface,
+        "surface": surface,
         "reading": reading,
-        "senses": senses,
+        "key": list(key),
+        "alt_lookup_form": alt_lookup_form,
+        # The whole tag, not just the major class it's ranked by today, so a
+        # ranking that reads more of it needs no migration.
+        "part_of_speech": list(part_of_speech),
+        "senses_pos_major": senses_pos_major,
         "ambiguous_readings": sorted(
             {to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))}
             - {reading}
         ),
         "note": note,
+        "spell_with_kanji": spell_with_kanji,
     }
+
+
+def piece_lookups(conn, composites: Iterable[dict]) -> dict[GlossKey, tuple]:
+    """The (entries, source) of every lookup the pieces of `composites`,
+    composite glosses' entries, are glossed from. One that isn't cached is
+    looked up and cached first, so deleting a lookup's row is enough to
+    refresh every composite built on it."""
+    return gloss_entries(
+        conn,
+        [
+            (tuple(piece["key"]), piece["alt_lookup_form"])
+            for composite in composites
+            for piece in composite["pieces"]
+            if piece["key"] is not None
+        ],
+    )
+
+
+def shown_pieces(pieces: list[dict], lookups: dict[GlossKey, tuple]) -> list[dict]:
+    """A composite gloss's stored `pieces` as shown, given the (entries,
+    source) of their lookups (see piece_lookups): each with its lookup's
+    senses ranked for its role, and spelled as its first sense's entry
+    usually is, if it was built to be."""
+    shown = []
+    for piece in pieces:
+        entries, source = (
+            lookups[tuple(piece["key"])] if piece["key"] is not None else ([], None)
+        )
+        # Only a JMDict or English lookup's entries are senses: a composite's
+        # are its own pieces.
+        if source not in ("jmdict", "english_stub"):
+            entries = []
+        pos_major = piece["senses_pos_major"] or piece["part_of_speech"][0]
+        senses = rank_senses(entries, pos_major)
+        spelling = piece["spell_with_kanji"] and _kanji_spelling(entries, senses)
+        shown.append(
+            {
+                "surface": spelling or piece["surface"],
+                "reading": piece["reading"],
+                "senses": senses,
+                "ambiguous_readings": piece["ambiguous_readings"],
+                "note": piece["note"],
+            }
+        )
+    return shown
 
 
 def _add_composites(
@@ -617,26 +669,29 @@ def _add_composites(
         for pieces in decompositions.values()
         for surface, reading, _ in pieces
     }
-    cached = {
-        key: (row.entries, row.source)
-        for key, row in _cached_rows(
-            conn, piece_keys - new_rows.keys(), with_entries=True
-        ).items()
+    sources = {key: source for key, (_, source) in new_rows.items()} | {
+        key: row.source
+        for key, row in _cached_rows(conn, piece_keys - new_rows.keys()).items()
     }
-    for piece_key in piece_keys - new_rows.keys() - cached.keys():
+    for piece_key in piece_keys - sources.keys():
         # No alternate spelling or compound fallback for a piece, keeping
         # this to a single level of decomposition.
         new_rows[piece_key] = _lookup(*piece_key)
+        sources[piece_key] = new_rows[piece_key][1]
 
     for key, pieces in decompositions.items():
-        result_pieces = []
-        for surface, reading, pos in pieces:
-            entries, source = (
-                cached.get((surface, reading)) or new_rows[(surface, reading)]
+        if any(
+            sources[(surface, reading)] == "jmdict" for surface, reading, _ in pieces
+        ):
+            new_rows[key] = (
+                {
+                    "pieces": [
+                        gloss_piece(surface, reading, (surface, reading), None, pos)
+                        for surface, reading, pos in pieces
+                    ]
+                },
+                "composite",
             )
-            result_pieces.append(gloss_piece(surface, reading, entries, source, pos))
-        if any(p["senses"] for p in result_pieces):
-            new_rows[key] = ({"pieces": result_pieces}, "composite")
 
 
 @dataclass(frozen=True)
@@ -712,8 +767,8 @@ def _group_pieces(
     found: dict[GlossKey, tuple[object, str]],
     spell_with_kanji: bool = False,
 ) -> list[dict]:
-    """The composite pieces for `request`, with its base's and helper verbs'
-    (entries, source) from `found`. `spell_with_kanji` passes through to
+    """The composite pieces for `request`, with its base's (entries,
+    source) from `found`. `spell_with_kanji` passes through to
     gloss_piece."""
     entries, source = found[request.base_key]
     if source == "composite":
@@ -723,8 +778,8 @@ def _group_pieces(
             gloss_piece(
                 request.base_key[0],
                 request.base_key[1],
-                entries,
-                source,
+                request.base_key,
+                request.base_alt,
                 request.base_part_of_speech,
                 spell_with_kanji=spell_with_kanji,
             )
@@ -732,15 +787,12 @@ def _group_pieces(
     for part in request.attached:
         note = grammar_note(part.normalized_form, part.part_of_speech)
         if is_helper_verb(part):
-            entries, source = found[
-                citation_key(part.normalized_form, part.dictionary_form)
-            ]
             pieces.append(
                 gloss_piece(
                     part.dictionary_form,
                     mixed_reading(part.dictionary_form),
-                    entries,
-                    source,
+                    citation_key(part.normalized_form, part.dictionary_form),
+                    part.dictionary_form,
                     part.part_of_speech,
                     senses_pos_major="助動詞",
                     note=note,
@@ -755,13 +807,18 @@ def _group_pieces(
 
 
 def _grammar_piece(part: GroupPart) -> dict:
-    """A composite gloss piece for a grammar word: its note, and no senses."""
+    """A composite gloss piece for a grammar word, as stored: its note, and
+    no senses."""
     return {
         "surface": part.dictionary_form,
         "reading": part.reading,
-        "senses": [],
+        "key": None,
+        "alt_lookup_form": None,
+        "part_of_speech": list(part.part_of_speech),
+        "senses_pos_major": None,
         "ambiguous_readings": [],
         "note": grammar_note(part.normalized_form, part.part_of_speech),
+        "spell_with_kanji": False,
     }
 
 

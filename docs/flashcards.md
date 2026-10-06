@@ -1100,8 +1100,9 @@ grow a line field rather than the cards gaining a column.
   verb classes seen in one document, missing the suru, several Godan and every archaic class, and
   that sense carries no transitivity tag to match on instead. A 動詞 sense is now any tag naming a
   verb (`_is_verb_sense`), less auxiliaries and nouns taking する. Migration 0022 drops the cached
-  group glosses whose pieces carry a newly counted tag, since a group's pieces are ranked when it's
-  cached.
+  group glosses whose pieces carry a newly counted tag, since a group's pieces were ranked when it
+  was cached. Since 0023 they refer to their lookups and are ranked when shown, so a ranking change no longer
+  needs a migration.
 
 **5 — Kanji sidebar data.** Backend only: KANJIDIC2 and KRADFILE lookups through the existing
 `jamdict` dependency, the contextual kun'yomi matched against `furigana_spans`, the classical

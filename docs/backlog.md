@@ -4,22 +4,41 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on step 4 (card content, branch `card-content`)
+## `/simplify` on ranking composite pieces when shown (migration 0023)
 
-- **A group gloss stores its pieces' senses already ranked, so every change
-  to ranking needs a cache-clearing migration.** `gloss_piece`
-  (`backend/app/glosses.py`) runs `rank_senses` when a composite is built and
-  the ranked list is what `gloss_lookups.entries` keeps; a word's own gloss,
-  by contrast, is ranked when it's read (`main._fetch_tokens`,
-  `card_content._Glosses`). That's how 0022 came to exist, after 0013, 0015
-  and 0019 before it, each only as precise as its hand-written selector, and
-  a ranking change shipped without one leaves stale order with no error.
-  Fixing it means storing each piece's raw entries and the part of speech to
-  rank them for, ranking on read (the reading view's composite branch and
-  anything else reading `pieces`), plus one last migration to re-store the
-  composites. A cheaper half-measure is a derivation-version column that a
-  read treats as a miss. Opus 5, high: it reshapes what the gloss cache holds,
-  and a mistake shows up only as quietly wrong sense order.
+- **A piece whose lookup row was dropped is looked up again on every load,
+  never cached.** `piece_lookups` (`backend/app/glosses.py`) goes through
+  `gloss_entries`, which looks up and inserts a missing key, but
+  `get_document_tokens` (`backend/app/main.py`) first reads through
+  `engine.connect()`, which SQLAlchemy 2.0 rolls back on exit. If a migration
+  drops lookup rows that only composites refer to (no token is linked to
+  them, so nothing is unlinked and the repair branch never runs), every load
+  of each such document repeats the JMDict lookup, about 20ms a key, and
+  serves the right content without caching it. Fixing it means having the
+  read path only read the cache, report a piece whose lookup is missing the
+  way it reports an unlinked token, and let the existing `engine.begin()`
+  repair branch do the lookup and the insert. The round-trip counts in
+  `test_document_tokens.py` pin that read path. The cheaper alternative is a
+  rule that a migration dropping lookup rows looks them up again itself.
+  Sonnet 5, medium: the spec is clear, but it changes how the read path
+  splits from the repair path.
+- **A piece's `note` and `ambiguous_readings` are worked out when it's
+  cached.** `gloss_piece` stores `heteronym_readings` and the `grammar_note`
+  its caller passed, and `_group_pieces` blanks `ambiguous_readings` after
+  the fact, so a changed heteronym rule or reworded grammar note leaves cached
+  composites as they were. Both can come from the piece in `shown_pieces`
+  once it stores its `normalized_form` (the full tag is stored already),
+  with the blanking as a stored flag; the shape change needs a clearing
+  migration. Sonnet 5, medium: the move is mechanical, but each grammar
+  piece and helper-verb piece has to keep the note it shows today.
+- **`spell_with_kanji` is stored on every piece, though only a katakana
+  gloss sets it.** `_add_katakana_readings` is its only source, and that row
+  already carries `looked_up_as`, so `shown_pieces` could take the spelling
+  from the row and the flag could leave `gloss_piece` and `_group_pieces`.
+  Not done because it changes what's shown: a composite base copied into a
+  katakana gloss keeps its kana spelling today and would get kanji. No
+  migration needed, since the read just stops looking at the stored flag.
+  Sonnet 5, low, once someone decides the copied base should get kanji.
 
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 
