@@ -311,8 +311,8 @@ def rank_senses(entries: list[dict], sudachi_major: str) -> list[dict]:
 
 
 def get_raw_conn() -> sqlite3.Connection:
-    """A thread-local connection straight to JMDict's sqlite database, for
-    headword checks too frequent to pay for Jamdict building whole entries."""
+    """A thread-local connection straight to jamdict's sqlite database, for
+    queries too frequent to pay for Jamdict building whole entries."""
     conn = getattr(_jam_local, "raw_conn", None)
     if conn is None:
         conn = sqlite3.connect(get_jamdict().db_file)
