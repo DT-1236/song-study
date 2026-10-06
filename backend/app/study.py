@@ -14,6 +14,7 @@ from typing import Literal
 from fsrs import Card, Rating, Scheduler, State
 from sqlalchemy import text
 
+from app.card_content import Content, load_songs, queue_contents
 from app.cards import (
     CARD_COLUMNS,
     CARD_KEYS_JOIN_SQL,
@@ -239,13 +240,13 @@ def suspend_card(conn, user_id: int, card_id: int):
 
 
 def _due_cards(conn, user_id: int, keys=None) -> list:
-    """The user's unsuspended cards that are due, oldest first; only those
-    with one of `keys` if given."""
+    """The user's unsuspended cards that are due, oldest first, with their
+    alternate spellings; only those with one of `keys` if given."""
     words = "" if keys is None else CARD_KEYS_JOIN_SQL
     return conn.execute(
         text(
             f"""
-            SELECT {CARD_COLUMNS} FROM study_cards c {words}
+            SELECT {CARD_COLUMNS}, c.alt_lookup_form FROM study_cards c {words}
             WHERE c.user_id = :user_id AND NOT c.suspended AND c.due <= now()
             ORDER BY c.due, c.id
             """
@@ -257,16 +258,20 @@ def _due_cards(conn, user_id: int, keys=None) -> list:
     ).all()
 
 
-def all_songs_queue(conn, user_id: int) -> list:
+def all_songs_queue(conn, user_id: int) -> list[tuple[object, Content]]:
     """The user's cards that are due, whichever songs their words are in —
     or none, which is how a card whose word left every song's lyrics stays
-    reachable."""
-    return _due_cards(conn, user_id)
+    reachable — each with its content, its line from any of those songs."""
+    cards = _due_cards(conn, user_id)
+    if not cards:
+        return []
+    return queue_contents(conn, user_id, cards, load_songs(conn, user_id), None)
 
 
-def song_queue(conn, user_id: int, document_id: int) -> list:
+def song_queue(conn, user_id: int, document_id: int) -> list[tuple[object, Content]]:
     """The user's due cards whose word or grammar term is in the document,
-    after enrolling new words from it up to the song's daily limit.
+    after enrolling new words from it up to the song's daily limit, each
+    with its content, its line from the document.
 
     Raises DocumentNotFound if the document isn't the user's."""
     # Locked so two sessions started at once can't both find room under the
@@ -292,8 +297,10 @@ def song_queue(conn, user_id: int, document_id: int) -> list:
     ).scalar_one_or_none()
     if limit is None:
         raise DocumentNotFound()
-    keys = song_card_keys(conn, user_id, document_id, limit)
-    return _due_cards(conn, user_id, keys)
+    songs = load_songs(conn, user_id, [document_id])
+    keys = song_card_keys(conn, user_id, document_id, songs[document_id].units, limit)
+    cards = _due_cards(conn, user_id, keys)
+    return queue_contents(conn, user_id, cards, songs, document_id)
 
 
 def get_desired_retention(conn, user_id: int) -> float:

@@ -22,6 +22,7 @@ from tests.support import (
     as_user,
     create_tokenized_document,
     document_tokens,
+    empty_gloss_cache,
     get_document_tokens,
     pick_reading,
     set_tokens_ignored,
@@ -66,14 +67,6 @@ def _cards(engine, user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
             {"user_id": user_id},
         ).all()
     return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
-
-
-def _empty_gloss_cache(engine) -> None:
-    """Empty gloss_lookups, as migrations 0013-0015 do whenever gloss logic
-    changes."""
-    with engine.begin() as conn:
-        conn.execute(text("UPDATE tokens SET gloss_lookup_id = NULL"))
-        conn.execute(text("DELETE FROM gloss_lookups"))
 
 
 # The harvest
@@ -212,7 +205,7 @@ def test_a_harvest_after_the_gloss_cache_is_emptied_looks_its_words_up_again(
     before = _harvest(committed_engine, document_id)
     assert _word("さり気無い", "さりげない") in before
 
-    _empty_gloss_cache(committed_engine)
+    empty_gloss_cache()
 
     assert _harvest(committed_engine, document_id) == before
 
@@ -225,7 +218,7 @@ def test_a_cards_gloss_is_looked_up_again_after_the_cache_is_emptied(
 ):
     document_id = create_tokenized_document(text="さり気ない")
     _enroll(committed_engine, document_id)
-    _empty_gloss_cache(committed_engine)
+    empty_gloss_cache()
 
     [card] = _cards(committed_engine).values()
     key = (card.lookup_form, card.reading)
@@ -239,7 +232,7 @@ def test_emptying_the_gloss_cache_keeps_every_card(committed_engine):
     document_id = create_tokenized_document(text="君の声が聞こえてるんだって。")
     enrolled = _enroll(committed_engine, document_id)
 
-    _empty_gloss_cache(committed_engine)
+    empty_gloss_cache()
 
     assert set(_cards(committed_engine)) == set(enrolled)
 

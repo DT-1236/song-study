@@ -929,6 +929,28 @@ def store_glosses(conn, plan: GlossPlan) -> dict[GlossKey, int]:
     return ids
 
 
+def gloss_entries(
+    conn, requests: Iterable[tuple[GlossKey, str | None]]
+) -> dict[GlossKey, tuple[object, str]]:
+    """The (entries, source) of each requested key's gloss, each key paired
+    with an alternate spelling as plan_glosses takes it. A key that isn't
+    cached is looked up and cached first."""
+    requests = list(requests)
+
+    def cached(keys) -> dict[GlossKey, tuple[object, str]]:
+        rows = _cached_rows(conn, keys, with_entries=True)
+        return {key: (row.entries, row.source) for key, row in rows.items()}
+
+    found = cached({key for key, _ in requests})
+    missing = [(key, alt) for key, alt in requests if key not in found]
+    if missing:
+        store_glosses(conn, plan_glosses(conn, missing))
+        # Read back rather than taken from the plan, which leaves out a key
+        # another transaction cached in the meantime.
+        found |= cached({key for key, _ in missing})
+    return found
+
+
 def get_or_create_gloss_lookup(
     conn, lookup_form: str, reading: str, *, alt_lookup_form: str | None = None
 ) -> int:

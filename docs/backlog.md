@@ -4,6 +4,23 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
+## `/simplify` on step 4 (card content, branch `card-content`)
+
+- **A group gloss stores its pieces' senses already ranked, so every change
+  to ranking needs a cache-clearing migration.** `gloss_piece`
+  (`backend/app/glosses.py`) runs `rank_senses` when a composite is built and
+  the ranked list is what `gloss_lookups.entries` keeps; a word's own gloss,
+  by contrast, is ranked when it's read (`main._fetch_tokens`,
+  `card_content._Glosses`). That's how 0022 came to exist, after 0013, 0015
+  and 0019 before it, each only as precise as its hand-written selector, and
+  a ranking change shipped without one leaves stale order with no error.
+  Fixing it means storing each piece's raw entries and the part of speech to
+  rank them for, ranking on read (the reading view's composite branch and
+  anything else reading `pieces`), plus one last migration to re-store the
+  composites. A cheaper half-measure is a derivation-version column that a
+  read treats as a miss. Opus 5, high: it reshapes what the gloss cache holds,
+  and a mistake shows up only as quietly wrong sense order.
+
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 
 Run together, after the fact, over `git diff d8e5e22 HEAD`. Fixed in that run:

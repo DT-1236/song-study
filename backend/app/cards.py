@@ -83,17 +83,30 @@ class HarvestedWord:
     first_position: int
 
 
+@dataclass
+class CardTokens:
+    """A word or grammar term a card can be for, where a document has it."""
+
+    key: CardKey
+    # A second spelling to look the word's gloss up under (see plan_glosses).
+    alt_lookup_form: str | None
+    # The tokens it's written with: all of an accepted phrase's, else one.
+    tokens: list
+
+
 class NotStudyable(Exception):
     pass
 
 
-def _token_rows(conn, document_id: int) -> list:
-    """The document's tokens in order, each with its selected reading and,
-    for the first token of an accepted phrase, the phrase."""
+def _token_rows(conn, document_ids: list[int]) -> list:
+    """The documents' tokens, each document's in order, each with its
+    selected reading and, for the first token of an accepted phrase, the
+    phrase."""
     return conn.execute(
         text(
             """
-            SELECT t.id, t.position, t.normalized_form, t.dictionary_form, t.part_of_speech,
+            SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end,
+                   t.normalized_form, t.dictionary_form, t.part_of_speech,
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase
@@ -103,11 +116,11 @@ def _token_rows(conn, document_id: int) -> list:
             -- kinds count as a selected reading.
             LEFT JOIN conflicts rc ON rc.token_id = t.id AND rc.selected AND rc.kind <> ALL(:non_reading_kinds)
             LEFT JOIN conflicts pc ON pc.token_id = t.id AND pc.selected AND pc.kind = 'phrase'
-            WHERE t.document_id = :document_id
-            ORDER BY t.position
+            WHERE t.document_id = ANY(:document_ids)
+            ORDER BY t.document_id, t.position
             """
         ),
-        {"document_id": document_id, "non_reading_kinds": list(NON_READING_KINDS)},
+        {"document_ids": document_ids, "non_reading_kinds": list(NON_READING_KINDS)},
     ).all()
 
 
@@ -130,13 +143,21 @@ def _units(rows: list) -> list[list]:
 
 def document_units(conn, document_id: int) -> list[list]:
     """The document's tokens in order, grouped into what's glossed together."""
-    return _units(_token_rows(conn, document_id))
+    return _units(_token_rows(conn, [document_id]))
+
+
+def units_by_document(conn, document_ids: list[int]) -> dict[int, list[list]]:
+    """As document_units, for each of the documents that has tokens."""
+    rows_by_document: dict[int, list] = {}
+    for row in _token_rows(conn, document_ids):
+        rows_by_document.setdefault(row.document_id, []).append(row)
+    return {document_id: _units(rows) for document_id, rows in rows_by_document.items()}
 
 
 def _own_word(row, explicit: bool) -> tuple[CardKey, str | None] | None:
     """The word token `row` is glossed as on its own, with its alternate
     spelling, or None if it isn't one to study. `explicit` as for
-    _unit_cards."""
+    _unit_word."""
     if is_grammar_word(row.part_of_speech):
         return None
     if not explicit and (
@@ -155,39 +176,57 @@ def _own_word(row, explicit: bool) -> tuple[CardKey, str | None] | None:
     return CardKey("recognition", *key), row.dictionary_form
 
 
-def _unit_cards(
-    unit: list, explicit: bool
-) -> tuple[tuple[CardKey, str | None] | None, list[CardKey]]:
-    """The word `unit` is studied as, with its alternate spelling (None if
-    there isn't one to study), and the grammar terms attached to it.
+def _word_token_count(unit: list) -> int:
+    """How many of `unit`'s tokens its word is written with: all of an
+    accepted phrase's, or the one a word on its own or a predicate group's
+    head is."""
+    phrase = unit[0].accepted_phrase
+    if phrase is None:
+        return 1
+    return phrase.get("phrase_token_count", len(unit))
+
+
+def _attached_grammar(unit: list) -> list:
+    """The tokens of `unit` that are grammar attached to its word, and have
+    an explanation of their own."""
+    # The particles inside a phrase (この期に及んで's に) are part of the
+    # headword, not grammar attached to it.
+    return [
+        row
+        for row in unit[_word_token_count(unit) :]
+        if has_grammar_note(row.normalized_form)
+    ]
+
+
+def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
+    """The word `unit` is studied as, or None if there isn't one to study.
     `explicit` for a word the user chose to add, which overrides their
     having marked it as needing no gloss, and its reading still being a
     guess."""
     head = unit[0]
     phrase = head.accepted_phrase
     if phrase is not None:
-        phrase_token_count = phrase.get("phrase_token_count", len(unit))
+        tokens = unit[: _word_token_count(unit)]
+        if not explicit and any(row.gloss_ignored for row in tokens):
+            return None
         # Glossed under the headword alone, as _apply_phrase_selection does.
-        word = (
-            CardKey("recognition", phrase["lookup_form"], phrase["reading"]),
-            None,
-        )
-        if not explicit and any(row.gloss_ignored for row in unit[:phrase_token_count]):
-            word = None
-        # The particles inside a phrase (この期に及んで's に) are part of the
-        # headword, not grammar attached to it.
-        attached = unit[phrase_token_count:]
-    else:
-        # A predicate group's head is studied as the word it is on its own,
-        # not as the group's composite gloss.
-        word = _own_word(head, explicit)
-        attached = unit[1:]
-    grammar = [
-        CardKey("grammar", row.normalized_form, None)
-        for row in attached
-        if has_grammar_note(row.normalized_form)
+        key = CardKey("recognition", phrase["lookup_form"], phrase["reading"])
+        return CardTokens(key, None, tokens)
+    # A predicate group's head is studied as the word it is on its own, not
+    # as the group's composite gloss.
+    word = _own_word(head, explicit)
+    return CardTokens(*word, [head]) if word else None
+
+
+def unit_card_tokens(unit: list, explicit: bool = True) -> list[CardTokens]:
+    """The word `unit` is studied as (see _unit_word), if any, then the
+    grammar terms attached to it, each with the tokens it's written with.
+    The default finds them as document_card_keys does."""
+    word = _unit_word(unit, explicit)
+    return ([word] if word else []) + [
+        CardTokens(CardKey("grammar", row.normalized_form, None), None, [row])
+        for row in _attached_grammar(unit)
     ]
-    return word, grammar
 
 
 def gloss_sources(
@@ -227,12 +266,13 @@ def harvest(conn, units: list[list], user_id: int) -> list[HarvestedWord]:
     have an explanation of their own."""
     found: dict[CardKey, HarvestedWord] = {}
     for unit in units:
-        word, grammar = _unit_cards(unit, explicit=False)
-        for key, alt in [*([word] if word else []), *((key, None) for key in grammar)]:
-            if key in found:
-                found[key].occurrences += 1
+        for card in unit_card_tokens(unit, explicit=False):
+            if card.key in found:
+                found[card.key].occurrences += 1
             else:
-                found[key] = HarvestedWord(key, alt, 1, unit[0].position)
+                found[card.key] = HarvestedWord(
+                    card.key, card.alt_lookup_form, 1, unit[0].position
+                )
 
     # Dropped before _studyable, which would look up (and maybe fetch) the
     # gloss of every word the user already has a card for.
@@ -249,13 +289,7 @@ def document_card_keys(units: list[list]) -> set[CardKey]:
     _units): which cards belong to the song, if the user has them. Unlike
     harvest, it counts a word marked as needing no gloss, or read as a guess,
     since a card for one can only exist because the user added it by hand."""
-    keys: set[CardKey] = set()
-    for unit in units:
-        word, grammar = _unit_cards(unit, explicit=True)
-        if word:
-            keys.add(word[0])
-        keys.update(grammar)
-    return keys
+    return {card.key for unit in units for card in unit_card_tokens(unit)}
 
 
 def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
@@ -278,12 +312,11 @@ def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
 
 
 def song_card_keys(
-    conn, user_id: int, document_id: int, enroll_limit: int
+    conn, user_id: int, document_id: int, units: list[list], enroll_limit: int
 ) -> set[CardKey]:
-    """The key of every word and grammar term in the document, after giving
-    the user cards for up to `enroll_limit` of its new words (none if it's
-    zero or less)."""
-    units = document_units(conn, document_id)
+    """The key of every word and grammar term in the document of `units`
+    (see _units), after giving the user cards for up to `enroll_limit` of
+    its new words (none if it's zero or less)."""
     if enroll_limit > 0:
         _enroll_units(conn, user_id, document_id, units, enroll_limit)
     return document_card_keys(units)
@@ -378,11 +411,11 @@ def enroll_token(conn, user_id: int, document_id: int, token_id: int):
     )
     if unit is None:
         raise TokenNotFound()
-    word, _ = _unit_cards(unit, explicit=True)
-    if word is None or not _studyable(conn, [word]):
+    word = _unit_word(unit, explicit=True)
+    if word is None or not _studyable(conn, [(word.key, word.alt_lookup_form)]):
         raise NotStudyable()
 
-    key, alt = word
+    key, alt = word.key, word.alt_lookup_form
     return conn.execute(
         text(
             f"""
