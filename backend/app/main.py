@@ -699,8 +699,17 @@ class Token(BaseModel):
 
 
 def _fetch_tokens(
-    conn, document_id: int, token_ids: list[int] | None = None
+    conn,
+    document_id: int,
+    token_ids: list[int] | None = None,
+    *,
+    cache_only: bool = False,
 ) -> list[Token]:
+    """The document's tokens (or just `token_ids`) as shown. With
+    `cache_only`, for a connection whose work is rolled back, a composite
+    gloss with a piece whose lookup isn't cached comes back with no gloss,
+    as an unlinked token does, rather than looking it up to be lost.
+    """
     token_filter = "AND t.id = ANY(:token_ids)" if token_ids is not None else ""
     rows = conn.execute(
         text(
@@ -748,7 +757,9 @@ def _fetch_tokens(
 
     # Every composite's pieces' lookups, in one read.
     lookups = piece_lookups(
-        conn, [row.gloss_entries for row in rows if row.gloss_source == "composite"]
+        conn,
+        [row.gloss_entries for row in rows if row.gloss_source == "composite"],
+        cache_only=cache_only,
     )
     tokens = []
     for row in rows:
@@ -757,7 +768,15 @@ def _fetch_tokens(
         gloss_entries = data.pop("gloss_entries")
         gloss_source = data.pop("gloss_source")
         gloss_lookup_form = data.pop("gloss_lookup_form")
-        if gloss_reading is None:
+        if gloss_reading is None or (
+            gloss_source == "composite"
+            and any(
+                piece["key"] is not None and tuple(piece["key"]) not in lookups
+                for piece in gloss_entries["pieces"]
+            )
+        ):
+            # Only possible under cache_only: otherwise every piece's lookup
+            # is cached by now.
             data["gloss"] = None
         elif gloss_source == "composite":
             # Each piece ranked for its own part of speech, not the token's.
@@ -896,7 +915,7 @@ def get_document_tokens(
 ) -> list[Token]:
     while True:
         with engine.connect() as conn:
-            existing = _fetch_tokens(conn, document_id)
+            existing = _fetch_tokens(conn, document_id, cache_only=True)
             if not existing:
                 # Tokens only exist for a document that does, so the document
                 # is only read (and checked for) when there are none.
@@ -914,7 +933,8 @@ def get_document_tokens(
                 return existing
             # Tokens missing their gloss link: tokenized before gloss support
             # existed, or unlinked by a migration that reset the gloss cache
-            # (as 0005 did).
+            # (as 0005 did), or whose composite gloss has a piece whose
+            # lookup row was dropped.
             with engine.begin() as conn:
                 repair_gloss_links(conn, document_id)
                 return _fetch_tokens(conn, document_id)

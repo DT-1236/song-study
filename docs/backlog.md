@@ -6,22 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on ranking composite pieces when shown (migration 0023)
 
-- **A piece whose lookup row was dropped is looked up again on every load,
-  never cached.** `piece_lookups` (`backend/app/glosses.py`) goes through
-  `gloss_entries`, which looks up and inserts a missing key, but
-  `get_document_tokens` (`backend/app/main.py`) first reads through
-  `engine.connect()`, which SQLAlchemy 2.0 rolls back on exit. If a migration
-  drops lookup rows that only composites refer to (no token is linked to
-  them, so nothing is unlinked and the repair branch never runs), every load
-  of each such document repeats the JMDict lookup, about 20ms a key, and
-  serves the right content without caching it. Fixing it means having the
-  read path only read the cache, report a piece whose lookup is missing the
-  way it reports an unlinked token, and let the existing `engine.begin()`
-  repair branch do the lookup and the insert. The round-trip counts in
-  `test_document_tokens.py` pin that read path. The cheaper alternative is a
-  rule that a migration dropping lookup rows looks them up again itself.
-  Sonnet 5, medium: the spec is clear, but it changes how the read path
-  splits from the repair path.
 - **A piece's `note` and `ambiguous_readings` are worked out when it's
   cached.** `gloss_piece` stores `heteronym_readings` and the `grammar_note`
   its caller passed, and `_group_pieces` blanks `ambiguous_readings` after

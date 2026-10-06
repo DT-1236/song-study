@@ -602,20 +602,24 @@ def gloss_piece(
     }
 
 
-def piece_lookups(conn, composites: Iterable[dict]) -> dict[GlossKey, tuple]:
+def piece_lookups(
+    conn, composites: Iterable[dict], *, cache_only: bool = False
+) -> dict[GlossKey, tuple]:
     """The (entries, source) of every lookup the pieces of `composites`,
     composite glosses' entries, are glossed from. One that isn't cached is
     looked up and cached first, so deleting a lookup's row is enough to
-    refresh every composite built on it."""
-    return gloss_entries(
-        conn,
-        [
-            (tuple(piece["key"]), piece["alt_lookup_form"])
-            for composite in composites
-            for piece in composite["pieces"]
-            if piece["key"] is not None
-        ],
-    )
+    refresh every composite built on it — unless `cache_only`, for a caller
+    that can't write: it is left out of the result instead.
+    """
+    requests = [
+        (tuple(piece["key"]), piece["alt_lookup_form"])
+        for composite in composites
+        for piece in composite["pieces"]
+        if piece["key"] is not None
+    ]
+    if cache_only:
+        return _cached_entries(conn, {key for key, _ in requests})
+    return gloss_entries(conn, requests)
 
 
 def shown_pieces(pieces: list[dict], lookups: dict[GlossKey, tuple]) -> list[dict]:
@@ -986,6 +990,12 @@ def store_glosses(conn, plan: GlossPlan) -> dict[GlossKey, int]:
     return ids
 
 
+def _cached_entries(conn, keys) -> dict[GlossKey, tuple[object, str]]:
+    """The (entries, source) of each of `keys` that is cached."""
+    rows = _cached_rows(conn, keys, with_entries=True)
+    return {key: (row.entries, row.source) for key, row in rows.items()}
+
+
 def gloss_entries(
     conn, requests: Iterable[tuple[GlossKey, str | None]]
 ) -> dict[GlossKey, tuple[object, str]]:
@@ -993,18 +1003,13 @@ def gloss_entries(
     with an alternate spelling as plan_glosses takes it. A key that isn't
     cached is looked up and cached first."""
     requests = list(requests)
-
-    def cached(keys) -> dict[GlossKey, tuple[object, str]]:
-        rows = _cached_rows(conn, keys, with_entries=True)
-        return {key: (row.entries, row.source) for key, row in rows.items()}
-
-    found = cached({key for key, _ in requests})
+    found = _cached_entries(conn, {key for key, _ in requests})
     missing = [(key, alt) for key, alt in requests if key not in found]
     if missing:
         store_glosses(conn, plan_glosses(conn, missing))
         # Read back rather than taken from the plan, which leaves out a key
         # another transaction cached in the meantime.
-        found |= cached({key for key, _ in missing})
+        found |= _cached_entries(conn, {key for key, _ in missing})
     return found
 
 

@@ -7,6 +7,8 @@ from __future__ import annotations
 
 import threading
 
+from sqlalchemy import text
+
 from app.glosses import is_glossable
 from app.main import (
     DocumentCreate,
@@ -51,6 +53,36 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     assert round_trips(warm, "INSERT INTO gloss_lookups") == 0
 
     viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
+    assert round_trips(viewed) == 4
+
+
+def test_a_dropped_piece_lookup_is_cached_again_by_the_first_view(committed_engine):
+    """A composite gloss's piece whose lookup row was deleted, with no token
+    linked to it, is looked up and kept by the next view, not looked up again
+    on every one after."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
+    get_document_tokens(document_id)
+    with committed_engine.begin() as conn:
+        dropped = conn.execute(
+            text(
+                """
+                DELETE FROM gloss_lookups
+                WHERE id NOT IN (
+                    SELECT gloss_lookup_id FROM tokens
+                    WHERE gloss_lookup_id IS NOT NULL
+                )
+                """
+            )
+        ).rowcount
+    assert dropped > 0
+
+    repaired = statements_sent(
+        committed_engine, lambda: get_document_tokens(document_id)
+    )
+    assert round_trips(repaired, "INSERT INTO gloss_lookups") == 1
+
+    viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
+    assert round_trips(viewed, "INSERT INTO gloss_lookups") == 0
     assert round_trips(viewed) == 4
 
 
