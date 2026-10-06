@@ -320,6 +320,77 @@ def get_raw_conn() -> sqlite3.Connection:
     return conn
 
 
+@dataclass(frozen=True)
+class KanjidicRow:
+    """One kanji's KANJIDIC2 columns, as the database stores them."""
+
+    # Both as text; None for a kanji without it.
+    grade: str | None
+    freq: str | None
+    classical_radical: str | None
+    # (r_type, value) pairs, on and kun only.
+    readings: list[list[str]]
+    meanings: list[str]
+
+
+def _grouped(conn, sql: str, ids: dict[int, str]) -> dict[str, list]:
+    marks = ",".join("?" * len(ids))
+    found: dict[str, list] = {}
+    for cid, *rest in conn.execute(sql.format(marks=marks), list(ids)):
+        found.setdefault(ids[cid], []).append(rest[0] if len(rest) == 1 else rest)
+    return found
+
+
+def kanjidic_rows(literals: Iterable[str]) -> dict[str, KanjidicRow]:
+    """KANJIDIC2's row for each of `literals` it has an entry for, in as few
+    queries as the number of tables involved rather than one per kanji."""
+    literals = sorted(set(literals))
+    if not literals:
+        return {}
+    conn = get_raw_conn()
+    marks = ",".join("?" * len(literals))
+    rows = conn.execute(
+        f"SELECT ID, literal, grade, freq FROM character WHERE literal IN ({marks})",
+        literals,
+    ).fetchall()
+    ids = {id_: literal for id_, literal, _, _ in rows}
+    classical = _grouped(
+        conn,
+        "SELECT cid, value FROM radical "
+        "WHERE rad_type = 'classical' AND cid IN ({marks})",
+        ids,
+    )
+    # rowid order is KANJIDIC2's own order, which the readings and meanings
+    # are shown in.
+    readings = _grouped(
+        conn,
+        "SELECT g.cid, r.r_type, r.value FROM rm_group g "
+        "JOIN reading r ON r.gid = g.ID "
+        "WHERE g.cid IN ({marks}) AND r.r_type IN ('ja_on', 'ja_kun') "
+        "ORDER BY g.ID, r.rowid",
+        ids,
+    )
+    meanings = _grouped(
+        conn,
+        "SELECT g.cid, m.value FROM rm_group g "
+        "JOIN meaning m ON m.gid = g.ID "
+        # KANJIDIC2 also carries French, Spanish and Portuguese meanings.
+        "WHERE g.cid IN ({marks}) AND m.m_lang = '' "
+        "ORDER BY g.ID, m.rowid",
+        ids,
+    )
+    return {
+        literal: KanjidicRow(
+            grade,
+            freq,
+            classical.get(literal, [None])[0],
+            readings.get(literal, []),
+            meanings.get(literal, []),
+        )
+        for _, literal, grade, freq in rows
+    }
+
+
 def _prefix_upper_bound(s: str) -> str:
     """The smallest string that sorts after every string starting with `s`."""
     return s[:-1] + chr(ord(s[-1]) + 1)
