@@ -30,7 +30,6 @@ import type {
   ConflictOptionValue,
   Document,
   FuriganaSpan,
-  GlossSense,
   LineTiming,
   PhraseConflictValue,
   PhraseFuriganaValue,
@@ -39,6 +38,7 @@ import type {
 } from './api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PosTermRuby, getPosInfo } from './PosLegend'
+import { SenseList } from './SenseList'
 import { useTabs } from './TabsContext'
 import {
   formatTimestamp,
@@ -59,8 +59,6 @@ const REVIEW_REASON_LABELS: Record<string, string> = {
   heteronym: 'Multiple possible readings',
   no_kana_anchor: 'Ambiguous furigana split',
 }
-
-const SENSE_LIMIT = 5
 
 // A stable empty list, for props that must keep one identity.
 const NO_TOKENS: Token[] = []
@@ -917,46 +915,6 @@ function ConflictResolver({
   )
 }
 
-function SenseBlock({ senses }: { senses: GlossSense[] }) {
-  const [expanded, setExpanded] = useState(false)
-
-  if (senses.length === 0) {
-    return <div className="gloss-popup-empty">No dictionary entry found.</div>
-  }
-
-  const sensesToShow = senses.slice(0, expanded ? undefined : SENSE_LIMIT)
-
-  return (
-    <>
-      <ol className="gloss-senses">
-        {sensesToShow.map((sense, i) => (
-          <li key={`${sense.entry_idseq}-${i}`}>
-            {sense.gloss.join('; ')}
-            {(sense.field.length > 0 || sense.misc.length > 0) && (
-              <span className="gloss-tag">
-                {' '}
-                ({[...sense.field, ...sense.misc].join(', ')})
-              </span>
-            )}
-          </li>
-        ))}
-      </ol>
-      {!expanded && senses.length > SENSE_LIMIT && (
-        <button
-          type="button"
-          className="gloss-show-more"
-          onClick={(e) => {
-            e.stopPropagation()
-            setExpanded(true)
-          }}
-        >
-          Show {senses.length - SENSE_LIMIT} more
-        </button>
-      )}
-    </>
-  )
-}
-
 // A token's dictionary form, part of speech, and gloss, as its popup and the
 // selection panel show them.
 function GlossDetails({ token }: { token: Token }) {
@@ -1027,7 +985,7 @@ function GlossDetails({ token }: { token: Token }) {
               )}
               {/* A grammar word has its note instead of senses. */}
               {(piece.senses.length > 0 || !piece.note) && (
-                <SenseBlock senses={piece.senses} />
+                <SenseList senses={piece.senses} />
               )}
               {piece.ambiguous_readings.length > 0 && (
                 <div className="dictionary-form-note">
@@ -1046,7 +1004,7 @@ function GlossDetails({ token }: { token: Token }) {
             {!merged && (
               <div className="gloss-popup-reading">{gloss.reading}</div>
             )}
-            <SenseBlock senses={gloss.senses} />
+            <SenseList senses={gloss.senses} />
           </>
         )
       )}
