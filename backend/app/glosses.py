@@ -941,9 +941,10 @@ def _add_katakana_readings(
     (ココロノコエ), replace its empty result in `new_rows` with a gloss of it
     looked up as hiragana (こころのこえ), when every word of the hiragana has
     an entry. Each piece also records where in the katakana it is, as
-    "span", and which of the hiragana's words, phrases, groups or
-    stand-alone grammar words it belongs to, as "unit": the の between two
-    words is grammar of its own, but attached to a verb it's the verb's."""
+    "span", which of the hiragana's words, phrases, groups or stand-alone
+    grammar words it belongs to, as "unit", and whether it is grammar attached
+    to a word, as "attached": the の between two words is grammar of its own,
+    but attached to a verb it's the verb's."""
     # Imported here: app.katakana builds on this module.
     from app.katakana import hiragana_units, is_katakana_word
 
@@ -971,13 +972,15 @@ def _add_katakana_readings(
                 # A base glossed as a composite gives a piece per word of it,
                 # each placed over the whole base.
                 base = _base_pieces(unit, found)
-                placed = [(piece, spans[0]) for piece in base] + list(
-                    zip(map(_attached_piece, unit.attached), spans[1:], strict=True)
-                )
+                placed = [(piece, spans[0], False) for piece in base] + [
+                    (_attached_piece(part), span, True)
+                    for part, span in zip(unit.attached, spans[1:], strict=True)
+                ]
             else:
-                placed = [(_grammar_piece(unit), spans[0])]
+                placed = [(_grammar_piece(unit), spans[0], False)]
             pieces += [
-                {**piece, "span": list(span), "unit": index} for piece, span in placed
+                {**piece, "span": list(span), "unit": index, "attached": attached}
+                for piece, span, attached in placed
             ]
         new_rows[key] = (
             {"pieces": pieces, "looked_up_as": to_hiragana(key[0])},

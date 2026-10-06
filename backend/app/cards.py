@@ -11,7 +11,6 @@ stored: it's whichever documents have a token that harvests to it now.
 from __future__ import annotations
 
 import json
-from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
@@ -256,7 +255,6 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
     if spellings is None:
         return []
     pieces = gloss["pieces"]
-    unit_sizes = Counter(piece["unit"] for piece in pieces)
     found = []
     for piece, spelling in zip(pieces, spellings, strict=True):
         if piece["normalized_form"] is None:
@@ -266,9 +264,7 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
         # Grammar between two words (the の of 心の声) is a unit of its own,
         # and like a particle outside a group, gives nothing. A helper verb
         # has a key as well, but counts as grammar, as in _attached_grammar.
-        elif unit_sizes[piece["unit"]] > 1 and has_grammar_note(
-            piece["normalized_form"]
-        ):
+        elif piece["attached"] and has_grammar_note(piece["normalized_form"]):
             key = CardKey("grammar", piece["normalized_form"], None)
         else:
             continue
