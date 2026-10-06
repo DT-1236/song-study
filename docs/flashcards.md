@@ -1126,6 +1126,33 @@ renders it arrives in step 6, so nothing is visible at the end of this step.
 standalone-to-variant radical mapping. A wrong reading looks entirely plausible on screen, so this
 step lives or dies by its tests. A jukugo with no matching kun reading showing on'yomi alone is
 the correct outcome, not a gap to fill.
+*As built* (`backend/app/kanji.py`) — what step 6 renders:
+- `QueuedCard.kanji` lists one entry per distinct kanji of the card's group, in order, built when
+  the queue is: `character`, `on_readings` (all), `kun_readings` (only those the word uses, as
+  `き(こえる)`) with `more_kun` for the rest, English `meanings`, `grade`, `frequency` (both
+  nullable), `radical` (`character`, `meaning`), `components` and `deck_words`. A kanji with no
+  KANJIDIC2 entry (々) is left out. A grammar card gets the kanji of the group it's in.
+- The group's kanji are read off its tokens' furigana as the page shows it (override before
+  Sudachi's split), so 神 in 女神 is がみ. A card whose word is sung in katakana, or is in no song,
+  takes its kanji from its key instead (`kanji_in_word`), since no token writes them.
+- Which kun reading a word uses: the stem before the dot, hyphens dropped, compared as the
+  hiragana reading; a voiced reading that matches nothing is tried unvoiced (rendaku). Where
+  several share the stem (き.く, き.こえる) the one whose okurigana the word has wins, read off the
+  dictionary form where the kanji sits at the same place in it, so 聞いた (from 聞く) is き(く). A
+  span of several kanji (今日 as きょう, or a reading that didn't split) has one reading between
+  them, so none of its kanji gets a kun reading. Nothing marks which on'yomi the word uses.
+- The radical is KANJIDIC2's classical one, shown as the variant KRADFILE finds in the kanji
+  (`_RADICAL_VARIANTS`, 34 radicals, derived by comparing the two across every kanji). KRADFILE's 辶
+  is the compatibility character U+FA66, so its components are NFC-normalized as they're read, and
+  a test checks every variant in the table occurs in KRADFILE. The other components leave out the
+  radical and the bare strokes (一｜ノ丶乙マ), and stop at three — 涙 is 氵 with 戸 大 尸.
+- `deck_words` are the user's unsuspended word cards, other than the card shown, whose
+  `lookup_form` has the kanji: five at most, shortest first, each `new`, `learning` or `mature`
+  (reviewed, in Review state, with stability of 21 days or more). One query for the whole queue.
+- Found on the way: the queue fetches the furigana of the tokens it needs in one query after
+  choosing each card's line, rather than `_token_rows` carrying it for every token; and
+  `glosses.get_jamdict` and `tokenization.is_kanji` lost their underscore, as `kanji.py` is the
+  first module to share them.
 
 **6 — The study UI.** The route, the card frame with dimming, autoplay plus persistent mute,
 keyboard handling, reveal, session summary, and the kanji sidebar from step 5 rendered on the
@@ -1184,7 +1211,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 2 — Card storage and harvest | Done | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
 | 3 — Scheduling | Done | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
 | 4 — Card content | Done | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
-| 5 — Kanji sidebar data | Not started | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
+| 5 — Kanji sidebar data | Done | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
 | 6 — Study UI | Not started | Sonnet 5 | medium | A new page is conventional React against a specified layout |
 | 6 — …the `DocumentViewPage` extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
 | 7 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
