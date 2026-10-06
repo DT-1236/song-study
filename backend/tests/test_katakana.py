@@ -34,24 +34,34 @@ def _shown(conn, gloss) -> list[dict]:
 class TestHiraganaUnits:
     def test_fuses_a_phrase_with_its_own_entry(self):
         # こころ/の/こえ, together the headword こころのこえ.
-        [unit] = hiragana_units("ココロノコエ")
+        [(unit, spans)] = hiragana_units("ココロノコエ")
         assert unit.base_key == ("こころのこえ", "こころのこえ")
+        assert spans == [(0, 6)]
 
     def test_groups_a_predicate_with_its_grammar(self):
-        [unit] = hiragana_units("アイタイ")
+        [(unit, spans)] = hiragana_units("アイタイ")
         assert unit.base_key == ("あう", "あう")
         assert [part.dictionary_form for part in unit.attached] == ["たい"]
+        # アイ, then タイ.
+        assert spans == [(0, 2), (2, 4)]
 
     def test_keeps_grammar_words_between_words(self):
         units = hiragana_units("キミトボクノミライ")
-        assert [type(unit) for unit in units] == [
+        assert [type(unit) for unit, _ in units] == [
             GroupGlossRequest,
             GroupPart,
             GroupGlossRequest,
             GroupPart,
             GroupGlossRequest,
         ]
-        assert units[4].base_key == ("未来", "みらい")
+        assert units[4][0].base_key == ("未来", "みらい")
+        assert [spans for _, spans in units] == [
+            [(0, 2)],
+            [(2, 3)],
+            [(3, 5)],
+            [(5, 6)],
+            [(6, 9)],
+        ]
 
     def test_rejects_a_loanword_that_does_not_split_into_words(self):
         assert hiragana_units("ギガンティック") is None
@@ -112,6 +122,21 @@ class TestKatakanaGlosses:
             db_conn, get_or_create_gloss_lookup(db_conn, "ナイテル", "ナイテル")
         )
         assert _shown(db_conn, gloss)[0]["surface"] == "泣く"
+
+    def test_each_piece_knows_where_it_is_and_which_word_it_belongs_to(self, db_conn):
+        gloss = _gloss(
+            db_conn,
+            get_or_create_gloss_lookup(db_conn, "ボクノアイタイ", "ボクノアイタイ"),
+        )
+
+        assert [
+            (p["surface"], p["span"], p["unit"]) for p in gloss.entries["pieces"]
+        ] == [
+            ("僕", [0, 2], 0),
+            ("の", [2, 3], 1),
+            ("あう", [3, 5], 2),
+            ("たい", [5, 7], 2),
+        ]
 
     def test_katakana_with_its_own_entry_is_unchanged(self, db_conn):
         gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "テレビ", "テレビ"))

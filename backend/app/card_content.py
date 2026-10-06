@@ -70,6 +70,9 @@ class Line:
     # None when the line can't be played: the song has no video, or no
     # timing for this line.
     audio: Audio | None
+    # For a word or grammar term sung in katakana, its dictionary form as its
+    # gloss writes it (声 for コエ); None for one that isn't.
+    written_as: str | None
 
 
 @dataclass(frozen=True)
@@ -168,6 +171,11 @@ class _Occurrence:
                 min(last.char_end, stop) - start,
             )
 
+        focus = on_line(self.found.tokens[0], self.found.tokens[-1])
+        if (piece := self.found.katakana_piece) is not None:
+            # A piece's span is within its token, which is all of the unit.
+            focus = (focus[0] + piece["span"][0], focus[0] + piece["span"][1])
+
         index = line_index(lyrics, begin)
         return Line(
             self.song.id,
@@ -175,9 +183,10 @@ class _Occurrence:
             index,
             lyrics[start:stop],
             self.found.tokens[0].id,
-            on_line(self.found.tokens[0], self.found.tokens[-1]),
+            focus,
             on_line(self.unit[0], self.unit[-1]),
             _audio(self.song, index),
+            self.found.written_as,
         )
 
 
@@ -407,6 +416,11 @@ class _Word:
     def of(cls, found: CardTokens) -> _Word:
         head = found.tokens[0]
         pos_major = head.part_of_speech[0]
+        if (piece := found.katakana_piece) is not None:
+            # Ranked as its gloss ranks it (see glosses.shown_pieces), since
+            # the katakana token's own tag is Sudachi's guess at an unknown
+            # word.
+            pos_major = piece["senses_pos_major"] or piece["part_of_speech"][0]
         # An accepted phrase's senses are an idiom's, whatever its first
         # token is.
         phrase = head.accepted_phrase is not None

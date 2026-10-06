@@ -334,6 +334,29 @@ def test_an_accepted_phrases_card_points_at_the_whole_phrase(committed_engine):
     assert line.token_id == document_tokens(document_id, "真")[0].id
 
 
+def test_a_word_sung_in_katakana_points_at_its_part_of_the_katakana(
+    committed_engine,
+):
+    start_song_session(create_tokenized_document("僕を呼ぶ。会いたい。"))
+    document_id = create_tokenized_document("君を呼ぶ。\nボクノアイタイ。")
+
+    cards = start_song_session(document_id)
+
+    line = _card(cards, "僕").line
+    assert (line.document_id, line.index) == (document_id, 1)
+    assert _span(line, line.focus) == "ボク"
+    assert _span(line, line.group) == "ボクノアイタイ"
+    assert line.written_as == "僕"
+    line = _card(cards, "会う").line
+    assert _span(line, line.focus) == "アイ"
+    assert line.written_as == "会う"
+    line = _card(cards, "たい").line
+    assert _span(line, line.focus) == "タイ"
+    assert line.written_as == "たい"
+    # Not sung in katakana here.
+    assert _card(cards, "呼ぶ").line.written_as is None
+
+
 def _song_with_timings(
     engine, lyrics: str, timings, video: str | None = "video-id"
 ) -> int:

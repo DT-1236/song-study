@@ -9,6 +9,7 @@ from sqlalchemy.exc import IntegrityError
 
 from app.cards import (
     CardKey,
+    document_card_keys,
     document_units,
     enroll_new_words,
     gloss_sources,
@@ -20,6 +21,7 @@ from tests.support import (
     accept_phrase_suggestions_endpoint,
     add_token_card,
     as_user,
+    clear_gloss_links,
     create_tokenized_document,
     document_tokens,
     empty_gloss_cache,
@@ -208,6 +210,49 @@ def test_a_harvest_after_the_gloss_cache_is_emptied_looks_its_words_up_again(
     empty_gloss_cache()
 
     assert _harvest(committed_engine, document_id) == before
+
+
+# A line sung in katakana
+
+KATAKANA_SONG = "ボクノアイタイ。"
+
+
+def _song_keys(engine, document_id: int) -> set[CardKey]:
+    with engine.connect() as conn:
+        return document_card_keys(document_units(conn, document_id))
+
+
+def test_a_katakana_word_belongs_to_the_cards_of_the_words_it_splits_into(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text=KATAKANA_SONG)
+    assert get_document_tokens(document_id)[0].surface == "ボクノアイタイ"
+
+    assert _song_keys(committed_engine, document_id) == {
+        _word("僕", "ぼく"),
+        # Written as its gloss writes it, so it's the card 会いたい gives.
+        _word("会う", "あう"),
+        # Attached to 会う. The の between the two words is grammar on its
+        # own, which gives nothing.
+        _grammar("たい"),
+    }
+
+
+def test_a_katakana_word_harvests_nothing(committed_engine):
+    document_id = create_tokenized_document(text=KATAKANA_SONG)
+
+    assert _harvest(committed_engine, document_id) == {}
+
+
+def test_a_katakana_word_unlinked_from_its_gloss_links_to_no_card(committed_engine):
+    document_id = create_tokenized_document(text=KATAKANA_SONG)
+    clear_gloss_links(document_id)
+
+    assert not _song_keys(committed_engine, document_id) & {
+        _word("僕", "ぼく"),
+        _word("会う", "あう"),
+        _grammar("たい"),
+    }
 
 
 # Storage

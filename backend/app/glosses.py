@@ -898,7 +898,10 @@ def _add_katakana_readings(
     """For each key written in katakana with no JMDict entry of its own
     (ココロノコエ), replace its empty result in `new_rows` with a gloss of it
     looked up as hiragana (こころのこえ), when every word of the hiragana has
-    an entry."""
+    an entry. Each piece also records where in the katakana it is, as
+    "span", and which of the hiragana's words, phrases, groups or
+    stand-alone grammar words it belongs to, as "unit": the の between two
+    words is grammar of its own, but attached to a verb it's the verb's."""
     # Imported here: app.katakana builds on this module.
     from app.katakana import hiragana_units, is_katakana_word
 
@@ -912,23 +915,28 @@ def _add_katakana_readings(
     requests = [
         unit
         for units in readings.values()
-        for unit in units
+        for unit, _ in units
         if isinstance(unit, GroupGlossRequest)
     ]
     found = _piece_sources(conn, requests, new_rows)
     for key, units in readings.items():
-        words = [unit for unit in units if isinstance(unit, GroupGlossRequest)]
+        words = [unit for unit, _ in units if isinstance(unit, GroupGlossRequest)]
         if any(found[word.base_key][1] == "jmdict_miss" for word in words):
             continue
-        pieces = [
-            piece
-            for unit in units
-            for piece in (
-                _group_pieces(unit, found)
-                if isinstance(unit, GroupGlossRequest)
-                else [_grammar_piece(unit)]
-            )
-        ]
+        pieces = []
+        for index, (unit, spans) in enumerate(units):
+            if isinstance(unit, GroupGlossRequest):
+                unit_pieces = _group_pieces(unit, found)
+                # A base glossed as a composite gives a piece per word of it,
+                # each placed over the whole base.
+                base_count = len(unit_pieces) - len(unit.attached)
+                spans = [spans[0]] * base_count + spans[1:]
+            else:
+                unit_pieces = [_grammar_piece(unit)]
+            pieces += [
+                {**piece, "span": list(span), "unit": index}
+                for piece, span in zip(unit_pieces, spans, strict=True)
+            ]
         new_rows[key] = (
             {"pieces": pieces, "looked_up_as": to_hiragana(key[0])},
             "composite",
