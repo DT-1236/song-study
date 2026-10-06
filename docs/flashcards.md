@@ -862,6 +862,13 @@ cards and can be the line a card plays. It never harvests a card, because turnin
 is a guess (コエ could be 声 or 越え), just as a heteronym's reading is. Adding one of its words by
 hand is still allowed (step 8).
 
+Each word links under the spelling its gloss shows (アイタイ's あう is 会う, the entry of its
+top-ranked sense), so it reaches the card a kanji spelling of the word gives. Linking to every card
+with the same reading instead was rejected: it avoids the guess only by being certainly wrong
+whenever two homophones are both carded, and it leaves no single choice to correct. The guess is
+treated as a heteronym's default is: taken, and correctable (step 8). Where the gloss's spelling
+differs from the spelling Sudachi gives the kanji word (分かる vs 解る), the line doesn't link.
+
 ---
 
 ## 8. What the experience needs from the data
@@ -1128,7 +1135,7 @@ it.
 on the queued LRCLIB work. Also the pending `.new-document-form` CSS narrowing, which currently
 overrides every document-page button and will catch this page too. A line sung in katakana
 (§7) shows the card's word in kanji (声) beside the highlighted katakana (コエ) on the prompt, not
-just on the reveal. Take the spelling from the `Line` field that marks a katakana occurrence; the
+just on the reveal. Take the spelling from `Line.written_as`, which marks a katakana occurrence; the
 UI can't infer it, because a conjugated surface still shows its dictionary form only on the
 reveal.
 
@@ -1141,7 +1148,11 @@ UI change, not a bolt-on. A katakana word's gloss (§7) offers an add for each o
 lookup is a JMDict hit, though the harvest never adds them. `enroll_token` takes one word per
 token today, so it has to grow a way to name the piece as well as the token. "Wrong reading?"
 (`Line.token_id`) doesn't fit a katakana line, since the katakana is its reading. What can be
-wrong there is how it splits into words, which has no correction flow yet.
+wrong there is which word each piece is (§7), so this step adds that correction, built the way a
+heteronym's is: the gloss's spelling is the default, and the user can pick another of the
+JMDict entries with the piece's reading (合う for アイ). The pick is stored per token and
+piece, like a selected conflict, and becomes the piece's card key and `Line.written_as`.
+How the katakana splits into words still has no correction flow.
 
 **Later, in rough order of value:** Type C production cards (opt-in, default off), which also
 brings the queue-ordering rule that a word's recognition and production cards don't appear back to

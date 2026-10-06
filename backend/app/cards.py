@@ -11,6 +11,7 @@ stored: it's whichever documents have a token that harvests to it now.
 from __future__ import annotations
 
 import json
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
@@ -21,7 +22,10 @@ from app.conflicts import NON_READING_KINDS, TokenNotFound
 from app.glosses import (
     GlossKey,
     own_gloss_key,
+    piece_lookups,
+    piece_pos_major,
     plan_glosses,
+    shown_spellings,
     store_glosses,
 )
 from app.grammar import has_grammar_note, is_grammar_word
@@ -92,6 +96,12 @@ class CardTokens:
     alt_lookup_form: str | None
     # The tokens it's written with: all of an accepted phrase's, else one.
     tokens: list
+    # Set only for one of the words of a token sung in katakana: where in
+    # the token it is, as [begin, end) offsets, how its gloss writes it (声
+    # for コエ), and the part of speech its senses are ranked for.
+    span: tuple[int, int] | None = None
+    written_as: str | None = None
+    pos_major: str | None = None
 
 
 class NotStudyable(Exception):
@@ -100,8 +110,9 @@ class NotStudyable(Exception):
 
 def _token_rows(conn, document_ids: list[int]) -> list:
     """The documents' tokens, each document's in order, each with its
-    selected reading and, for the first token of an accepted phrase, the
-    phrase."""
+    selected reading, for the first token of an accepted phrase, the phrase,
+    and for a token sung in katakana, its gloss as the hiragana's words (see
+    app.katakana)."""
     return conn.execute(
         text(
             """
@@ -109,13 +120,18 @@ def _token_rows(conn, document_ids: list[int]) -> list:
                    t.normalized_form, t.dictionary_form, t.part_of_speech,
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
-                   pc.value AS accepted_phrase
+                   pc.value AS accepted_phrase,
+                   kg.entries AS katakana_gloss
             FROM tokens t
             -- A token has at most one selected conflict, so neither join
             -- repeats it. A phrase's value has a reading too, so only reading
             -- kinds count as a selected reading.
             LEFT JOIN conflicts rc ON rc.token_id = t.id AND rc.selected AND rc.kind <> ALL(:non_reading_kinds)
             LEFT JOIN conflicts pc ON pc.token_id = t.id AND pc.selected AND pc.kind = 'phrase'
+            -- A group's members share the group's gloss, which is never one
+            -- of these, so only a token on its own has one.
+            LEFT JOIN gloss_lookups kg ON kg.id = t.gloss_lookup_id
+                AND kg.source = 'composite' AND kg.entries ? 'looked_up_as'
             WHERE t.document_id = ANY(:document_ids)
             ORDER BY t.document_id, t.position
             """
@@ -218,10 +234,74 @@ def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
     return CardTokens(*word, [head]) if word else None
 
 
-def unit_card_tokens(unit: list, explicit: bool = True) -> list[CardTokens]:
+def katakana_lookups(conn, units: Iterable[list]) -> dict[GlossKey, tuple]:
+    """The lookups the pieces of the katakana tokens in `units` (see _units)
+    are glossed from, as unit_card_tokens takes them. One that isn't cached
+    is looked up and cached first."""
+    return piece_lookups(
+        conn,
+        [unit[0].katakana_gloss for unit in units if unit[0].katakana_gloss],
+    )
+
+
+def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardTokens]:
+    """The words and grammar terms token `row`, sung in katakana, is glossed
+    as (ココロノコエ as 心の声), given its pieces' `lookups`. A word is the
+    one its gloss writes it as, so アイタイ's あう is 会う, which the gloss
+    guesses from the sense it shows first."""
+    gloss = row.katakana_gloss
+    # Worked out here rather than stored, as on the page, so a change to how
+    # a gloss ranks or spells its pieces reaches every card key.
+    spellings = shown_spellings(gloss, lookups)
+    if spellings is None:
+        return []
+    pieces = gloss["pieces"]
+    unit_sizes = Counter(piece["unit"] for piece in pieces)
+    found = []
+    for piece, spelling in zip(pieces, spellings, strict=True):
+        if piece["normalized_form"] is None:
+            # Every piece but a grammar word's has a key. Its reading is the
+            # word's whichever way it's written.
+            key = CardKey("recognition", spelling, piece["key"][1])
+        # Grammar between two words (the の of 心の声) is a unit of its own,
+        # and like a particle outside a group, gives nothing. A helper verb
+        # has a key as well, but counts as grammar, as in _attached_grammar.
+        elif unit_sizes[piece["unit"]] > 1 and has_grammar_note(
+            piece["normalized_form"]
+        ):
+            key = CardKey("grammar", piece["normalized_form"], None)
+        else:
+            continue
+        found.append(
+            CardTokens(
+                key,
+                piece["alt_lookup_form"],
+                [row],
+                span=tuple(piece["span"]),
+                written_as=spelling,
+                pos_major=piece_pos_major(piece),
+            )
+        )
+    return found
+
+
+def unit_card_tokens(
+    unit: list,
+    explicit: bool = True,
+    katakana: dict[GlossKey, tuple] | None = None,
+) -> list[CardTokens]:
     """The word `unit` is studied as (see _unit_word), if any, then the
     grammar terms attached to it, each with the tokens it's written with.
-    The default finds them as document_card_keys does."""
+    The default finds them as document_card_keys does.
+
+    A token sung in katakana gives the words and grammar its gloss splits it
+    into, given its pieces' lookups as `katakana` (see katakana_lookups), but
+    only by default: which kanji katakana stands for is a guess (コエ could
+    be 声 or 越え), so it links to cards but never makes one."""
+    if unit[0].katakana_gloss is not None:
+        if not explicit or katakana is None:
+            return []
+        return _katakana_card_tokens(unit[0], katakana)
     word = _unit_word(unit, explicit)
     return ([word] if word else []) + [
         CardTokens(CardKey("grammar", row.normalized_form, None), None, [row])
@@ -284,12 +364,15 @@ def harvest(conn, units: list[list], user_id: int) -> list[HarvestedWord]:
     return [w for w in wanted if w.key.kind == "grammar" or w.key in studyable]
 
 
-def document_card_keys(units: list[list]) -> set[CardKey]:
+def document_card_keys(conn, units: list[list]) -> set[CardKey]:
     """The key of every word and grammar term in a document's `units` (see
     _units): which cards belong to the song, if the user has them. Unlike
     harvest, it counts a word marked as needing no gloss, or read as a guess,
     since a card for one can only exist because the user added it by hand."""
-    return {card.key for unit in units for card in unit_card_tokens(unit)}
+    lookups = katakana_lookups(conn, units)
+    return {
+        card.key for unit in units for card in unit_card_tokens(unit, katakana=lookups)
+    }
 
 
 def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
@@ -319,7 +402,7 @@ def song_card_keys(
     its new words (none if it's zero or less)."""
     if enroll_limit > 0:
         _enroll_units(conn, user_id, document_id, units, enroll_limit)
-    return document_card_keys(units)
+    return document_card_keys(conn, units)
 
 
 def enroll_new_words(

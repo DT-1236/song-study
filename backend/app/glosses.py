@@ -618,32 +618,65 @@ def piece_lookups(
     return gloss_entries(conn, requests)
 
 
+def piece_pos_major(piece: dict) -> str:
+    """The part of speech a composite gloss piece's senses are ranked for."""
+    return piece["senses_pos_major"] or piece["part_of_speech"][0]
+
+
+def _ranked_senses(
+    piece: dict, lookups: dict[GlossKey, tuple]
+) -> tuple[list, list[dict]] | None:
+    """The entries `piece`'s senses come from, and the senses ranked for its
+    role, or None if its lookup isn't in `lookups`."""
+    if piece["key"] is None:
+        entries, source = [], None
+    elif tuple(piece["key"]) in lookups:
+        entries, source = lookups[tuple(piece["key"])]
+    else:
+        return None
+    # Only a JMDict or English lookup's entries are senses: a composite's
+    # are its own pieces.
+    if source not in ("jmdict", "english_stub"):
+        entries = []
+    return entries, rank_senses(entries, piece_pos_major(piece))
+
+
+def _spelling(composite: dict, piece: dict, entries, senses) -> str:
+    """How `piece` of `composite` is written when shown."""
+    # A katakana word's gloss is written as the words usually are (心の声),
+    # not as the katakana spells them out (こころのこえ).
+    spelling = "looked_up_as" in composite and _kanji_spelling(entries, senses)
+    return spelling or piece["surface"]
+
+
+def shown_spellings(
+    composite: dict, lookups: dict[GlossKey, tuple]
+) -> list[str] | None:
+    """How each piece of `composite` is written when shown (see
+    shown_pieces), or None if a piece's lookup isn't in `lookups`."""
+    spellings = []
+    for piece in composite["pieces"]:
+        ranked = _ranked_senses(piece, lookups)
+        if ranked is None:
+            return None
+        spellings.append(_spelling(composite, piece, *ranked))
+    return spellings
+
+
 def shown_pieces(composite: dict, lookups: dict[GlossKey, tuple]) -> list[dict] | None:
     """The pieces of `composite`, a composite gloss's entries, as shown, given
     the (entries, source) of their lookups (see piece_lookups): each with its
     lookup's senses ranked for its role. None if a piece's lookup isn't in
     `lookups`, as under piece_lookups' cache_only."""
-    # A katakana word's gloss is written as the words usually are (心の声),
-    # not as the katakana spells them out (こころのこえ).
-    spell_with_kanji = "looked_up_as" in composite
     shown = []
     for piece in composite["pieces"]:
-        if piece["key"] is None:
-            entries, source = [], None
-        elif tuple(piece["key"]) in lookups:
-            entries, source = lookups[tuple(piece["key"])]
-        else:
+        ranked = _ranked_senses(piece, lookups)
+        if ranked is None:
             return None
-        # Only a JMDict or English lookup's entries are senses: a composite's
-        # are its own pieces.
-        if source not in ("jmdict", "english_stub"):
-            entries = []
-        pos_major = piece["senses_pos_major"] or piece["part_of_speech"][0]
-        senses = rank_senses(entries, pos_major)
-        spelling = spell_with_kanji and _kanji_spelling(entries, senses)
+        entries, senses = ranked
         shown.append(
             {
-                "surface": spelling or piece["surface"],
+                "surface": _spelling(composite, piece, entries, senses),
                 "reading": piece["reading"],
                 "senses": senses,
                 "ambiguous_readings": _ambiguous_readings(piece),
@@ -801,36 +834,45 @@ def _group_pieces(
 ) -> list[dict]:
     """The composite pieces for `request`, with its base's (entries,
     source) from `found`."""
+    return _base_pieces(request, found) + [
+        _attached_piece(part) for part in request.attached
+    ]
+
+
+def _base_pieces(
+    request: GroupGlossRequest,
+    found: dict[GlossKey, tuple[object, str]],
+) -> list[dict]:
+    """The composite pieces for the word `request` is built on: one, or one
+    per word of a base that's a composite itself."""
     entries, source = found[request.base_key]
     if source == "composite":
         # The base's words keep their own reading options on their tokens.
-        pieces = [{**piece, "flags_readings": False} for piece in entries["pieces"]]
-    else:
-        pieces = [
-            gloss_piece(
-                request.base_key[0],
-                request.base_key[1],
-                request.base_key,
-                request.base_alt,
-                request.base_part_of_speech,
-            )
-        ]
-    for part in request.attached:
-        if is_helper_verb(part):
-            pieces.append(
-                gloss_piece(
-                    part.dictionary_form,
-                    mixed_reading(part.dictionary_form),
-                    citation_key(part.normalized_form, part.dictionary_form),
-                    part.dictionary_form,
-                    part.part_of_speech,
-                    senses_pos_major="助動詞",
-                    normalized_form=part.normalized_form,
-                )
-            )
-        else:
-            pieces.append(_grammar_piece(part))
-    return pieces
+        return [{**piece, "flags_readings": False} for piece in entries["pieces"]]
+    return [
+        gloss_piece(
+            request.base_key[0],
+            request.base_key[1],
+            request.base_key,
+            request.base_alt,
+            request.base_part_of_speech,
+        )
+    ]
+
+
+def _attached_piece(part: GroupPart) -> dict:
+    """The composite piece for `part`, attached to a group's word."""
+    if is_helper_verb(part):
+        return gloss_piece(
+            part.dictionary_form,
+            mixed_reading(part.dictionary_form),
+            citation_key(part.normalized_form, part.dictionary_form),
+            part.dictionary_form,
+            part.part_of_speech,
+            senses_pos_major="助動詞",
+            normalized_form=part.normalized_form,
+        )
+    return _grammar_piece(part)
 
 
 def _grammar_piece(part: GroupPart) -> dict:
@@ -898,7 +940,10 @@ def _add_katakana_readings(
     """For each key written in katakana with no JMDict entry of its own
     (ココロノコエ), replace its empty result in `new_rows` with a gloss of it
     looked up as hiragana (こころのこえ), when every word of the hiragana has
-    an entry."""
+    an entry. Each piece also records where in the katakana it is, as
+    "span", and which of the hiragana's words, phrases, groups or
+    stand-alone grammar words it belongs to, as "unit": the の between two
+    words is grammar of its own, but attached to a verb it's the verb's."""
     # Imported here: app.katakana builds on this module.
     from app.katakana import hiragana_units, is_katakana_word
 
@@ -912,23 +957,28 @@ def _add_katakana_readings(
     requests = [
         unit
         for units in readings.values()
-        for unit in units
+        for unit, _ in units
         if isinstance(unit, GroupGlossRequest)
     ]
     found = _piece_sources(conn, requests, new_rows)
     for key, units in readings.items():
-        words = [unit for unit in units if isinstance(unit, GroupGlossRequest)]
+        words = [unit for unit, _ in units if isinstance(unit, GroupGlossRequest)]
         if any(found[word.base_key][1] == "jmdict_miss" for word in words):
             continue
-        pieces = [
-            piece
-            for unit in units
-            for piece in (
-                _group_pieces(unit, found)
-                if isinstance(unit, GroupGlossRequest)
-                else [_grammar_piece(unit)]
-            )
-        ]
+        pieces = []
+        for index, (unit, spans) in enumerate(units):
+            if isinstance(unit, GroupGlossRequest):
+                # A base glossed as a composite gives a piece per word of it,
+                # each placed over the whole base.
+                base = _base_pieces(unit, found)
+                placed = [(piece, spans[0]) for piece in base] + list(
+                    zip(map(_attached_piece, unit.attached), spans[1:], strict=True)
+                )
+            else:
+                placed = [(_grammar_piece(unit), spans[0])]
+            pieces += [
+                {**piece, "span": list(span), "unit": index} for piece, span in placed
+            ]
         new_rows[key] = (
             {"pieces": pieces, "looked_up_as": to_hiragana(key[0])},
             "composite",

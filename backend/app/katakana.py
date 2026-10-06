@@ -22,6 +22,9 @@ _KATAKANA_WORD_RE = re.compile(r"^[ァ-ヶー]{2,}$")
 
 _GRAMMAR_POS = frozenset({"助詞", "助動詞", "接尾辞"})
 
+# A [begin, end) range of characters.
+Span = tuple[int, int]
+
 
 def is_katakana_word(text: str) -> bool:
     """Whether `text` is written entirely in katakana, two characters or more."""
@@ -30,18 +33,24 @@ def is_katakana_word(text: str) -> bool:
 
 def hiragana_units(
     katakana: str,
-) -> list[GroupGlossRequest | GroupPart] | None:
+) -> list[tuple[GroupGlossRequest | GroupPart, list[Span]]] | None:
     """The words of `katakana` looked up as hiragana, in order: a gloss
     request for each word, phrase, or predicate group, and a bare part for
-    each grammar word between them. None when the hiragana doesn't split
-    into words, as for a loanword (ギガンティック)."""
+    each grammar word between them. Each comes with where in `katakana` its
+    parts are: a request's word, then each part attached to it, or the bare
+    part. None when the hiragana doesn't split into words, as for a loanword
+    (ギガンティック)."""
+    # Kana for kana, so offsets into the hiragana are offsets into `katakana`.
     records = tokenize_document(to_hiragana(katakana))
     if any(record.is_oov for record in records):
         return None
     find_predicate_groups(records)
     find_phrase_suggestions(records)
 
-    units: list[GroupGlossRequest | GroupPart] = []
+    def span(first, last=None) -> Span:
+        return (first.char_begin, (last or first).char_end)
+
+    units: list[tuple[GroupGlossRequest | GroupPart, list[Span]]] = []
     i = 0
     while i < len(records):
         record = records[i]
@@ -50,19 +59,18 @@ def hiragana_units(
             # Taken without review, unlike on the page: there's no other
             # reading of these tokens to lose.
             end = i + suggestion["token_count"]
+            phrase = records[i : i + suggestion["phrase_token_count"]]
             attached = records[i + suggestion["phrase_token_count"] : end]
-            units.append(
-                GroupGlossRequest(
-                    base_key=(suggestion["lookup_form"], suggestion["reading"]),
-                    base_alt=None,
-                    base_part_of_speech=("*",) * 6,
-                    attached=tuple(
-                        GroupPart.of(r, to_hiragana(r.reading_katakana))
-                        for r in attached
-                    ),
-                    reading=suggestion["surface"],
-                )
+            request = GroupGlossRequest(
+                base_key=(suggestion["lookup_form"], suggestion["reading"]),
+                base_alt=None,
+                base_part_of_speech=("*",) * 6,
+                attached=tuple(
+                    GroupPart.of(r, to_hiragana(r.reading_katakana)) for r in attached
+                ),
+                reading=suggestion["surface"],
             )
+            units.append((request, [span(phrase[0], phrase[-1]), *map(span, attached)]))
         elif record.phrase_start_position == record.position:
             end = i + 1
             while (
@@ -71,28 +79,27 @@ def hiragana_units(
             ):
                 end += 1
             members = records[i:end]
-            units.append(
-                predicate_group_request(
-                    members,
-                    [to_hiragana(r.reading_katakana) for r in members],
-                    citation_key(record.normalized_form, record.dictionary_form),
-                )
+            request = predicate_group_request(
+                members,
+                [to_hiragana(r.reading_katakana) for r in members],
+                citation_key(record.normalized_form, record.dictionary_form),
             )
+            units.append((request, [span(r) for r in members]))
         elif record.part_of_speech[0] in _GRAMMAR_POS:
             end = i + 1
-            units.append(GroupPart.of(record, to_hiragana(record.reading_katakana)))
+            part = GroupPart.of(record, to_hiragana(record.reading_katakana))
+            units.append((part, [span(record)]))
         else:
             # A one-kana word is a split that didn't find real words: ラブソング
             # read as hiragana ends in ぐ.
             if len(record.surface) == 1:
                 return None
             end = i + 1
-            units.append(
-                predicate_group_request(
-                    [record],
-                    [to_hiragana(record.reading_katakana)],
-                    citation_key(record.normalized_form, record.dictionary_form),
-                )
+            request = predicate_group_request(
+                [record],
+                [to_hiragana(record.reading_katakana)],
+                citation_key(record.normalized_form, record.dictionary_form),
             )
+            units.append((request, [span(record)]))
         i = end
     return units
