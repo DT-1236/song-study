@@ -688,7 +688,7 @@ def queue_contents(
     characters = {item.character for kanji in written for item in kanji}
     # Every card's kanji, in one lookup each from KANJIDIC2 and the deck.
     load_characters(characters)
-    deck = deck_cards(conn, user_id, characters)
+    entries = kanji_entries(characters, deck_cards(conn, user_id, characters))
 
     cards_content = []
     for card, key, occurrence, kanji in zip(cards, keys, chosen, written, strict=True):
@@ -704,6 +704,6 @@ def queue_contents(
                 line,
                 rng,
             )
-        content.kanji = card_kanji(kanji)
+        content.kanji = card_kanji(kanji, entries)
         cards_content.append((card, content))
-    return Queue(cards_content, kanji_entries(characters, deck))
+    return Queue(cards_content, entries)

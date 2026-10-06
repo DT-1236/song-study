@@ -33,7 +33,12 @@ def _used(word: str, reading: str, dictionary_form: str | None = None):
     """The kanji of `word`, an inflection of `dictionary_form`, as it uses
     them."""
     spans = furigana_spans_for_reading(word, reading)
-    return card_kanji(kanji_in_spans(spans, dictionary_form or word))
+    return _card_kanji(kanji_in_spans(spans, dictionary_form or word))
+
+
+def _card_kanji(kanji):
+    """`card_kanji` of `kanji`, given the entries a queue would have for them."""
+    return card_kanji(kanji, kanji_entries({k.character for k in kanji}, {}))
 
 
 def _use(word: str, reading: str, character: str, dictionary_form: str | None = None):
@@ -85,8 +90,8 @@ def test_a_kun_readings_hyphen_is_dropped_before_comparing():
 
 
 def test_a_readings_script_doesnt_matter():
-    hiragana = card_kanji(kanji_in_word("聞こえる", "きこえる"))
-    katakana = card_kanji(kanji_in_word("聞こえる", "キコエル"))
+    hiragana = _card_kanji(kanji_in_word("聞こえる", "きこえる"))
+    katakana = _card_kanji(kanji_in_word("聞こえる", "キコエル"))
 
     assert hiragana == katakana
     assert hiragana[0].kun_readings == ["き(こえる)"]

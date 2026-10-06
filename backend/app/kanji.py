@@ -131,8 +131,6 @@ class KanjiEntry:
     # What else KRADFILE finds in it: a visual decomposition that's only a
     # hint, since it goes down to fragments of strokes.
     components: list[str]
-    # One more than the sidebar shows, so that there are still enough once
-    # the card it's shown on is left out.
     deck_words: list[DeckWord]
 
 
@@ -334,17 +332,20 @@ def deck_cards(
     return found
 
 
-def card_kanji(kanji: Iterable[KanjiInWord]) -> list[CardKanji]:
-    """Each distinct kanji of `kanji` that KANJIDIC2 has, in order, with the
-    kun readings the word uses of it."""
+def card_kanji(
+    kanji: Iterable[KanjiInWord], entries: dict[str, KanjiEntry]
+) -> list[CardKanji]:
+    """Each distinct kanji of `kanji` that has one of `entries` (see
+    kanji_entries), in order, with the kun readings the word uses of it."""
     written: dict[str, list[KanjiInWord]] = {}
     for item in kanji:
         written.setdefault(item.character, []).append(item)
     used = []
     for literal, occurrences in written.items():
-        known = _character(literal)
-        if known is None:
+        # Only those with an entry, so that the sidebar finds one for each.
+        if literal not in entries:
             continue
+        known = _characters[literal]
         # A kanji the word reads two ways (一人一人) lists both.
         in_play = list(
             dict.fromkeys(
