@@ -6,15 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on ranking composite pieces when shown (migration 0023)
 
-- **A piece's `note` and `ambiguous_readings` are worked out when it's
-  cached.** `gloss_piece` stores `heteronym_readings` and the `grammar_note`
-  its caller passed, and `_group_pieces` blanks `ambiguous_readings` after
-  the fact, so a changed heteronym rule or reworded grammar note leaves cached
-  composites as they were. Both can come from the piece in `shown_pieces`
-  once it stores its `normalized_form` (the full tag is stored already),
-  with the blanking as a stored flag; the shape change needs a clearing
-  migration. Sonnet 5, medium: the move is mechanical, but each grammar
-  piece and helper-verb piece has to keep the note it shows today.
 - **`spell_with_kanji` is stored on every piece, though only a katakana
   gloss sets it.** `_add_katakana_readings` is its only source, and that row
   already carries `looked_up_as`, so `shown_pieces` could take the spelling

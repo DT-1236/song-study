@@ -569,7 +569,8 @@ def gloss_piece(
     part_of_speech,
     *,
     senses_pos_major: str | None = None,
-    note: str | None = None,
+    normalized_form: str | None = None,
+    flags_readings: bool = True,
     spell_with_kanji: bool = False,
 ) -> dict:
     """A composite gloss piece for `surface` read as `reading`, as stored:
@@ -577,13 +578,16 @@ def gloss_piece(
     alternate spelling), its senses to be ranked for `part_of_speech`, a full
     Sudachi tag, or for `senses_pos_major` when the piece's role differs from
     its tag (a helper verb like the みる of 見てみる, ranked as 助動詞).
-    `note` explains a grammar word. `spell_with_kanji` shows the piece as its
+    `normalized_form` marks a grammar word, which is shown with a note
+    explaining it. `flags_readings` shows the other readings its surface
+    could have, unless the piece's word keeps them on its own token.
+    `spell_with_kanji` shows the piece as its
     entry is usually written, for a word only spelled in kana here (see
     app/katakana.py).
 
-    The lookup's entries, their ranking and the spelling that follows from
-    it are all left to shown_pieces, so a change to any of them reaches every
-    cached composite."""
+    The lookup's entries, their ranking, the spelling that follows from it,
+    the note and the other readings are all left to shown_pieces, so a change
+    to any of them reaches every cached composite."""
     return {
         "surface": surface,
         "reading": reading,
@@ -593,11 +597,8 @@ def gloss_piece(
         # ranking that reads more of it needs no migration.
         "part_of_speech": list(part_of_speech),
         "senses_pos_major": senses_pos_major,
-        "ambiguous_readings": sorted(
-            {to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))}
-            - {reading}
-        ),
-        "note": note,
+        "normalized_form": normalized_form,
+        "flags_readings": flags_readings,
         "spell_with_kanji": spell_with_kanji,
     }
 
@@ -644,11 +645,31 @@ def shown_pieces(pieces: list[dict], lookups: dict[GlossKey, tuple]) -> list[dic
                 "surface": spelling or piece["surface"],
                 "reading": piece["reading"],
                 "senses": senses,
-                "ambiguous_readings": piece["ambiguous_readings"],
-                "note": piece["note"],
+                "ambiguous_readings": _ambiguous_readings(piece),
+                "note": (
+                    grammar_note(piece["normalized_form"], piece["part_of_speech"])
+                    if piece["normalized_form"] is not None
+                    else None
+                ),
             }
         )
     return shown
+
+
+def _ambiguous_readings(piece: dict) -> list[str]:
+    """The hiragana readings other than its own that `piece`'s surface could
+    have, if it's to flag them."""
+    if not piece["flags_readings"]:
+        return []
+    return sorted(
+        {
+            to_hiragana(r)
+            for r in heteronym_readings(
+                piece["surface"], tuple(piece["part_of_speech"])
+            )
+        }
+        - {piece["reading"]}
+    )
 
 
 def _add_composites(
@@ -785,11 +806,11 @@ def _group_pieces(
                 request.base_key,
                 request.base_alt,
                 request.base_part_of_speech,
+                flags_readings=False,
                 spell_with_kanji=spell_with_kanji,
             )
         ]
     for part in request.attached:
-        note = grammar_note(part.normalized_form, part.part_of_speech)
         if is_helper_verb(part):
             pieces.append(
                 gloss_piece(
@@ -799,15 +820,14 @@ def _group_pieces(
                     part.dictionary_form,
                     part.part_of_speech,
                     senses_pos_major="助動詞",
-                    note=note,
+                    normalized_form=part.normalized_form,
+                    flags_readings=False,
                     spell_with_kanji=spell_with_kanji,
                 )
             )
         else:
             pieces.append(_grammar_piece(part))
-    # A group's words keep their own reading options on their tokens, so a
-    # piece doesn't flag them again.
-    return [{**piece, "ambiguous_readings": []} for piece in pieces]
+    return pieces
 
 
 def _grammar_piece(part: GroupPart) -> dict:
@@ -820,8 +840,8 @@ def _grammar_piece(part: GroupPart) -> dict:
         "alt_lookup_form": None,
         "part_of_speech": list(part.part_of_speech),
         "senses_pos_major": None,
-        "ambiguous_readings": [],
-        "note": grammar_note(part.normalized_form, part.part_of_speech),
+        "normalized_form": part.normalized_form,
+        "flags_readings": False,
         "spell_with_kanji": False,
     }
 
