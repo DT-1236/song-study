@@ -86,6 +86,32 @@ def test_a_dropped_piece_lookup_is_cached_again_by_the_first_view(committed_engi
     assert round_trips(viewed) == 4
 
 
+def test_a_dropped_piece_lookup_alone_does_not_relink_glosses(
+    committed_engine, monkeypatch
+):
+    """With every token linked, only the dropped lookup is repaired."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
+    get_document_tokens(document_id)
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                DELETE FROM gloss_lookups
+                WHERE id NOT IN (
+                    SELECT gloss_lookup_id FROM tokens
+                    WHERE gloss_lookup_id IS NOT NULL
+                )
+                """
+            )
+        )
+
+    def fail(*args):
+        raise AssertionError("repair_gloss_links ran with every token linked")
+
+    monkeypatch.setattr("app.main.repair_gloss_links", fail)
+    get_document_tokens(document_id)
+
+
 def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeypatch):
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
 
