@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { loadYouTubeIframeApi } from './loadYouTubeIframeApi'
+import { useLatest } from './useLatest'
 
 // Playback time (getCurrentTime/getDuration) and getVideoData() (title,
 // channel/"author" name) are all the YouTube IFrame Player API exposes.
@@ -45,10 +46,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
     const seekRef = useRef<{ seconds: number; at: number } | null>(null)
     // Read when the player becomes ready, which is after the render that
     // made it, so a later render's callback is the one that runs.
-    const onReadyRef = useRef(onReady)
-    useEffect(() => {
-      onReadyRef.current = onReady
-    }, [onReady])
+    const onReadyRef = useLatest(onReady)
 
     useEffect(() => {
       let cancelled = false
@@ -75,7 +73,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
         player?.destroy()
         playerRef.current = null
       }
-    }, [videoId])
+    }, [videoId, onReadyRef])
 
     useImperativeHandle(ref, () => {
       // The playback time, counting a seek the player hasn't reported yet.

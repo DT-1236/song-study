@@ -51,6 +51,7 @@ import {
   timingsFromStarts,
 } from './timing'
 import type { LyricsLine } from './timing'
+import { useLatest } from './useLatest'
 import { usePersistentState } from './usePersistentState'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
@@ -1496,14 +1497,11 @@ const TokenizedText = memo(function TokenizedText({
 
   // Kept current by an effect, so onTokenClick can keep one identity (and
   // TokenSpan's memo hold) while still seeing the latest selection.
-  const handleClickRef = useRef(handleClick)
-  useLayoutEffect(() => {
-    handleClickRef.current = handleClick
-  })
+  const handleClickRef = useLatest(handleClick)
   const onTokenClick = useCallback(
     (index: number, event: React.MouseEvent<HTMLElement>) =>
       handleClickRef.current(index, event),
-    [],
+    [handleClickRef],
   )
 
   // A click that reaches the document — anywhere but a token or the
@@ -1959,15 +1957,12 @@ const TimingEditor = memo(function TimingEditor({
 
   // Kept current by an effect, so the listener can be added once and still
   // see the latest state.
-  const handleKeyDownRef = useRef(handleKeyDown)
-  useLayoutEffect(() => {
-    handleKeyDownRef.current = handleKeyDown
-  })
+  const handleKeyDownRef = useLatest(handleKeyDown)
   useEffect(() => {
     const listener = (event: KeyboardEvent) => handleKeyDownRef.current(event)
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
-  }, [])
+  }, [handleKeyDownRef])
 
   return (
     <>
