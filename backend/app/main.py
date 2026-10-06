@@ -16,7 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import study
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
-from app.card_content import Line, Option
+from app.card_content import Line, Option, Queue
 from app.cards import CardKind, NotStudyable, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
@@ -51,7 +51,7 @@ from app.glosses import (
     store_glosses,
 )
 from app.grammar import find_predicate_groups
-from app.kanji import KanjiEntry
+from app.kanji import CardKanji, KanjiEntry
 from app.lrclib import (
     LrclibError,
     LrclibLyrics,
@@ -1186,15 +1186,27 @@ class QueuedCard(StudyCard):
     # A word's every sense, ranked, for the reveal; its options show the
     # first two.
     senses: list[GlossSense]
-    # Each kanji of the word, or the group it's in, for the reveal.
-    kanji: list[KanjiEntry]
+    # Each kanji of the word, or the group it's in, as it's used there, for
+    # the reveal. The rest of what its sidebar shows is in StudyQueue.kanji.
+    kanji: list[CardKanji]
 
 
-def _queued_cards(queue: list) -> list[QueuedCard]:
-    return [
-        QueuedCard(**row._mapping, **dataclasses.asdict(content))
-        for row, content in queue
-    ]
+class StudyQueue(BaseModel):
+    cards: list[QueuedCard]
+    # The sidebar entry of every kanji of the cards, by character, sent once
+    # however many cards have it. Its deck_words may include the card it's
+    # shown on, which the sidebar leaves out, and one more word than it shows.
+    kanji: dict[str, KanjiEntry]
+
+
+def _study_queue(queue: Queue) -> StudyQueue:
+    return StudyQueue(
+        cards=[
+            QueuedCard(**row._mapping, **dataclasses.asdict(content))
+            for row, content in queue.cards
+        ],
+        kanji=queue.kanji,
+    )
 
 
 @api.put("/documents/{document_id}/tokens/{token_id}/card", response_model=StudyCard)
@@ -1261,26 +1273,24 @@ def suspend_card(card_id: int, user_id: CurrentUser) -> StudyCard:
     return StudyCard(**row._mapping)
 
 
-@api.get("/study/queue", response_model=list[QueuedCard])
-def get_all_songs_queue(user_id: CurrentUser) -> list[QueuedCard]:
+@api.get("/study/queue", response_model=StudyQueue)
+def get_all_songs_queue(user_id: CurrentUser) -> StudyQueue:
     """The user's cards that are due, from every song, each with a line to
     play from any song that has its word and the options to answer it
     from."""
     # A transaction, since a gloss the cache has lost is looked up again
     # and stored.
     with engine.begin() as conn:
-        return _queued_cards(study.all_songs_queue(conn, user_id))
+        return _study_queue(study.all_songs_queue(conn, user_id))
 
 
-@api.post("/documents/{document_id}/study", response_model=list[QueuedCard])
-def start_song_session(
-    document_id: OwnedDocument, user_id: CurrentUser
-) -> list[QueuedCard]:
+@api.post("/documents/{document_id}/study", response_model=StudyQueue)
+def start_song_session(document_id: OwnedDocument, user_id: CurrentUser) -> StudyQueue:
     """Start studying the song: enroll new words from it, up to its daily
     limit, and return the user's due cards for its words, each with a line
     of the song to play and the options to answer it from."""
     with engine.begin() as conn:
-        return _queued_cards(study.song_queue(conn, user_id, document_id))
+        return _study_queue(study.song_queue(conn, user_id, document_id))
 
 
 class StudySettings(BaseModel):

@@ -296,7 +296,7 @@ SONG = "君を呼ぶ。\n声が聞こえてるんだって。"
 def test_a_words_card_plays_the_line_its_word_is_on(committed_engine):
     document_id = create_tokenized_document(SONG, title="song")
 
-    line = _card(start_song_session(document_id), "聞こえる").line
+    line = _card(start_song_session(document_id).cards, "聞こえる").line
 
     assert (line.document_id, line.title, line.index) == (document_id, "song", 1)
     assert line.text == "声が聞こえてるんだって。"
@@ -308,7 +308,7 @@ def test_a_words_card_plays_the_line_its_word_is_on(committed_engine):
 def test_a_grammar_cards_line_points_at_the_grammar_in_its_group(committed_engine):
     document_id = create_tokenized_document(SONG)
 
-    line = _card(start_song_session(document_id), "って").line
+    line = _card(start_song_session(document_id).cards, "って").line
 
     assert _span(line, line.focus) == "って"
     assert _span(line, line.group) == "聞こえてるんだって"
@@ -327,7 +327,7 @@ def test_an_accepted_phrases_card_points_at_the_whole_phrase(committed_engine):
         document_id, PhraseAcceptance(conflict_ids=[suggestion])
     )
 
-    line = _card(start_song_session(document_id), "真に受ける").line
+    line = _card(start_song_session(document_id).cards, "真に受ける").line
 
     assert _span(line, line.focus) == "真に受け"
     assert _span(line, line.group) == "真に受けてみて"
@@ -340,7 +340,7 @@ def test_a_word_sung_in_katakana_points_at_its_part_of_the_katakana(
     start_song_session(create_tokenized_document("僕を呼ぶ。会いたい。"))
     document_id = create_tokenized_document("君を呼ぶ。\nボクノアイタイ。")
 
-    cards = start_song_session(document_id)
+    cards = start_song_session(document_id).cards
 
     line = _card(cards, "僕").line
     assert (line.document_id, line.index) == (document_id, 1)
@@ -381,7 +381,7 @@ def test_a_line_with_a_video_and_a_timing_plays(committed_engine):
         committed_engine, SONG, [{"start": 1.0, "end": 2.5}, {"start": 2.5, "end": 6.0}]
     )
 
-    audio = _card(start_song_session(document_id), "聞こえる").line.audio
+    audio = _card(start_song_session(document_id).cards, "聞こえる").line.audio
 
     assert (audio.youtube_video_id, audio.start, audio.end) == ("video-id", 2.5, 6.0)
 
@@ -402,7 +402,7 @@ def test_a_line_without_a_video_or_a_timing_is_text_only(
 ):
     document_id = _song_with_timings(committed_engine, SONG, timings, video=video)
 
-    line = _card(start_song_session(document_id), "聞こえる").line
+    line = _card(start_song_session(document_id).cards, "聞こえる").line
 
     assert line.audio is None
     assert line.text == "声が聞こえてるんだって。"
@@ -419,7 +419,7 @@ def test_edited_timings_are_played_over_lrclibs(committed_engine):
         ),
     )
 
-    audio = _card(start_song_session(document_id), "聞こえる").line.audio
+    audio = _card(start_song_session(document_id).cards, "聞こえる").line.audio
 
     assert (audio.start, audio.end) == (3.0, 7.0)
 
@@ -431,7 +431,7 @@ def test_a_line_that_plays_is_chosen_over_one_that_doesnt(committed_engine):
 
     # Either line would be chosen half the time at random.
     for _ in range(10):
-        line = _card(start_song_session(document_id), "君").line
+        line = _card(start_song_session(document_id).cards, "君").line
         assert (line.index, line.audio.start) == (0, 1.0)
 
 
@@ -442,7 +442,7 @@ def test_the_all_songs_queue_plays_a_line_from_a_song_with_the_word(
     create_tokenized_document("泣く。話す。", title="second")
     start_song_session(first)
 
-    line = _card(get_all_songs_queue(), "呼ぶ").line
+    line = _card(get_all_songs_queue().cards, "呼ぶ").line
 
     assert (line.document_id, line.title, line.text) == (first, "first", "君を呼ぶ。")
 
@@ -455,7 +455,7 @@ def test_a_card_in_no_song_has_no_line_but_can_still_be_answered(committed_engin
     with committed_engine.begin() as conn:
         conn.execute(text("DELETE FROM tokens WHERE document_id = :id"), {"id": gone})
 
-    card = _card(get_all_songs_queue(), "呼ぶ")
+    card = _card(get_all_songs_queue().cards, "呼ぶ")
 
     assert card.line is None
     assert len(card.options) == OPTION_COUNT
@@ -472,7 +472,7 @@ def _first_glosses(card) -> set[str]:
 def test_the_right_option_is_the_words_top_ranked_senses(committed_engine):
     document_id = create_tokenized_document(SONG)
 
-    card = _card(start_song_session(document_id), "聞こえる")
+    card = _card(start_song_session(document_id).cards, "聞こえる")
 
     assert card.options[card.answer].senses == [
         ["to be heard", "to be audible"],
@@ -484,7 +484,7 @@ def test_the_right_option_is_the_words_top_ranked_senses(committed_engine):
 def test_a_words_wrong_options_come_from_its_own_song(committed_engine):
     document_id = create_tokenized_document("歌う。笑う。泣く。眠る。探す。話す。")
 
-    card = _card(start_song_session(document_id), "歌う")
+    card = _card(start_song_session(document_id).cards, "歌う")
 
     assert len(card.options) == OPTION_COUNT
     assert _first_glosses(card) <= {
@@ -505,7 +505,7 @@ def test_a_song_short_of_words_borrows_wrong_options_from_the_users_others(
     start_song_session(other)
     document_id = create_tokenized_document("君を呼ぶ。")
 
-    card = _card(start_song_session(document_id), "呼ぶ")
+    card = _card(start_song_session(document_id).cards, "呼ぶ")
 
     # The song's only other word is a pronoun, 君.
     assert len(card.options) == OPTION_COUNT
@@ -525,7 +525,7 @@ def test_options_are_looked_up_again_after_the_gloss_cache_is_emptied(
     start_song_session(document_id)
     empty_gloss_cache()
 
-    card = _card(start_song_session(document_id), "歌う")
+    card = _card(start_song_session(document_id).cards, "歌う")
 
     assert len(card.options) == OPTION_COUNT
     assert card.options[card.answer].senses[0] == ["to sing"]
@@ -534,7 +534,7 @@ def test_options_are_looked_up_again_after_the_gloss_cache_is_emptied(
 def test_a_grammar_cards_options_are_notes_and_its_own_is_right(committed_engine):
     document_id = create_tokenized_document(SONG)
 
-    card = _card(start_song_session(document_id), "って")
+    card = _card(start_song_session(document_id).cards, "って")
 
     assert len(card.options) == OPTION_COUNT
     assert card.options[card.answer].note == grammar_notes()["って"]
