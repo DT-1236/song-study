@@ -761,6 +761,7 @@ def _fetch_tokens(
         [row.gloss_entries for row in rows if row.gloss_source == "composite"],
         cache_only=cache_only,
     )
+    shown_pieces_memo: dict[str, list[dict] | None] = {}
     tokens = []
     for row in rows:
         data = dict(row._mapping)
@@ -772,7 +773,10 @@ def _fetch_tokens(
             data["gloss"] = None
         elif gloss_source == "composite":
             # Each piece ranked for its own part of speech, not the token's.
-            pieces = shown_pieces(gloss_entries, lookups)
+            entries_key = json.dumps(gloss_entries, sort_keys=True)
+            if entries_key not in shown_pieces_memo:
+                shown_pieces_memo[entries_key] = shown_pieces(gloss_entries, lookups)
+            pieces = shown_pieces_memo[entries_key]
             # None only under cache_only, for a piece whose lookup isn't
             # cached: shown unglossed, as an unlinked token is.
             data["gloss"] = (

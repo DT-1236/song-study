@@ -6,13 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on caching dropped piece lookups and deriving pieces when shown (migration 0024)
 
-- **A group's composite is shown once per member token.** `_fetch_tokens`
-  (`backend/app/main.py`) calls `shown_pieces` per row, and every member of a
-  group links to the same composite row, so an N-member group ranks and
-  derives its pieces N times. Memoizing by gloss id within one call would
-  avoid it, but it's well under a millisecond today. Worth doing only if
-  `rank_senses` shows up in a profile. Haiku 4.5, low: a dict keyed by gloss
-  id around one call.
 - **A missing piece lookup is signalled through `gloss is None`.**
   `get_document_tokens` only repairs when a *glossable* token has no gloss,
   so a composite linked only to non-glossable tokens with a dropped piece
