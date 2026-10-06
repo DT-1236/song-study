@@ -43,8 +43,7 @@ MATURE_STABILITY_DAYS = 21
 
 
 def is_mature(state: int, stability: float | None) -> bool:
-    """Whether a card in FSRS `state` with `stability` (in days) is mature.
-    kanji.py's deck-word status query spells the same rule in SQL."""
+    """Whether a card in FSRS `state` with `stability` (in days) is mature."""
     return (
         state == State.Review
         and stability is not None
@@ -413,6 +412,7 @@ def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
             },
         )
     }
+    wanted = [[w for w in words.values() if w.key not in rows] for words in found]
     # One gloss plan for every song. A word several songs share is planned
     # with the first one's alternate spelling, as it would be if each song
     # were planned in turn, the later ones finding it cached by the first.
@@ -420,9 +420,9 @@ def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
         conn,
         [
             (w.key, w.alt_lookup_form)
-            for words in found
-            for w in words.values()
-            if w.key not in rows and w.key.kind != "grammar"
+            for song in wanted
+            for w in song
+            if w.key.kind != "grammar"
         ],
     )
     return [
@@ -432,13 +432,9 @@ def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
                 for word in words.values()
                 if word.key in rows and not rows[word.key].suspended
             ],
-            [
-                w
-                for w in words.values()
-                if w.key not in rows and (w.key.kind == "grammar" or w.key in studyable)
-            ],
+            [w for w in song if w.key.kind == "grammar" or w.key in studyable],
         )
-        for words in found
+        for words, song in zip(found, wanted, strict=True)
     ]
 
 

@@ -9,8 +9,9 @@ import {
   startSongSession,
   suspendCard,
 } from './api'
-import type { PushOutMonths, SongReadiness, StudyQueue } from './api'
+import type { PushOutMonths, StudyQueue } from './api'
 import { KanjiSidebar } from './KanjiSidebar'
+import { ReadinessMeter } from './ReadinessMeter'
 import { StudyCardView } from './StudyCardView'
 import { useApiResource } from './useApiResource'
 import { useLineEndPolling } from './useLineEndPolling'
@@ -38,14 +39,28 @@ const EMPTY_TALLY: Tally = {
   nextDue: null,
 }
 
+// The song's readiness, fetched once the session that changed it is over.
+function SummaryReadiness({ documentId }: { documentId: number }) {
+  const { data, error } = useApiResource(
+    () => fetchDocumentReadiness(documentId),
+    [documentId],
+    'Failed to load readiness.',
+  )
+  if (error) return <li className="form-error">{error}</li>
+  if (!data) return null
+  return (
+    <li>
+      Readiness: <ReadinessMeter readiness={data} />
+    </li>
+  )
+}
+
 function Summary({
   tally,
   documentId,
-  readiness,
 }: {
   tally: Tally
   documentId: number | null
-  readiness: SongReadiness | null
 }) {
   const accuracy =
     tally.answered === 0
@@ -63,12 +78,7 @@ function Summary({
         {tally.nextDue && (
           <li>Next due: {new Date(tally.nextDue).toLocaleString()}</li>
         )}
-        {readiness && (
-          <li>
-            Readiness: {Math.round(readiness.readiness * 100)}% (
-            {readiness.mature}/{readiness.enrolled} mature)
-          </li>
-        )}
+        {documentId !== null && <SummaryReadiness documentId={documentId} />}
       </ul>
       <p>
         {documentId !== null && (
@@ -97,7 +107,6 @@ function StudySession({
   const [laddering, setLaddering] = useState(false)
   const [tally, setTally] = useState(EMPTY_TALLY)
   const [error, setError] = useState<string | null>(null)
-  const [readiness, setReadiness] = useState<SongReadiness | null>(null)
   const shownAt = useRef(performance.now())
 
   const [muted, setMuted] = usePersistentState('study-muted', false)
@@ -113,34 +122,27 @@ function StudySession({
   const audio = card?.line?.audio ?? null
 
   useEffect(() => {
-    if (!card && documentId !== null && readiness === null) {
-      fetchDocumentReadiness(documentId)
-        .then(setReadiness)
-        .catch((err) =>
-          setError(errorMessage(err, 'Failed to load readiness.')),
-        )
-    }
-  }, [card, documentId, readiness])
-
-  useEffect(() => {
     if (audio && audio.youtube_video_id !== videoId) {
       setVideoId(audio.youtube_video_id)
       setReadyVideoId(null)
     }
   }, [audio, videoId])
 
+  // The card's line, while it's unmuted and the player has its video.
+  const playing =
+    audio && !muted && readyVideoId === audio.youtube_video_id ? audio : null
+
   // Plays the line from its start to its end, and stops it if the card goes
   // first.
   useEffect(() => {
-    if (!audio || muted || readyVideoId !== audio.youtube_video_id) return
+    if (!playing) return
     const player = playerRef.current
     if (!player) return
-    player.playFrom(audio.start)
+    player.playFrom(playing.start)
     return () => player.pause()
-  }, [audio, muted, readyVideoId, replays])
+  }, [playing, replays])
 
-  const playing = audio && !muted && readyVideoId === audio.youtube_video_id
-  useLineEndPolling(playerRef, playing ? audio.end : null, () =>
+  useLineEndPolling(playerRef, playing?.end ?? null, () =>
     playerRef.current?.pause(),
   )
 
@@ -245,9 +247,7 @@ function StudySession({
     if (cards.length === 0) {
       return <p>Nothing is due right now.</p>
     }
-    return (
-      <Summary tally={tally} documentId={documentId} readiness={readiness} />
-    )
+    return <Summary tally={tally} documentId={documentId} />
   }
 
   return (

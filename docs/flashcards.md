@@ -1201,17 +1201,19 @@ share. No behavior change.
 
 *As built* (`study.py`, `card_content.py`, `RunThroughPage.tsx`, `ReadinessMeter.tsx`) — what later
 steps build on:
-- `cards.song_words` is what harvest finds in a song, split into the words the user has an
-  unsuspended card for (each with its row) and those harvest would enroll. A removed card is in
-  neither, so removing a word takes it out of the song's denominator rather than leaving a
-  permanent zero. `harvest` shares its first half (`_found_words`).
-- `study.song_readiness` is §6's definition, with `mature` (stability of 21 days or more, in Review)
-  and `due` (due now, not "today", as the queue reads it) counted alongside. Retrievability comes
+- `cards.songs_words` is what harvest finds in each of a list of songs, split into the words the
+  user has an unsuspended card for (each with its row) and those harvest would enroll, from one
+  cards query and one gloss plan for all of them; `song_words` is the one-song form. A removed card
+  is in neither, so removing a word takes it out of the song's denominator rather than leaving a
+  permanent zero. `harvest` is `song_words`' second half.
+- `study.song_readiness` is §6's definition, with `mature` (`cards.is_mature`: stability of 21 days
+  or more, in Review, which the kanji sidebar's deck words use too) and `due` (due now, not "today", as the queue reads it) counted alongside. Retrievability comes
   from py-fsrs, so a card never reviewed counts as zero.
 - `GET /documents` carries each item's `readiness`, computed for every song on the page (§10's
-  third question): a few queries per song, and a gloss the cache lost is fetched on the way, so the
-  list now runs in a transaction. `GET /documents/{id}/readiness` serves one song.
-- The list column isn't sortable: sorting by readiness needs it for every song, not the page's.
+  third question) in one batch, and a gloss the cache lost is fetched on the way, so the list runs
+  in a transaction. Sorting by readiness computes it for every one of the user's songs and cuts the
+  page from the sorted list. `GET /documents/{id}/readiness` serves one song, which the study
+  session's summary shows.
 - Run-through is `GET /documents/{id}/run-through`: every line in order with its audio, and the
   words in it whose card's retrievability is below the user's desired retention, weakest first,
   each with the first senses its card options show (a grammar term's note). A song with no new

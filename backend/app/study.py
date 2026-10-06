@@ -32,6 +32,7 @@ from app.cards import (
     song_card_keys,
     song_words,
     songs_words,
+    units_by_document,
 )
 from app.users import document_is_owned
 
@@ -378,7 +379,7 @@ class Readiness:
     readiness: float
     words: int
     enrolled: int
-    # Cards with stability of 21 days or more.
+    # Cards that are mature (see cards.is_mature).
     mature: int
     due: int
 
@@ -418,12 +419,14 @@ def song_readiness(words: SongWords, now: datetime) -> Readiness:
 def documents_readiness(
     conn, user_id: int, document_ids: list[int]
 ) -> dict[int, Readiness]:
-    """song_readiness as of now for each of the user's documents among
-    `document_ids`."""
-    songs = load_songs(conn, user_id, document_ids)
-    words = songs_words(conn, [song.units for song in songs.values()], user_id)
+    """song_readiness as of now for each of `document_ids`, documents the
+    caller knows are the user's."""
+    units = units_by_document(conn, document_ids)
+    words = songs_words(conn, [units.get(id, []) for id in document_ids], user_id)
     now = datetime.now(UTC)
-    return {id: song_readiness(w, now) for id, w in zip(songs, words, strict=True)}
+    return {
+        id: song_readiness(w, now) for id, w in zip(document_ids, words, strict=True)
+    }
 
 
 def run_through(
