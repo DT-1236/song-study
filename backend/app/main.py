@@ -4,7 +4,7 @@ import re
 from datetime import datetime
 from decimal import Decimal
 from itertools import pairwise
-from typing import Literal
+from typing import Literal, NamedTuple
 
 from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
@@ -698,6 +698,15 @@ class Token(BaseModel):
     end_time: Decimal | None
 
 
+class _FetchedTokens(NamedTuple):
+    tokens: list[Token]
+    # Some token that should have a gloss linked has none.
+    unlinked: bool
+    # Some composite gloss has a piece whose lookup isn't cached, so it was
+    # shown with no gloss (only under `cache_only`).
+    dropped_lookup: bool
+
+
 def _fetch_tokens(
     conn,
     document_id: int,
@@ -710,6 +719,18 @@ def _fetch_tokens(
     gloss with a piece whose lookup isn't cached comes back with no gloss,
     as an unlinked token does, rather than looking it up to be lost.
     """
+    return _read_tokens(conn, document_id, token_ids, cache_only=cache_only).tokens
+
+
+def _read_tokens(
+    conn,
+    document_id: int,
+    token_ids: list[int] | None = None,
+    *,
+    cache_only: bool = False,
+) -> _FetchedTokens:
+    """What `_fetch_tokens` returns, along with which repairs the tokens
+    need before they can be shown fully glossed."""
     token_filter = "AND t.id = ANY(:token_ids)" if token_ids is not None else ""
     rows = conn.execute(
         text(
@@ -735,7 +756,7 @@ def _fetch_tokens(
         {"document_id": document_id, "token_ids": token_ids},
     ).all()
     if not rows:
-        return []
+        return _FetchedTokens([], False, False)
 
     conflict_rows = conn.execute(
         text(
@@ -763,20 +784,25 @@ def _fetch_tokens(
     )
     shown_pieces_memo: dict[str, list[dict] | None] = {}
     tokens = []
+    unlinked = False
+    dropped_lookup = False
     for row in rows:
         data = dict(row._mapping)
         gloss_reading = data.pop("gloss_reading")
         gloss_entries = data.pop("gloss_entries")
         gloss_source = data.pop("gloss_source")
         gloss_lookup_form = data.pop("gloss_lookup_form")
+        conflicts = conflicts_by_token.get(row.id, [])
         if gloss_reading is None:
             data["gloss"] = None
+            unlinked = unlinked or is_glossable(row.part_of_speech, bool(conflicts))
         elif gloss_source == "composite":
             # Each piece ranked for its own part of speech, not the token's.
             entries_key = json.dumps(gloss_entries, sort_keys=True)
             if entries_key not in shown_pieces_memo:
                 shown_pieces_memo[entries_key] = shown_pieces(gloss_entries, lookups)
             pieces = shown_pieces_memo[entries_key]
+            dropped_lookup = dropped_lookup or pieces is None
             # None only under cache_only, for a piece whose lookup isn't
             # cached: shown unglossed, as an unlinked token is.
             data["gloss"] = (
@@ -798,14 +824,14 @@ def _fetch_tokens(
                 senses=rank_senses(gloss_entries, data["part_of_speech"][0]),
                 source=gloss_source,
             )
-        data["conflicts"] = conflicts_by_token.get(data["id"], [])
+        data["conflicts"] = conflicts
         data["is_english"] = is_probably_english(data["surface"])
         data["dictionary_form_reading"] = mixed_reading(data["dictionary_form"])
         data["dictionary_form_note"] = dictionary_form_note(
             data["dictionary_form"], data["normalized_form"], data["part_of_speech"][4]
         )
         tokens.append(Token(**data))
-    return tokens
+    return _FetchedTokens(tokens, unlinked, dropped_lookup)
 
 
 def _fetch_token(conn, document_id: int, token_id: int) -> Token:
@@ -915,7 +941,8 @@ def get_document_tokens(
 ) -> list[Token]:
     while True:
         with engine.connect() as conn:
-            existing = _fetch_tokens(conn, document_id, cache_only=True)
+            fetched = _read_tokens(conn, document_id, cache_only=True)
+            existing = fetched.tokens
             if not existing:
                 # Tokens only exist for a document that does, so the document
                 # is only read (and checked for) when there are none.
@@ -925,19 +952,17 @@ def get_document_tokens(
                 ).scalar_one_or_none()
 
         if existing:
-            if all(
-                t.gloss is not None
-                or not is_glossable(t.part_of_speech, bool(t.conflicts))
-                for t in existing
-            ):
+            if not fetched.unlinked and not fetched.dropped_lookup:
                 return existing
-            # Tokens missing their gloss link: tokenized before gloss support
-            # existed, or unlinked by a migration that reset the gloss cache
-            # (as 0005 did). Or shown without one because a piece of their
-            # composite gloss has no cached lookup, which repair_gloss_links
-            # leaves alone: the fetch below, which can write, looks it up.
             with engine.begin() as conn:
-                repair_gloss_links(conn, document_id)
+                # Tokens missing their gloss link: tokenized before gloss
+                # support existed, or unlinked by a migration that reset the
+                # gloss cache (as 0005 did).
+                if fetched.unlinked:
+                    repair_gloss_links(conn, document_id)
+                # A piece of a composite gloss with no cached lookup is
+                # left alone by repair_gloss_links: the fetch, which can
+                # write, looks it up.
                 return _fetch_tokens(conn, document_id)
 
         if document_text is None:

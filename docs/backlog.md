@@ -6,18 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on caching dropped piece lookups and deriving pieces when shown (migration 0024)
 
-- **A missing piece lookup is signalled through `gloss is None`.**
-  `get_document_tokens` only repairs when a *glossable* token has no gloss,
-  so a composite linked only to non-glossable tokens with a dropped piece
-  lookup would be served unglossed and never repaired (no such case found
-  today: group bases, katakana words and A-split keys are all lexical). And
-  when that is the only reason to repair, `repair_gloss_links` runs for
-  nothing, since every token is still linked. Having
-  `piece_lookups(cache_only=True)` also return the missing keys would let
-  the repair branch run on that directly and skip `repair_gloss_links` when
-  nothing is unlinked. The round-trip counts in `test_document_tokens.py`
-  pin both paths. Sonnet 5, medium: the spec is clear, but it reshapes how
-  the read path hands off to the repair path.
 - **A word written in katakana for emphasis is never linked to its word's
   card.** Decided: a katakana line in a song (ココロノコエ) should be one of the
   lines a card for the kanji word (心の声, shown with furigana) can play, now
