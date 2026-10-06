@@ -13,15 +13,13 @@ import type { PushOutMonths, SongReadiness, StudyQueue } from './api'
 import { KanjiSidebar } from './KanjiSidebar'
 import { StudyCardView } from './StudyCardView'
 import { useApiResource } from './useApiResource'
+import { useLineEndPolling } from './useLineEndPolling'
 import { usePersistentState } from './usePersistentState'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
 // The push-out ladder, by the key that picks each step.
 const PUSH_OUT_KEYS: Record<string, PushOutMonths> = { '1': 1, '2': 3, '3': 6 }
-
-// How often to check whether the playing line has reached its end.
-const LINE_END_POLL_MS = 100
 
 type Tally = {
   answered: number
@@ -138,15 +136,13 @@ function StudySession({
     const player = playerRef.current
     if (!player) return
     player.playFrom(audio.start)
-    const timer = window.setInterval(() => {
-      const time = player.getCurrentTime()
-      if (time !== null && time >= audio.end) player.pause()
-    }, LINE_END_POLL_MS)
-    return () => {
-      window.clearInterval(timer)
-      player.pause()
-    }
+    return () => player.pause()
   }, [audio, muted, readyVideoId, replays])
+
+  const playing = audio && !muted && readyVideoId === audio.youtube_video_id
+  useLineEndPolling(playerRef, playing ? audio.end : null, () =>
+    playerRef.current?.pause(),
+  )
 
   function advance() {
     setIndex((i) => i + 1)
