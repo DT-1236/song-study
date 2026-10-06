@@ -472,7 +472,8 @@ export async function setTokensIgnored(
   return response.json()
 }
 
-export type SortField = 'id' | 'title' | 'youtube_video_id' | 'created_at'
+export type SortField =
+  'id' | 'title' | 'youtube_video_id' | 'created_at' | 'readiness'
 export type SortDir = 'asc' | 'desc'
 
 export type JmdictSense = {

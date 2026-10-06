@@ -4,15 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## Step 8 (song readiness and run-through)
-
-- Sort the documents list by readiness, "least ready first" (§6). Retrievability is FSRS math in
-  Python, so load all of the user's songs' units, compute `documents_readiness` for every song, sort
-  those, and slice the page from the sorted list. Add `readiness` to `SortField` and make the header
-  sortable. Does the same work for every song on each request, so do the batching item below first.
-  Model: Sonnet 5, medium effort — the approach is decided; what's left is applying it to
-  `list_documents`.
-
 ## `/simplify` on the step 8 branch (song readiness and run-through)
 
 - Batch `documents_readiness` across the page's songs: `song_words` runs its own cards query and its

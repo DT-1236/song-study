@@ -547,7 +547,7 @@ def save_line_timings(
     return Document(**row._mapping)
 
 
-SortField = Literal["id", "title", "youtube_video_id", "created_at"]
+SortField = Literal["id", "title", "youtube_video_id", "created_at", "readiness"]
 
 
 class DocumentListItem(BaseModel):
@@ -575,6 +575,11 @@ def list_documents(
 ) -> DocumentPage:
     direction = "ASC" if sort_dir == "asc" else "DESC"
     offset = (page - 1) * page_size
+    by_readiness = sort_by == "readiness"
+    # Readiness is computed from the schedule, not stored, so ordering by it
+    # takes every song's, and the page is cut from the sorted list.
+    order_by = "id" if by_readiness else sort_by
+    paging = "" if by_readiness else "LIMIT :limit OFFSET :offset"
 
     # A transaction, since the gloss of a word the cache has lost is looked up
     # again and stored.
@@ -586,8 +591,8 @@ def list_documents(
                        COUNT(*) OVER() AS total
                 FROM documents
                 WHERE owner_id = :owner_id
-                ORDER BY {sort_by} {direction}, id {direction}
-                LIMIT :limit OFFSET :offset
+                ORDER BY {order_by} {direction}, id {direction}
+                {paging}
                 """
             ),
             {"owner_id": user_id, "limit": page_size, "offset": offset},
@@ -595,6 +600,12 @@ def list_documents(
         readiness = study.documents_readiness(conn, user_id, [row.id for row in rows])
 
     total = rows[0].total if rows else 0
+    if by_readiness:
+        # Stable, so songs equally ready stay in id order.
+        rows.sort(
+            key=lambda row: readiness[row.id].readiness, reverse=sort_dir == "desc"
+        )
+        rows = rows[offset : offset + page_size]
     items = [
         DocumentListItem(
             id=row.id,
