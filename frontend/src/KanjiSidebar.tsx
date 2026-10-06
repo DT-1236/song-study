@@ -1,20 +1,19 @@
 import type { CardKanji, KanjiEntry } from './api'
 
-// How many of the user's other words with the kanji are listed under it.
-const MAX_DECK_WORDS = 5
-
 function KanjiCard({
   kanji,
   entry,
   cardId,
+  maxDeckWords,
 }: {
   kanji: CardKanji
   entry: KanjiEntry
   cardId: number
+  maxDeckWords: number
 }) {
   const deckWords = entry.deck_words
     .filter((word) => word.card_id !== cardId)
-    .slice(0, MAX_DECK_WORDS)
+    .slice(0, maxDeckWords)
   const meta = [
     entry.grade !== null && `grade ${entry.grade}`,
     entry.frequency !== null && `freq ${entry.frequency}`,
@@ -70,10 +69,12 @@ export function KanjiSidebar({
   kanji,
   entries,
   cardId,
+  maxDeckWords,
 }: {
   kanji: CardKanji[]
   entries: Record<string, KanjiEntry>
   cardId: number
+  maxDeckWords: number
 }) {
   // A kanji KANJIDIC2 has no entry for is left out of both.
   const shown = kanji.filter((k) => entries[k.character])
@@ -87,6 +88,7 @@ export function KanjiSidebar({
           kanji={k}
           entry={entries[k.character]}
           cardId={cardId}
+          maxDeckWords={maxDeckWords}
         />
       ))}
     </aside>
