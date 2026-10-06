@@ -150,6 +150,30 @@ def test_the_documents_list_shows_each_songs_readiness(committed_engine):
     assert item.readiness.words == 5
 
 
+def test_the_documents_list_gives_each_song_only_its_own_words(committed_engine):
+    first = create_tokenized_document(SONG)
+    start_song_session(first)
+    _recalled_now(committed_engine, "聞こえる")
+    # Shares 君 and 聞こえる with the first song, which gave them cards, and
+    # has one word of its own, 咲く, with no card.
+    second = create_tokenized_document("君が聞こえる。花が咲く。")
+
+    page = list_documents(page=1, page_size=20, sort_by="id", sort_dir="asc")
+
+    listed = {item.id: item.readiness for item in page.items}
+    for document_id in [first, second]:
+        alone = get_song_readiness(document_id)
+        assert listed[document_id].readiness == pytest.approx(alone.readiness)
+        assert (
+            listed[document_id].words,
+            listed[document_id].enrolled,
+            listed[document_id].mature,
+            listed[document_id].due,
+        ) == (alone.words, alone.enrolled, alone.mature, alone.due)
+    assert (listed[second].words, listed[second].enrolled) == (3, 2)
+    assert listed[second].readiness == pytest.approx(1 / 3)
+
+
 def test_the_documents_list_sorts_by_readiness_before_cutting_a_page(
     committed_engine,
 ):
