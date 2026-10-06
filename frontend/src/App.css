@@ -1338,3 +1338,195 @@ label.apply-to-all {
   color: inherit;
   text-decoration: none;
 }
+
+/* The study page. Its own classes, kept out of .new-document-form, whose
+   button rule would restyle every button here. */
+.study-toolbar,
+.study-ladder {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.study-toolbar > span {
+  margin-right: auto;
+  color: var(--text-muted);
+}
+
+.study-layout {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-items: flex-start;
+}
+
+.study-card {
+  flex: 1 1 380px;
+  min-width: 0;
+  padding: 1rem 1.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg-elevated);
+}
+
+.study-card-title {
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.study-line {
+  margin: 1rem 0;
+  font-size: 1.6rem;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+
+.study-dim {
+  color: var(--text-muted);
+  opacity: 0.55;
+}
+
+.study-focus {
+  padding: 0 0.15em;
+  border-radius: 4px;
+  background-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.study-written-as {
+  font-size: 1.1rem;
+}
+
+.study-question {
+  margin: 0.5rem 0 0;
+  font-weight: 600;
+}
+
+.study-showing {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
+}
+
+.study-options {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.study-option {
+  display: flex;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+}
+
+.study-option kbd {
+  color: var(--text-muted);
+  font-family: inherit;
+}
+
+.study-option:disabled {
+  cursor: default;
+}
+
+.study-option.correct {
+  border-color: var(--success);
+}
+
+.study-option.wrong {
+  border-color: var(--danger);
+}
+
+.study-option.other {
+  opacity: 0.5;
+}
+
+.study-reveal {
+  margin-top: 1rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid var(--border);
+}
+
+.study-right {
+  margin: 0;
+  color: var(--success);
+  font-weight: 600;
+}
+
+.study-missed {
+  margin: 0;
+  color: var(--danger);
+  font-weight: 600;
+}
+
+.study-word {
+  font-size: 1.4rem;
+}
+
+.study-senses {
+  margin: 0.25rem 0;
+  padding-left: 1.5rem;
+}
+
+.study-tag {
+  color: var(--text-muted);
+}
+
+.study-link-button {
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85rem;
+}
+
+.study-next {
+  margin-top: 1rem;
+}
+
+.study-player {
+  width: 240px;
+  margin-top: 1rem;
+}
+
+.kanji-sidebar {
+  flex: 0 1 260px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.kanji-card {
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background-color: var(--bg-elevated);
+  font-size: 0.9rem;
+}
+
+.kanji-card-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.kanji-character {
+  font-size: 2rem;
+  line-height: 1.2;
+}
+
+.kanji-meta,
+.kanji-more,
+.kanji-components,
+.kanji-status {
+  color: var(--text-muted);
+}
+
+.kanji-status.mature {
+  color: var(--success);
+}

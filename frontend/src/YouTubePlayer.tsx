@@ -20,6 +20,7 @@ export type YouTubePlayerHandle = {
   getDuration: () => number
   getVideoData: () => YT.VideoData | null
   togglePlay: () => void
+  pause: () => void
   seekBy: (deltaSeconds: number) => void
   playFrom: (seconds: number) => void
 }
@@ -29,10 +30,12 @@ type Props = {
   // Called after each seek made through the handle, so playback-time
   // readers can update at once rather than at their next check.
   onSeek?: () => void
+  // Called once the player's methods are usable, for the video it was made for.
+  onReady?: () => void
 }
 
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
-  function YouTubePlayer({ videoId, onSeek }, ref) {
+  function YouTubePlayer({ videoId, onSeek, onReady }, ref) {
     const containerRef = useRef<HTMLDivElement>(null)
     // Set only once the player is ready, since its methods don't exist before.
     const playerRef = useRef<YT.Player | null>(null)
@@ -40,6 +43,12 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
     // up: it keeps reporting the time from before a seek until the iframe
     // reports back, some 50 ms later.
     const seekRef = useRef<{ seconds: number; at: number } | null>(null)
+    // Read when the player becomes ready, which is after the render that
+    // made it, so a later render's callback is the one that runs.
+    const onReadyRef = useRef(onReady)
+    useEffect(() => {
+      onReadyRef.current = onReady
+    }, [onReady])
 
     useEffect(() => {
       let cancelled = false
@@ -53,7 +62,9 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
           height: '100%',
           events: {
             onReady: (event) => {
-              if (!cancelled) playerRef.current = event.target
+              if (cancelled) return
+              playerRef.current = event.target
+              onReadyRef.current?.()
             },
           },
         })
@@ -104,6 +115,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
             player.playVideo()
           }
         },
+        pause: () => playerRef.current?.pauseVideo(),
         seekBy: (deltaSeconds) => {
           const player = playerRef.current
           if (!player) return

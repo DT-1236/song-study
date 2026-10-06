@@ -507,3 +507,162 @@ export async function fetchDocuments(params: {
 
   return response.json()
 }
+
+export type CardKind = 'recognition' | 'grammar'
+
+export type StudyCard = {
+  id: number
+  kind: CardKind
+  lookup_form: string
+  // Null for a grammar term.
+  reading: string | null
+  suspended: boolean
+  due: string
+  first_seen_document_id: number | null
+}
+
+export type CardAudio = {
+  youtube_video_id: string
+  // When the line is sung, in seconds into the video.
+  start: number
+  end: number
+}
+
+// The line of a song a card plays. Offsets are [begin, end) in Unicode code
+// points, as the backend counts them, not in UTF-16 units.
+export type CardLine = {
+  document_id: number
+  title: string
+  index: number
+  text: string
+  token_id: number
+  focus: [number, number]
+  group: [number, number]
+  // Null when the song has no video, or no timing for this line.
+  audio: CardAudio | null
+  // For a word or grammar term sung in katakana, its dictionary form as its
+  // gloss writes it (声 for コエ); null for one that isn't.
+  written_as: string | null
+}
+
+export type CardOption = {
+  // A word's option: the senses it shows, each as its glosses.
+  senses: string[][] | null
+  // A grammar term's option: what it says the term does.
+  note: string | null
+}
+
+export type CardKanji = {
+  character: string
+  // Only the kun readings the word uses, with their okurigana in brackets.
+  kun_readings: string[]
+  more_kun: number
+}
+
+export type DeckWord = {
+  card_id: number
+  lookup_form: string
+  reading: string | null
+  status: 'new' | 'learning' | 'mature'
+}
+
+export type KanjiEntry = {
+  on_readings: string[]
+  meanings: string[]
+  grade: number | null
+  frequency: number | null
+  radical: { character: string; meaning: string } | null
+  components: string[]
+  deck_words: DeckWord[]
+}
+
+export type QueuedCard = StudyCard & {
+  // Null when the card's word is in none of the user's songs any more.
+  line: CardLine | null
+  options: CardOption[]
+  // The index of the right option; null, with no options, for a word with
+  // no dictionary entry to ask about any more.
+  answer: number | null
+  // A word's every sense, ranked, for the reveal.
+  senses: GlossSense[]
+  kanji: CardKanji[]
+}
+
+export type StudyQueue = {
+  cards: QueuedCard[]
+  // The sidebar entry of every kanji of the cards, by character.
+  kanji: Record<string, KanjiEntry>
+}
+
+export type PushOutMonths = 1 | 3 | 6
+
+const CARD_ERRORS = {
+  404: 'Card not found.',
+  409: 'This card was removed from study.',
+}
+
+// Studies the song: enrolls its new words, up to its daily limit, and
+// returns the due cards for its words.
+export async function startSongSession(
+  documentId: number,
+): Promise<StudyQueue> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/study`, {
+    method: 'POST',
+  })
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
+
+export async function fetchAllSongsQueue(): Promise<StudyQueue> {
+  const response = await fetch(`${API_URL}/study/queue`)
+
+  await assertOk(response)
+
+  return response.json()
+}
+
+export async function reviewCard(
+  cardId: number,
+  answer: { correct: boolean; durationMs: number; documentId: number | null },
+): Promise<{ rating: number; card: StudyCard }> {
+  const response = await fetch(`${API_URL}/cards/${cardId}/review`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      correct: answer.correct,
+      duration_ms: answer.durationMs,
+      document_id: answer.documentId,
+    }),
+  })
+
+  await assertOk(response, CARD_ERRORS)
+
+  return response.json()
+}
+
+export async function pushOutCard(
+  cardId: number,
+  months: PushOutMonths,
+): Promise<StudyCard> {
+  const response = await fetch(`${API_URL}/cards/${cardId}/push-out`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ months }),
+  })
+
+  await assertOk(response, CARD_ERRORS)
+
+  return response.json()
+}
+
+export async function suspendCard(cardId: number): Promise<StudyCard> {
+  const response = await fetch(`${API_URL}/cards/${cardId}/suspend`, {
+    method: 'POST',
+  })
+
+  await assertOk(response, { 404: 'Card not found.' })
+
+  return response.json()
+}

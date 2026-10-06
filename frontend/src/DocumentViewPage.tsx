@@ -9,7 +9,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useBlocker, useParams } from 'react-router-dom'
+import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
   acceptPhraseSuggestions,
@@ -2493,6 +2493,7 @@ export function DocumentViewPage() {
     <div className="new-document-form">
       <div className="document-header" ref={setHeaderEl}>
         <h1>{doc.title}</h1>
+        <Link to={`/documents/${doc.id}/study`}>Study this song</Link>
 
         <label htmlFor="title">Title</label>
         <p id="title" className="readonly-text">
