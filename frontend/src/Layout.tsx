@@ -30,6 +30,12 @@ export function Layout() {
           >
             Existing Documents
           </NavLink>
+          <NavLink
+            to="/study"
+            className={({ isActive }) => (isActive ? 'active' : '')}
+          >
+            Study
+          </NavLink>
 
           {tabs.length > 0 && (
             <div className="sidebar-tabs">

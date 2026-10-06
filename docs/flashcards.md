@@ -1170,6 +1170,23 @@ just on the reveal. Take the spelling from `Line.written_as`, which marks a kata
 UI can't infer it, because a conjugated surface still shows its dictionary form only on the
 reveal.
 
+*As built* (`StudyPage.tsx`, `StudyCardView.tsx`, `KanjiSidebar.tsx`) — what later steps build on:
+- Routes `/documents/:id/study` (the song's queue, which enrolls) and `/study` (all songs), linked
+  from the document page and the sidebar. The queue is a snapshot taken on load and walked once;
+  a missed card is not repeated in the session, and a card with no options is skipped.
+- Keys: `1`–`4` answer, `⏎` next, space replays, `!` opens the push-out ladder (`1`/`2`/`3` for
+  1/3/6 months, Esc cancels), `-` removes. Push-out and remove advance without a rating, before or
+  after answering.
+- Audio is one `YouTubePlayer` kept across cards, playing the line from `start` and pausing at `end`
+  (polled, since the player has no end-time). `YouTubePlayer` gained `pause` and `onReady`. Mute is
+  `usePersistentState('study-muted')` and silences autoplay and replay alike.
+- The reveal's gloss is its own `SenseList` (`SENSE_LIMIT = 5` with an expander), the duplication
+  step 7 removes. The reading shows beside the word, not as furigana over the line, which the queue
+  doesn't carry.
+- The sidebar lists five deck words (`MAX_DECK_WORDS`) after leaving out the card itself, a number
+  the backend's `kanji.py` also holds.
+- Not checked in a browser: playback itself (a mocked API stood in for the backend, with no video).
+
 **7 — Extract the gloss rendering.** Pull the gloss rendering the document page and the study UI
 now both carry out of `DocumentViewPage.tsx` into a shared module, shaped by what the two actually
 share. No behavior change.
@@ -1220,7 +1237,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 3 — Scheduling | Done | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
 | 4 — Card content | Done | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
 | 5 — Kanji sidebar data | Done | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
-| 6 — Study UI | Not started | Sonnet 5 | medium | A new page is conventional React against a specified layout |
+| 6 — Study UI | Done | Sonnet 5 | medium | A new page is conventional React against a specified layout |
 | 7 — Gloss rendering extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
 | 8 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
 | 9 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |

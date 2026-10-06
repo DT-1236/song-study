@@ -11,6 +11,7 @@ import { Layout } from './Layout'
 import { NewDocumentForm } from './NewDocumentForm'
 import { DocumentsListPage } from './DocumentsListPage'
 import { DocumentViewPage } from './DocumentViewPage'
+import { StudyPage } from './StudyPage'
 import { TabsProvider } from './TabsContext'
 
 // A data router, which a page needs to ask before it's left with unsaved
@@ -28,6 +29,8 @@ const router = createBrowserRouter(
       <Route path="new" element={<NewDocumentForm />} />
       <Route path="documents" element={<DocumentsListPage />} />
       <Route path="documents/:id" element={<DocumentViewPage />} />
+      <Route path="documents/:id/study" element={<StudyPage />} />
+      <Route path="study" element={<StudyPage />} />
     </Route>,
   ),
 )
