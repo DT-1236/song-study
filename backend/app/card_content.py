@@ -35,6 +35,7 @@ from app.kanji import (
     kanji_entries,
     kanji_in_spans,
     kanji_in_word,
+    load_characters,
 )
 
 OPTION_COUNT = 4
@@ -672,12 +673,10 @@ def queue_contents(
         _written_kanji(key, occurrence, furigana)
         for key, occurrence in zip(keys, chosen, strict=True)
     ]
-    # Every card's kanji, in one lookup.
-    deck = deck_cards(
-        conn,
-        user_id,
-        {item.character for kanji in written for item in kanji},
-    )
+    characters = {item.character for kanji in written for item in kanji}
+    # Every card's kanji, in one lookup each from KANJIDIC2 and the deck.
+    load_characters(characters)
+    deck = deck_cards(conn, user_id, characters)
 
     queue = []
     for card, key, occurrence, kanji in zip(cards, keys, chosen, written, strict=True):
