@@ -18,7 +18,13 @@ from functools import cached_property
 
 from sqlalchemy import text
 
-from app.cards import CardKey, CardTokens, unit_card_tokens, units_by_document
+from app.cards import (
+    CardKey,
+    CardTokens,
+    katakana_lookups,
+    unit_card_tokens,
+    units_by_document,
+)
 from app.db import DOCUMENT_COLUMNS
 from app.glosses import GlossKey, gloss_entries, rank_senses
 from app.grammar import grammar_category, grammar_notes, notes_overlap
@@ -172,9 +178,9 @@ class _Occurrence:
             )
 
         focus = on_line(self.found.tokens[0], self.found.tokens[-1])
-        if (piece := self.found.katakana_piece) is not None:
-            # A piece's span is within its token, which is all of the unit.
-            focus = (focus[0] + piece["span"][0], focus[0] + piece["span"][1])
+        if self.found.span is not None:
+            # A katakana word's span is within its one token.
+            focus = (focus[0] + self.found.span[0], focus[0] + self.found.span[1])
 
         index = line_index(lyrics, begin)
         return Line(
@@ -203,13 +209,15 @@ def _audio(song: Song, index: int) -> Audio | None:
     return Audio(song.youtube_video_id, timing["start"], timing["end"])
 
 
-def _occurrences(songs: Iterable[Song]) -> dict[CardKey, list[_Occurrence]]:
+def _occurrences(conn, songs: Iterable[Song]) -> dict[CardKey, list[_Occurrence]]:
     """Everywhere `songs` have each word and grammar term a card can be for,
     by key."""
+    songs = list(songs)
+    katakana = katakana_lookups(conn, (unit for song in songs for unit in song.units))
     found: dict[CardKey, list[_Occurrence]] = {}
     for song in songs:
         for unit in song.units:
-            for card_tokens in unit_card_tokens(unit):
+            for card_tokens in unit_card_tokens(unit, katakana=katakana):
                 found.setdefault(card_tokens.key, []).append(
                     _Occurrence(song, unit, card_tokens)
                 )
@@ -415,12 +423,9 @@ class _Word:
     @classmethod
     def of(cls, found: CardTokens) -> _Word:
         head = found.tokens[0]
-        pos_major = head.part_of_speech[0]
-        if (piece := found.katakana_piece) is not None:
-            # Ranked as its gloss ranks it (see glosses.shown_pieces), since
-            # the katakana token's own tag is Sudachi's guess at an unknown
-            # word.
-            pos_major = piece["senses_pos_major"] or piece["part_of_speech"][0]
+        # A katakana word's is its gloss's, since the katakana token's own tag
+        # is Sudachi's guess at an unknown word.
+        pos_major = found.pos_major or head.part_of_speech[0]
         # An accepted phrase's senses are an idiom's, whatever its first
         # token is.
         phrase = head.accepted_phrase is not None
@@ -521,7 +526,7 @@ class _Library:
             }
             if self._occurrences is None:
                 songs = load_songs(self._conn, self._user_id)
-                self._occurrences = _occurrences(songs.values())
+                self._occurrences = _occurrences(self._conn, songs.values())
             self._deck = [
                 _Word.of(occurrences[0].found)
                 for key, occurrences in self._occurrences.items()
@@ -586,7 +591,7 @@ def queue_contents(
     if it has the card's word, else any of them, all the user's songs.
     `rng` draws the lines and options."""
     rng = rng or random.Random()
-    occurrences = _occurrences(songs.values())
+    occurrences = _occurrences(conn, songs.values())
     library = _Library(conn, user_id, occurrences if studied is None else None)
     glosses = _Glosses(conn)
 

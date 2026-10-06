@@ -218,8 +218,8 @@ KATAKANA_SONG = "ボクノアイタイ。"
 
 
 def _song_keys(engine, document_id: int) -> set[CardKey]:
-    with engine.connect() as conn:
-        return document_card_keys(document_units(conn, document_id))
+    with engine.begin() as conn:
+        return document_card_keys(conn, document_units(conn, document_id))
 
 
 def test_a_katakana_word_belongs_to_the_cards_of_the_words_it_splits_into(
