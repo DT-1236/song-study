@@ -12,9 +12,6 @@ so it can be picked up without re-deriving the reasoning.
   sortable. Does the same work for every song on each request, so do the batching item below first.
   Model: Sonnet 5, medium effort — the approach is decided; what's left is applying it to
   `list_documents`.
-- Show the song's new readiness on the study session summary (§7, step 5): fetch
-  `GET /documents/{id}/readiness` when a song session ends. Model: Haiku 4.5, low effort — one
-  fetch and one list item.
 
 ## `/simplify` on the step 8 branch (song readiness and run-through)
 

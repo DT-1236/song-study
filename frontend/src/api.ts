@@ -650,6 +650,16 @@ export async function fetchRunThrough(documentId: number): Promise<RunThrough> {
   return response.json()
 }
 
+export async function fetchDocumentReadiness(
+  documentId: number,
+): Promise<SongReadiness> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/readiness`)
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
+
 const CARD_ERRORS = {
   404: 'Card not found.',
   409: 'This card was removed from study.',
