@@ -8,16 +8,22 @@ JMDict rather than a mock, because these bugs were specifically about how
 real Sudachi/JMDict data interacts.
 """
 
+import json
+
 import pytest
 from sqlalchemy import text
 
 from app.glosses import (
     alternate_reading_options,
     get_or_create_gloss_lookup,
+    gloss_piece,
     is_probably_english,
+    piece_lookups,
+    plan_glosses,
     rank_senses,
     search_jmdict,
     search_readings,
+    shown_pieces,
 )
 from tests.support import jmdict_search
 
@@ -37,10 +43,17 @@ class TestIsProbablyEnglish:
         assert not is_probably_english("花火")
 
 
-class TestRankSenses:
-    def _sense(self, pos, gloss):
-        return {"pos": [pos], "misc": [], "field": [], "gloss": [gloss]}
+def _sense(pos, gloss):
+    return {"pos": [pos], "misc": [], "field": [], "gloss": [gloss]}
 
+
+def _entries(conn, gloss_id):
+    return conn.execute(
+        text("SELECT entries FROM gloss_lookups WHERE id = :id"), {"id": gloss_id}
+    ).scalar_one()
+
+
+class TestRankSenses:
     def test_matching_pos_ranks_above_non_matching(self):
         # Mirrors the real で case: a token Sudachi tagged as a particle
         # should surface JMDict's particle-tagged senses first, even though
@@ -50,10 +63,8 @@ class TestRankSenses:
                 "idseq": 1,
                 "kanji_forms": [],
                 "senses": [
-                    self._sense(
-                        "noun (common) (futsuumeishi)", "an unrelated noun sense"
-                    ),
-                    self._sense("particle", "the particle sense"),
+                    _sense("noun (common) (futsuumeishi)", "an unrelated noun sense"),
+                    _sense("particle", "the particle sense"),
                 ],
             }
         ]
@@ -65,14 +76,12 @@ class TestRankSenses:
             {
                 "idseq": 1,
                 "kanji_forms": [{"text": "a", "pri": []}],
-                "senses": [
-                    self._sense("noun (common) (futsuumeishi)", "uncommon entry")
-                ],
+                "senses": [_sense("noun (common) (futsuumeishi)", "uncommon entry")],
             },
             {
                 "idseq": 2,
                 "kanji_forms": [{"text": "b", "pri": ["ichi1"]}],
-                "senses": [self._sense("noun (common) (futsuumeishi)", "common entry")],
+                "senses": [_sense("noun (common) (futsuumeishi)", "common entry")],
             },
         ]
         ranked = rank_senses(entries, "名詞")
@@ -86,8 +95,8 @@ class TestRankSenses:
                 "idseq": 1,
                 "kanji_forms": [],
                 "senses": [
-                    self._sense("suru verb - included", "to do"),
-                    self._sense("intransitive verb", "to be sensed"),
+                    _sense("suru verb - included", "to do"),
+                    _sense("intransitive verb", "to be sensed"),
                 ],
             }
         ]
@@ -109,11 +118,45 @@ class TestRankSenses:
             {
                 "idseq": 1,
                 "kanji_forms": [],
-                "senses": [self._sense("pronoun", "other"), self._sense(tag, "tagged")],
+                "senses": [_sense("pronoun", "other"), _sense(tag, "tagged")],
             }
         ]
         ranked = rank_senses(entries, "動詞")
         assert (ranked[0]["gloss"] == ["tagged"]) == is_verb
+
+
+class TestShownPieces:
+    def test_a_piece_is_ranked_and_spelled_when_shown(self):
+        # The verb's entry comes second in JMDict's order, so a piece ranked
+        # for a verb shows its sense first and is spelled as that entry is.
+        entries = [
+            {
+                "idseq": 1,
+                "kanji_forms": [{"text": "甲", "pri": []}],
+                "senses": [_sense("noun (common) (futsuumeishi)", "a noun")],
+            },
+            {
+                "idseq": 2,
+                "kanji_forms": [{"text": "乙", "pri": []}],
+                "senses": [_sense("transitive verb", "to verb")],
+            },
+        ]
+        piece = gloss_piece(
+            "こう",
+            "こう",
+            ("こう", "こう"),
+            None,
+            ("動詞", "一般", "*", "*", "五段-ワア行", "終止形-一般"),
+            spell_with_kanji=True,
+        )
+
+        [shown] = shown_pieces([piece], {("こう", "こう"): (entries, "jmdict")})
+
+        assert [sense["gloss"] for sense in shown["senses"]] == [
+            ["to verb"],
+            ["a noun"],
+        ]
+        assert shown["surface"] == "乙"
 
 
 class TestSearchReadings:
@@ -175,9 +218,68 @@ class TestGetOrCreateGlossLookup:
             {"id": gloss_id},
         ).one()
         assert row.source == "composite"
-        pieces = row.entries["pieces"]
+        pieces = shown_pieces(
+            row.entries["pieces"], piece_lookups(db_conn, [row.entries])
+        )
         assert [p["surface"] for p in pieces] == ["勝利", "の", "女神"]
         assert any(p["senses"] for p in pieces)
+
+    def test_a_compound_and_its_own_piece_glossed_together(self, db_conn):
+        # 女神 is looked up as a word of its own before 勝利の女神 is split
+        # into pieces.
+        plan = plan_glosses(
+            db_conn,
+            [(("勝利の女神", "しょうりのめがみ"), None), (("女神", "めがみ"), None)],
+        )
+        assert plan.new_rows[("勝利の女神", "しょうりのめがみ")][1] == "composite"
+
+    def test_a_composite_shows_its_pieces_lookups_as_cached_now(self, db_conn):
+        gloss_id = get_or_create_gloss_lookup(db_conn, "勝利の女神", "しょうりのめがみ")
+        db_conn.execute(
+            text(
+                """
+                UPDATE gloss_lookups SET entries = CAST(:entries AS JSONB)
+                WHERE lookup_form = '女神' AND reading = 'めがみ'
+                """
+            ),
+            {
+                "entries": json.dumps(
+                    [
+                        {
+                            "idseq": 1,
+                            "kanji_forms": [],
+                            "senses": [_sense("noun (common) (futsuumeishi)", "new")],
+                        }
+                    ]
+                )
+            },
+        )
+
+        entries = _entries(db_conn, gloss_id)
+        pieces = shown_pieces(entries["pieces"], piece_lookups(db_conn, [entries]))
+
+        assert [sense["gloss"] for sense in pieces[2]["senses"]] == [["new"]]
+
+    def test_a_composite_looks_up_a_piece_whose_row_is_gone(self, db_conn):
+        gloss_id = get_or_create_gloss_lookup(db_conn, "勝利の女神", "しょうりのめがみ")
+        db_conn.execute(
+            text(
+                "DELETE FROM gloss_lookups WHERE lookup_form = '勝利' AND reading = 'しょうり'"
+            )
+        )
+
+        entries = _entries(db_conn, gloss_id)
+        pieces = shown_pieces(entries["pieces"], piece_lookups(db_conn, [entries]))
+
+        assert pieces[0]["senses"]
+        assert (
+            db_conn.execute(
+                text(
+                    "SELECT source FROM gloss_lookups WHERE lookup_form = '勝利' AND reading = 'しょうり'"
+                )
+            ).scalar_one()
+            == "jmdict"
+        )
 
     def test_alt_lookup_form_used_when_primary_spelling_has_no_entry(self, db_conn):
         # normalized_form さり気無い isn't JMDict's registered spelling;

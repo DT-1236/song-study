@@ -5,7 +5,13 @@ from __future__ import annotations
 
 from sqlalchemy import text
 
-from app.glosses import GroupGlossRequest, GroupPart, get_or_create_gloss_lookup
+from app.glosses import (
+    GroupGlossRequest,
+    GroupPart,
+    get_or_create_gloss_lookup,
+    piece_lookups,
+    shown_pieces,
+)
 from app.katakana import hiragana_units, is_katakana_word
 from app.main import (
     DocumentCreate,
@@ -18,6 +24,11 @@ def _gloss(conn, gloss_id):
         text("SELECT entries, source FROM gloss_lookups WHERE id = :id"),
         {"id": gloss_id},
     ).one()
+
+
+def _shown(conn, gloss) -> list[dict]:
+    """The pieces of `gloss`, a composite gloss row, as shown."""
+    return shown_pieces(gloss.entries["pieces"], piece_lookups(conn, [gloss.entries]))
 
 
 class TestHiraganaUnits:
@@ -63,7 +74,7 @@ class TestKatakanaGlosses:
 
         assert gloss.source == "composite"
         assert gloss.entries["looked_up_as"] == "こころのこえ"
-        [piece] = gloss.entries["pieces"]
+        [piece] = _shown(db_conn, gloss)
         # Written as the entry usually is, not as the katakana reads it out.
         assert (piece["surface"], piece["reading"]) == ("心の声", "こころのこえ")
         assert "voice of one's heart" in piece["senses"][0]["gloss"]
@@ -77,7 +88,7 @@ class TestKatakanaGlosses:
         )
 
         assert [
-            (p["surface"], p["note"] is not None) for p in gloss.entries["pieces"]
+            (p["surface"], p["note"] is not None) for p in _shown(db_conn, gloss)
         ] == [
             ("君", False),
             ("と", True),
@@ -92,12 +103,15 @@ class TestKatakanaGlosses:
         gloss = _gloss(
             db_conn, get_or_create_gloss_lookup(db_conn, "アイタイ", "アイタイ")
         )
-        assert [p["surface"] for p in gloss.entries["pieces"]] == ["会う", "たい"]
+        assert [p["surface"] for p in _shown(db_conn, gloss)] == [
+            "会う",
+            "たい",
+        ]
 
         gloss = _gloss(
             db_conn, get_or_create_gloss_lookup(db_conn, "ナイテル", "ナイテル")
         )
-        assert gloss.entries["pieces"][0]["surface"] == "泣く"
+        assert _shown(db_conn, gloss)[0]["surface"] == "泣く"
 
     def test_katakana_with_its_own_entry_is_unchanged(self, db_conn):
         gloss = _gloss(db_conn, get_or_create_gloss_lookup(db_conn, "テレビ", "テレビ"))

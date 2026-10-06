@@ -42,10 +42,12 @@ from app.glosses import (
     gloss_key,
     is_glossable,
     is_probably_english,
+    piece_lookups,
     plan_glosses,
     predicate_group_request,
     rank_senses,
     search_jmdict,
+    shown_pieces,
     store_glosses,
 )
 from app.grammar import find_predicate_groups
@@ -744,6 +746,10 @@ def _fetch_tokens(
             Conflict(id=c.id, kind=c.kind, value=c.value, selected=c.selected)
         )
 
+    # Every composite's pieces' lookups, in one read.
+    lookups = piece_lookups(
+        conn, [row.gloss_entries for row in rows if row.gloss_source == "composite"]
+    )
     tokens = []
     for row in rows:
         data = dict(row._mapping)
@@ -754,15 +760,16 @@ def _fetch_tokens(
         if gloss_reading is None:
             data["gloss"] = None
         elif gloss_source == "composite":
-            # Pieces were already ranked (using each piece's own
-            # part-of-speech) when the composite was built, so no
-            # re-ranking needed here the way the flat jmdict case needs.
+            # Each piece ranked for its own part of speech, not the token's.
             data["gloss"] = Gloss(
                 reading=gloss_reading,
                 lookup_form=gloss_lookup_form,
                 senses=[],
                 source=gloss_source,
-                pieces=[GlossPiece(**piece) for piece in gloss_entries["pieces"]],
+                pieces=[
+                    GlossPiece(**piece)
+                    for piece in shown_pieces(gloss_entries["pieces"], lookups)
+                ],
                 looked_up_as=gloss_entries.get("looked_up_as"),
             )
         else:
