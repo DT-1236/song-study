@@ -3,12 +3,13 @@ import { Link, useParams } from 'react-router-dom'
 import {
   errorMessage,
   fetchAllSongsQueue,
+  fetchDocumentReadiness,
   pushOutCard,
   reviewCard,
   startSongSession,
   suspendCard,
 } from './api'
-import type { PushOutMonths, StudyQueue } from './api'
+import type { PushOutMonths, SongReadiness, StudyQueue } from './api'
 import { KanjiSidebar } from './KanjiSidebar'
 import { StudyCardView } from './StudyCardView'
 import { useApiResource } from './useApiResource'
@@ -42,9 +43,11 @@ const EMPTY_TALLY: Tally = {
 function Summary({
   tally,
   documentId,
+  readiness,
 }: {
   tally: Tally
   documentId: number | null
+  readiness: SongReadiness | null
 }) {
   const accuracy =
     tally.answered === 0
@@ -61,6 +64,12 @@ function Summary({
         {tally.removed > 0 && <li>Removed: {tally.removed}</li>}
         {tally.nextDue && (
           <li>Next due: {new Date(tally.nextDue).toLocaleString()}</li>
+        )}
+        {readiness && (
+          <li>
+            Readiness: {Math.round(readiness.readiness * 100)}% (
+            {readiness.mature}/{readiness.enrolled} mature)
+          </li>
         )}
       </ul>
       <p>
@@ -90,6 +99,7 @@ function StudySession({
   const [laddering, setLaddering] = useState(false)
   const [tally, setTally] = useState(EMPTY_TALLY)
   const [error, setError] = useState<string | null>(null)
+  const [readiness, setReadiness] = useState<SongReadiness | null>(null)
   const shownAt = useRef(performance.now())
 
   const [muted, setMuted] = usePersistentState('study-muted', false)
@@ -103,6 +113,16 @@ function StudySession({
 
   const card = cards[index] ?? null
   const audio = card?.line?.audio ?? null
+
+  useEffect(() => {
+    if (!card && documentId !== null && readiness === null) {
+      fetchDocumentReadiness(documentId)
+        .then(setReadiness)
+        .catch((err) =>
+          setError(errorMessage(err, 'Failed to load readiness.')),
+        )
+    }
+  }, [card, documentId, readiness])
 
   useEffect(() => {
     if (audio && audio.youtube_video_id !== videoId) {
@@ -229,7 +249,9 @@ function StudySession({
     if (cards.length === 0) {
       return <p>Nothing is due right now.</p>
     }
-    return <Summary tally={tally} documentId={documentId} />
+    return (
+      <Summary tally={tally} documentId={documentId} readiness={readiness} />
+    )
   }
 
   return (
