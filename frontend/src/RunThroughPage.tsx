@@ -4,11 +4,10 @@ import { fetchRunThrough } from './api'
 import type { RunLine, RunThrough } from './api'
 import { codePointSlice, optionText } from './cardText'
 import { useApiResource } from './useApiResource'
+import { useLineEndPolling } from './useLineEndPolling'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
-// How often to check whether the playing line has reached its end.
-const LINE_END_POLL_MS = 100
 // A gap before the next line longer than this is skipped rather than played.
 const SKIPPED_GAP_SECONDS = 0.5
 
@@ -103,23 +102,18 @@ function RunThroughPlayer({
     [playable, position, playLine],
   )
 
-  useEffect(() => {
-    if (status !== 'playing' || !line?.audio) return
-    const audio = line.audio
-    const player = playerRef.current
-    if (!player) return
-    const timer = window.setInterval(() => {
-      const time = player.getCurrentTime()
-      if (time === null || time < audio.end) return
-      if (line.weak.length > 0) {
-        player.pause()
+  useLineEndPolling(
+    playerRef,
+    status === 'playing' && line?.audio ? line.audio.end : null,
+    (time) => {
+      if (line && line.weak.length > 0) {
+        playerRef.current?.pause()
         setStatus('paused')
       } else {
         next(time)
       }
-    }, LINE_END_POLL_MS)
-    return () => window.clearInterval(timer)
-  }, [status, line, next])
+    },
+  )
 
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
