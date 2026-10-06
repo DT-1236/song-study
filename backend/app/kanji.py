@@ -100,20 +100,30 @@ class Radical:
 class DeckWord:
     """A word the user has a card for."""
 
+    # So that the sidebar can leave out the card it's shown on.
+    card_id: int
     lookup_form: str
     reading: str | None
     status: Literal["new", "learning", "mature"]
 
 
 @dataclass(frozen=True)
-class KanjiEntry:
+class CardKanji:
+    """A kanji as a card's word or group uses it."""
+
     character: str
-    # All of them, in katakana.
-    on_readings: list[str]
-    # Only those the word uses, as KANJIDIC2 writes them with the okurigana
-    # in brackets (き(こえる)), and how many it has besides.
+    # Only the kun readings the word uses, as KANJIDIC2 writes them with the
+    # okurigana in brackets (き(こえる)), and how many it has besides.
     kun_readings: list[str]
     more_kun: int
+
+
+@dataclass(frozen=True)
+class KanjiEntry:
+    """What the sidebar shows of a kanji whichever card it's on."""
+
+    # All of them, in katakana.
+    on_readings: list[str]
     meanings: list[str]
     grade: int | None
     frequency: int | None
@@ -144,7 +154,7 @@ _characters: dict[str, _Character | None] = {}
 
 def load_characters(literals: Iterable[str]) -> None:
     """Reads what the dictionaries know of each of `literals` not yet looked
-    up, so that `kanji_entries` finds them without a query apiece."""
+    up, so that `card_kanji` and `kanji_entries` find them without a query apiece."""
     missing = sorted(set(literals) - _characters.keys())
     rows = kanjidic_rows(missing)
     for literal in missing:
@@ -278,9 +288,10 @@ def _display_kun(kun: str) -> str:
 
 def deck_cards(
     conn, user_id: int, characters: Iterable[str]
-) -> dict[str, list[tuple[int, DeckWord]]]:
+) -> dict[str, list[DeckWord]]:
     """The user's word cards, not removed from study, whose word has each of
-    `characters`, shortest word first."""
+    `characters`, shortest word first: as many as a sidebar shows, and one
+    more."""
     characters = sorted(set(characters))
     if not characters:
         return {}
@@ -313,29 +324,28 @@ def deck_cards(
             "max_rows": MAX_DECK_WORDS + 1,
         },
     )
-    found: dict[str, list[tuple[int, DeckWord]]] = {}
+    found: dict[str, list[DeckWord]] = {}
     for row in rows:
         found.setdefault(row.character, []).append(
-            (row.id, DeckWord(row.lookup_form, row.reading, row.status))
+            DeckWord(row.id, row.lookup_form, row.reading, row.status)
         )
     return found
 
 
-def kanji_entries(
-    kanji: Iterable[KanjiInWord],
-    deck: dict[str, list[tuple[int, DeckWord]]],
-    card_id: int,
-) -> list[KanjiEntry]:
-    """A sidebar entry for each distinct kanji of `kanji`, in order, with the
-    words of `deck` (see deck_cards) other than the card `card_id`'s own."""
+def card_kanji(
+    kanji: Iterable[KanjiInWord], entries: dict[str, KanjiEntry]
+) -> list[CardKanji]:
+    """Each distinct kanji of `kanji` that has one of `entries` (see
+    kanji_entries), in order, with the kun readings the word uses of it."""
     written: dict[str, list[KanjiInWord]] = {}
     for item in kanji:
         written.setdefault(item.character, []).append(item)
-    entries = []
+    used = []
     for literal, occurrences in written.items():
-        known = _character(literal)
-        if known is None:
+        # Only those with an entry, so that the sidebar finds one for each.
+        if literal not in entries:
             continue
+        known = _characters[literal]
         # A kanji the word reads two ways (一人一人) lists both.
         in_play = list(
             dict.fromkeys(
@@ -346,19 +356,33 @@ def kanji_entries(
                 )
             )
         )
-        deck_words = [word for id_, word in deck.get(literal, []) if id_ != card_id]
-        entries.append(
-            KanjiEntry(
+        used.append(
+            CardKanji(
                 character=literal,
-                on_readings=list(known.on_readings),
                 kun_readings=[_display_kun(kun) for kun in in_play],
                 more_kun=len(known.kun_readings) - len(in_play),
-                meanings=list(known.meanings),
-                grade=known.grade,
-                frequency=known.frequency,
-                radical=known.radical,
-                components=list(known.components[:MAX_COMPONENTS]),
-                deck_words=deck_words[:MAX_DECK_WORDS],
             )
+        )
+    return used
+
+
+def kanji_entries(
+    characters: Iterable[str], deck: dict[str, list[DeckWord]]
+) -> dict[str, KanjiEntry]:
+    """The sidebar entry of each of `characters` that KANJIDIC2 has, by
+    character, with its words of `deck` (see deck_cards)."""
+    entries = {}
+    for literal in characters:
+        known = _character(literal)
+        if known is None:
+            continue
+        entries[literal] = KanjiEntry(
+            on_readings=list(known.on_readings),
+            meanings=list(known.meanings),
+            grade=known.grade,
+            frequency=known.frequency,
+            radical=known.radical,
+            components=list(known.components[:MAX_COMPONENTS]),
+            deck_words=deck.get(literal, []),
         )
     return entries

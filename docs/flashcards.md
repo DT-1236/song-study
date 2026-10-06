@@ -1127,11 +1127,13 @@ standalone-to-variant radical mapping. A wrong reading looks entirely plausible 
 step lives or dies by its tests. A jukugo with no matching kun reading showing on'yomi alone is
 the correct outcome, not a gap to fill.
 *As built* (`backend/app/kanji.py`) — what step 6 renders:
-- `QueuedCard.kanji` lists one entry per distinct kanji of the card's group, in order, built when
-  the queue is: `character`, `on_readings` (all), `kun_readings` (only those the word uses, as
-  `き(こえる)`) with `more_kun` for the rest, English `meanings`, `grade`, `frequency` (both
-  nullable), `radical` (`character`, `meaning`), `components` and `deck_words`. A kanji with no
-  KANJIDIC2 entry (々) is left out. A grammar card gets the kanji of the group it's in.
+- Both queue routes return `{cards, kanji}`. Each card's `kanji` lists the distinct kanji of its
+  group, in order, with what depends on the word: `character`, `kun_readings` (only those the word
+  uses, as `き(こえる)`) and `more_kun` for the rest. The rest of each sidebar entry is the same on
+  every card, so it's sent once, in the queue's `kanji` map by character: `on_readings` (all),
+  English `meanings`, `grade`, `frequency` (both nullable), `radical` (`character`, `meaning`),
+  `components` and `deck_words`. A kanji with no KANJIDIC2 entry (々) is left out of both. A
+  grammar card gets the kanji of the group it's in.
 - The group's kanji are read off its tokens' furigana as the page shows it (override before
   Sudachi's split), so 神 in 女神 is がみ. A card whose word is sung in katakana, or is in no song,
   takes its kanji from its key instead (`kanji_in_word`), since no token writes them.
@@ -1146,9 +1148,11 @@ the correct outcome, not a gap to fill.
   is the compatibility character U+FA66, so its components are NFC-normalized as they're read, and
   a test checks every variant in the table occurs in KRADFILE. The other components leave out the
   radical and the bare strokes (一｜ノ丶乙マ), and stop at three — 涙 is 氵 with 戸 大 尸.
-- `deck_words` are the user's unsuspended word cards, other than the card shown, whose
-  `lookup_form` has the kanji: five at most, shortest first, each `new`, `learning` or `mature`
-  (reviewed, in Review state, with stability of 21 days or more). One query for the whole queue.
+- `deck_words` are the user's unsuspended word cards whose `lookup_form` has the kanji, shortest
+  first, each with its `card_id` and `new`, `learning` or `mature` (reviewed, in Review state,
+  with stability of 21 days or more). The sidebar shows five at most, leaving out the card it's on
+  by `card_id`, so the map holds six: enough once that card is gone. One query for the whole
+  queue.
 - Found on the way: the queue fetches the furigana of the tokens it needs in one query after
   choosing each card's line, rather than `_token_rows` carrying it for every token; and
   `glosses.get_jamdict` and `tokenization.is_kanji` lost their underscore, as `kanji.py` is the

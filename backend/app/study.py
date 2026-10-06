@@ -14,7 +14,7 @@ from typing import Literal
 from fsrs import Card, Rating, Scheduler, State
 from sqlalchemy import text
 
-from app.card_content import Content, load_songs, queue_contents
+from app.card_content import Queue, load_songs, queue_contents
 from app.cards import (
     CARD_COLUMNS,
     CARD_KEYS_JOIN_SQL,
@@ -261,17 +261,17 @@ def _due_cards(conn, user_id: int, keys=None) -> list:
     ).all()
 
 
-def all_songs_queue(conn, user_id: int) -> list[tuple[object, Content]]:
+def all_songs_queue(conn, user_id: int) -> Queue:
     """The user's cards that are due, whichever songs their words are in —
     or none, which is how a card whose word left every song's lyrics stays
     reachable — each with its content, its line from any of those songs."""
     cards = _due_cards(conn, user_id)
     if not cards:
-        return []
+        return Queue([], {})
     return queue_contents(conn, user_id, cards, load_songs(conn, user_id), None)
 
 
-def song_queue(conn, user_id: int, document_id: int) -> list[tuple[object, Content]]:
+def song_queue(conn, user_id: int, document_id: int) -> Queue:
     """The user's due cards whose word or grammar term is in the document,
     after enrolling new words from it up to the song's daily limit, each
     with its content, its line from the document.

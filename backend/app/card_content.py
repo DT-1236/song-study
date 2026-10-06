@@ -29,8 +29,10 @@ from app.db import DOCUMENT_COLUMNS
 from app.glosses import GlossKey, gloss_entries, rank_senses
 from app.grammar import grammar_category, grammar_notes, notes_overlap
 from app.kanji import (
+    CardKanji,
     KanjiEntry,
     KanjiInWord,
+    card_kanji,
     deck_cards,
     kanji_entries,
     kanji_in_spans,
@@ -112,8 +114,18 @@ class Content:
     # For a word: every sense it has, ranked for how the line uses it. Its
     # option shows the first OPTION_SENSE_LIMIT.
     senses: list[dict] = field(default_factory=list)
-    # For the reveal: each kanji of the word, or the group it's in.
-    kanji: list[KanjiEntry] = field(default_factory=list)
+    # For the reveal: each kanji of the word, or the group it's in, as it's
+    # used there.
+    kanji: list[CardKanji] = field(default_factory=list)
+
+
+@dataclass
+class Queue:
+    # Each card's row with its content.
+    cards: list[tuple[object, Content]]
+    # The sidebar entry of every kanji of the cards, by character: sent once
+    # however many cards have it.
+    kanji: dict[str, KanjiEntry]
 
 
 @dataclass
@@ -638,11 +650,11 @@ def queue_contents(
     songs: dict[int, Song],
     studied: int | None,
     rng: random.Random | None = None,
-) -> list[tuple[object, Content]]:
+) -> Queue:
     """Each of the user's `cards` (rows with their kind, key and alternate
     spelling) with its content, its line from `songs`: the song `studied`'s,
-    if it has the card's word, else any of them, all the user's songs.
-    `rng` draws the lines and options."""
+    if it has the card's word, else any of them, all the user's songs; and
+    the sidebar entries of their kanji. `rng` draws the lines and options."""
     rng = rng or random.Random()
     occurrences = _occurrences(conn, songs.values())
     library = _Library(conn, user_id, occurrences if studied is None else None)
@@ -676,9 +688,9 @@ def queue_contents(
     characters = {item.character for kanji in written for item in kanji}
     # Every card's kanji, in one lookup each from KANJIDIC2 and the deck.
     load_characters(characters)
-    deck = deck_cards(conn, user_id, characters)
+    entries = kanji_entries(characters, deck_cards(conn, user_id, characters))
 
-    queue = []
+    cards_content = []
     for card, key, occurrence, kanji in zip(cards, keys, chosen, written, strict=True):
         line = occurrence.line if occurrence else None
         if key.kind == "grammar":
@@ -692,6 +704,6 @@ def queue_contents(
                 line,
                 rng,
             )
-        content.kanji = kanji_entries(kanji, deck, card.id)
-        queue.append((card, content))
-    return queue
+        content.kanji = card_kanji(kanji, entries)
+        cards_content.append((card, content))
+    return Queue(cards_content, entries)

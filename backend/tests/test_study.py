@@ -60,7 +60,7 @@ def _reviews(engine, card_id: int) -> list:
 
 def _new_card(text_: str = "君") -> int:
     """The id of a new card for the only word of a document of `text_`."""
-    [card] = start_song_session(create_tokenized_document(text_))
+    [card] = start_song_session(create_tokenized_document(text_)).cards
     return card.id
 
 
@@ -166,7 +166,7 @@ def test_a_fast_answer_to_a_multiple_choice_card_is_only_good(committed_engine):
 
 def test_a_review_is_logged_with_the_thresholds_it_was_rated_with(committed_engine):
     document_id = create_tokenized_document("君")
-    [card] = start_song_session(document_id)
+    [card] = start_song_session(document_id).cards
 
     review_card(
         card.id,
@@ -187,7 +187,7 @@ def test_a_review_is_logged_with_the_thresholds_it_was_rated_with(committed_engi
 def test_a_grammar_card_is_reviewed_the_same_way(committed_engine):
     document_id = create_tokenized_document(SONG)
     grammar = next(
-        card for card in start_song_session(document_id) if card.kind == "grammar"
+        card for card in start_song_session(document_id).cards if card.kind == "grammar"
     )
 
     result = review_card(grammar.id, ReviewAnswer(correct=True, duration_ms=500))
@@ -334,19 +334,19 @@ def test_pushing_out_another_users_card_is_refused(committed_engine, other_user)
 
 def test_a_removed_card_leaves_both_queues(committed_engine):
     document_id = create_tokenized_document("君")
-    [card] = start_song_session(document_id)
+    [card] = start_song_session(document_id).cards
 
     assert suspend_card(card.id).suspended
 
-    assert start_song_session(document_id) == []
-    assert get_all_songs_queue() == []
+    assert start_song_session(document_id).cards == []
+    assert get_all_songs_queue().cards == []
 
 
 def test_a_removed_card_keeps_its_history_and_adding_the_word_restores_it(
     committed_engine,
 ):
     document_id = create_tokenized_document("君")
-    [card] = start_song_session(document_id)
+    [card] = start_song_session(document_id).cards
     review_card(card.id, ReviewAnswer(correct=True, duration_ms=5_000))
     stability = _row(committed_engine, card.id).stability
     suspend_card(card.id)
@@ -375,7 +375,7 @@ def test_studying_a_song_enrolls_its_words_up_to_its_daily_limit(committed_engin
     document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=2))
 
-    queue = start_song_session(document_id)
+    queue = start_song_session(document_id).cards
 
     assert _lookup_forms(queue) == SONG_WORDS[:2]
     assert all(card.first_seen_document_id == document_id for card in queue)
@@ -386,7 +386,7 @@ def test_studying_a_song_again_the_same_day_enrolls_no_more(committed_engine):
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=2))
     start_song_session(document_id)
 
-    assert _lookup_forms(start_song_session(document_id)) == SONG_WORDS[:2]
+    assert _lookup_forms(start_song_session(document_id).cards) == SONG_WORDS[:2]
 
 
 def test_the_limit_frees_up_as_the_day_passes(committed_engine):
@@ -398,7 +398,7 @@ def test_the_limit_frees_up_as_the_day_passes(committed_engine):
             text("UPDATE study_cards SET created_at = now() - interval '25 hours'")
         )
 
-    assert _lookup_forms(start_song_session(document_id)) == SONG_WORDS[:4]
+    assert _lookup_forms(start_song_session(document_id).cards) == SONG_WORDS[:4]
 
 
 def test_raising_the_limit_enrolls_the_difference(committed_engine):
@@ -407,21 +407,21 @@ def test_raising_the_limit_enrolls_the_difference(committed_engine):
     start_song_session(document_id)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=3))
 
-    assert _lookup_forms(start_song_session(document_id)) == SONG_WORDS[:3]
+    assert _lookup_forms(start_song_session(document_id).cards) == SONG_WORDS[:3]
 
 
 def test_a_limit_of_zero_enrolls_nothing(committed_engine):
     document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=0))
 
-    assert start_song_session(document_id) == []
+    assert start_song_session(document_id).cards == []
 
 
 def test_the_default_limit_is_ten_a_song(committed_engine):
     long_song = "歌う。笑う。泣く。眠る。探す。話す。愛。涙。目。光。春。夏"
     document_id = create_tokenized_document(long_song)
 
-    assert len(start_song_session(document_id)) == 10
+    assert len(start_song_session(document_id).cards) == 10
 
 
 def test_each_song_has_its_own_limit(committed_engine):
@@ -429,8 +429,8 @@ def test_each_song_has_its_own_limit(committed_engine):
     second = create_tokenized_document("泣く。話す。")
     save_song_study_settings(first, SongStudySettings(new_cards_per_day=1))
 
-    assert len(start_song_session(first)) == 1
-    assert len(start_song_session(second)) > 1
+    assert len(start_song_session(first).cards) == 1
+    assert len(start_song_session(second).cards) > 1
 
 
 def test_a_songs_queue_holds_only_cards_for_its_words(committed_engine):
@@ -438,8 +438,8 @@ def test_a_songs_queue_holds_only_cards_for_its_words(committed_engine):
     second = create_tokenized_document("泣く。話す。")
     start_song_session(first)
 
-    assert _lookup_forms(start_song_session(second)) == ["泣く", "話す"]
-    assert "泣く" not in _lookup_forms(start_song_session(first))
+    assert _lookup_forms(start_song_session(second).cards) == ["泣く", "話す"]
+    assert "泣く" not in _lookup_forms(start_song_session(first).cards)
 
 
 def test_a_word_from_another_song_is_reviewed_in_this_one(committed_engine):
@@ -447,27 +447,27 @@ def test_a_word_from_another_song_is_reviewed_in_this_one(committed_engine):
     second = create_tokenized_document("君の声")
     start_song_session(first)
 
-    assert "君" in _lookup_forms(start_song_session(second))
+    assert "君" in _lookup_forms(start_song_session(second).cards)
 
 
 def test_a_card_that_isnt_due_is_left_out_of_the_queue(committed_engine):
     document_id = create_tokenized_document("君")
-    [card] = start_song_session(document_id)
+    [card] = start_song_session(document_id).cards
     review_card(card.id, ReviewAnswer(correct=True, duration_ms=5_000))
     _set(committed_engine, card.id, due="now() + interval '1 day'")
 
-    assert start_song_session(document_id) == []
-    assert get_all_songs_queue() == []
+    assert start_song_session(document_id).cards == []
+    assert get_all_songs_queue().cards == []
 
 
 def test_the_queue_is_ordered_by_due_date(committed_engine):
     document_id = create_tokenized_document("君を呼ぶ。")
-    cards = start_song_session(document_id)
+    cards = start_song_session(document_id).cards
     by_form = {card.lookup_form: card.id for card in cards}
     _set(committed_engine, by_form["呼ぶ"], due="now() - interval '2 days'")
     _set(committed_engine, by_form["君"], due="now() - interval '1 day'")
 
-    assert _lookup_forms(start_song_session(document_id)) == ["呼ぶ", "君"]
+    assert _lookup_forms(start_song_session(document_id).cards) == ["呼ぶ", "君"]
 
 
 def test_a_word_added_by_hand_with_an_unreviewed_reading_is_in_its_songs_queue(
@@ -477,17 +477,17 @@ def test_a_word_added_by_hand_with_an_unreviewed_reading_is_in_its_songs_queue(
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=0))
     add_token_card(document_id, document_tokens(document_id, "今日")[0].id)
 
-    assert _lookup_forms(start_song_session(document_id)) == ["今日"]
+    assert _lookup_forms(start_song_session(document_id).cards) == ["今日"]
 
 
 def test_the_all_songs_queue_reaches_a_card_no_song_has_any_more(committed_engine):
     document_id = create_tokenized_document("君")
-    [card] = start_song_session(document_id)
+    [card] = start_song_session(document_id).cards
     with committed_engine.begin() as conn:
         conn.execute(text("DELETE FROM tokens"))
 
-    assert start_song_session(document_id) == []
-    assert [c.id for c in get_all_songs_queue()] == [card.id]
+    assert start_song_session(document_id).cards == []
+    assert [c.id for c in get_all_songs_queue().cards] == [card.id]
 
 
 def test_the_all_songs_queue_holds_every_songs_due_cards(committed_engine):
@@ -496,14 +496,19 @@ def test_the_all_songs_queue_holds_every_songs_due_cards(committed_engine):
     start_song_session(first)
     start_song_session(second)
 
-    assert set(_lookup_forms(get_all_songs_queue())) == {"君", "呼ぶ", "泣く", "話す"}
+    assert set(_lookup_forms(get_all_songs_queue().cards)) == {
+        "君",
+        "呼ぶ",
+        "泣く",
+        "話す",
+    }
 
 
 def test_each_user_has_their_own_queue(committed_engine, other_user):
     _new_card()
 
     with as_user(other_user):
-        assert get_all_songs_queue() == []
+        assert get_all_songs_queue().cards == []
 
 
 def test_studying_another_users_song_is_refused(committed_engine, other_user):
