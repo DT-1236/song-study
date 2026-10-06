@@ -26,10 +26,13 @@ from app.cards import (
     CARD_COLUMNS,
     CARD_KEYS_JOIN_SQL,
     CardKind,
+    SongWords,
     card_keys_param,
     is_mature,
     song_card_keys,
     song_words,
+    songs_words,
+    units_by_document,
 )
 from app.users import document_is_owned
 
@@ -376,7 +379,7 @@ class Readiness:
     readiness: float
     words: int
     enrolled: int
-    # Cards with stability of 21 days or more.
+    # Cards that are mature (see cards.is_mature).
     mature: int
     due: int
 
@@ -391,17 +394,15 @@ def _retrievability(row, now: datetime) -> float:
     return _RETRIEVABILITY_SCHEDULER.get_card_retrievability(_fsrs_card(row), now)
 
 
-def song_readiness(conn, user_id: int, units: list[list]) -> Readiness:
-    """The user's readiness for a song with tokens in `units` (see
-    cards._units): the mean chance of recalling each of its words, weighted
-    by how often the song has it. A word with no card yet counts as zero, so
-    that the number is how much of the song is known rather than how well
-    the part studied so far is.
+def song_readiness(words: SongWords, now: datetime) -> Readiness:
+    """The user's readiness at `now` for a song that gives their cards
+    `words`: the mean chance of recalling each of its words, weighted by how
+    often the song has it. A word with no card yet counts as zero, so that
+    the number is how much of the song is known rather than how well the
+    part studied so far is.
 
-    Computed from the schedule as it is now, never stored: a card's
-    retrievability decays with every day that passes."""
-    words = song_words(conn, units, user_id)
-    now = datetime.now(UTC)
+    Computed from the schedule, never stored: a card's retrievability decays
+    with every day that passes."""
     total = sum(w.occurrences for w, _ in words.enrolled) + sum(
         w.occurrences for w in words.unenrolled
     )
@@ -418,9 +419,14 @@ def song_readiness(conn, user_id: int, units: list[list]) -> Readiness:
 def documents_readiness(
     conn, user_id: int, document_ids: list[int]
 ) -> dict[int, Readiness]:
-    """song_readiness for each of the user's documents among `document_ids`."""
-    songs = load_songs(conn, user_id, document_ids)
-    return {id: song_readiness(conn, user_id, song.units) for id, song in songs.items()}
+    """song_readiness as of now for each of `document_ids`, documents the
+    caller knows are the user's."""
+    units = units_by_document(conn, document_ids)
+    words = songs_words(conn, [units.get(id, []) for id in document_ids], user_id)
+    now = datetime.now(UTC)
+    return {
+        id: song_readiness(w, now) for id, w in zip(document_ids, words, strict=True)
+    }
 
 
 def run_through(

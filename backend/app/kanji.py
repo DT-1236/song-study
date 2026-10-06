@@ -13,11 +13,10 @@ from dataclasses import dataclass
 from typing import Literal
 from unicodedata import normalize
 
-from fsrs import State
 from jamdict.kanjidic2 import KangxiRadical
 from sqlalchemy import text
 
-from app.cards import MATURE_STABILITY_DAYS
+from app.cards import is_mature
 from app.glosses import KanjidicRow, get_jamdict, kanjidic_rows
 from app.tokenization import furigana_spans_for_reading, is_kanji, to_katakana
 
@@ -297,17 +296,13 @@ def deck_cards(
             """
             WITH ranked AS (
                 SELECT k.character, c.id, c.lookup_form, c.reading,
-                       CASE
-                           WHEN c.last_review IS NULL THEN 'new'
-                           WHEN c.state = :review AND c.stability >= :mature THEN 'mature'
-                           ELSE 'learning'
-                       END AS status,
+                       c.last_review, c.state, c.stability,
                        row_number() OVER (PARTITION BY k.character ORDER BY length(c.lookup_form), c.lookup_form, c.reading) AS rn
                 FROM unnest(CAST(:characters AS TEXT[])) AS k(character)
                 JOIN study_cards c ON strpos(c.lookup_form, k.character) > 0
                 WHERE c.user_id = :user_id AND c.kind = 'recognition' AND NOT c.suspended
             )
-            SELECT character, id, lookup_form, reading, status
+            SELECT character, id, lookup_form, reading, last_review, state, stability
             FROM ranked
             WHERE rn <= :max_rows
             ORDER BY character, rn
@@ -316,15 +311,19 @@ def deck_cards(
         {
             "user_id": user_id,
             "characters": characters,
-            "review": int(State.Review),
-            "mature": MATURE_STABILITY_DAYS,
             "max_rows": MAX_DECK_WORDS + 1,
         },
     )
     found: dict[str, list[DeckWord]] = {}
     for row in rows:
+        if row.last_review is None:
+            status = "new"
+        elif is_mature(row.state, row.stability):
+            status = "mature"
+        else:
+            status = "learning"
         found.setdefault(row.character, []).append(
-            DeckWord(row.id, row.lookup_form, row.reading, row.status)
+            DeckWord(row.id, row.lookup_form, row.reading, status)
         )
     return found
 

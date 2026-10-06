@@ -43,8 +43,7 @@ MATURE_STABILITY_DAYS = 21
 
 
 def is_mature(state: int, stability: float | None) -> bool:
-    """Whether a card in FSRS `state` with `stability` (in days) is mature.
-    kanji.py's deck-word status query spells the same rule in SQL."""
+    """Whether a card in FSRS `state` with `stability` (in days) is mature."""
     return (
         state == State.Review
         and stability is not None
@@ -385,11 +384,17 @@ class SongWords:
 
 
 def song_words(conn, units: list[list], user_id: int) -> SongWords:
-    """What a document's `units` (see _units) gives the user's cards: the
-    words they have a card for and the ones harvest would enroll. A word
-    whose card they removed is in neither, as it's no longer part of what
-    they study."""
-    found = _found_words(units)
+    """songs_words for the one document of `units` (see _units)."""
+    [words] = songs_words(conn, [units], user_id)
+    return words
+
+
+def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
+    """What each of `songs`, a document's units (see _units) each, gives the
+    user's cards, in the same order: the words they have a card for and the
+    ones harvest would enroll. A word whose card they removed is in neither,
+    as it's no longer part of what they study."""
+    found = [_found_words(units) for units in songs]
     rows = {
         CardKey(row.kind, row.lookup_form, row.reading): row
         for row in conn.execute(
@@ -401,21 +406,36 @@ def song_words(conn, units: list[list], user_id: int) -> SongWords:
                 WHERE c.user_id = :user_id
                 """
             ),
-            {"user_id": user_id, "keys": card_keys_param(found)},
+            {
+                "user_id": user_id,
+                "keys": card_keys_param({key for words in found for key in words}),
+            },
         )
     }
-    wanted = [w for w in found.values() if w.key not in rows]
+    wanted = [[w for w in words.values() if w.key not in rows] for words in found]
+    # One gloss plan for every song. A word several songs share is planned
+    # with the first one's alternate spelling, as it would be if each song
+    # were planned in turn, the later ones finding it cached by the first.
     studyable = _studyable(
-        conn, [(w.key, w.alt_lookup_form) for w in wanted if w.key.kind != "grammar"]
-    )
-    return SongWords(
+        conn,
         [
-            (word, rows[word.key])
-            for word in found.values()
-            if word.key in rows and not rows[word.key].suspended
+            (w.key, w.alt_lookup_form)
+            for song in wanted
+            for w in song
+            if w.key.kind != "grammar"
         ],
-        [w for w in wanted if w.key.kind == "grammar" or w.key in studyable],
     )
+    return [
+        SongWords(
+            [
+                (word, rows[word.key])
+                for word in words.values()
+                if word.key in rows and not rows[word.key].suspended
+            ],
+            [w for w in song if w.key.kind == "grammar" or w.key in studyable],
+        )
+        for words, song in zip(found, wanted, strict=True)
+    ]
 
 
 def document_card_keys(conn, units: list[list]) -> set[CardKey]:
