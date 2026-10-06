@@ -14,6 +14,8 @@ import pytest
 from sqlalchemy import text
 
 from app.glosses import (
+    GroupGlossRequest,
+    _group_pieces,
     alternate_reading_options,
     get_or_create_gloss_lookup,
     gloss_piece,
@@ -147,16 +149,45 @@ class TestShownPieces:
             ("こう", "こう"),
             None,
             ("動詞", "一般", "*", "*", "五段-ワア行", "終止形-一般"),
-            spell_with_kanji=True,
         )
 
-        [shown] = shown_pieces([piece], {("こう", "こう"): (entries, "jmdict")})
+        # A katakana word's gloss, as _add_katakana_readings stores it.
+        composite = {"pieces": [piece], "looked_up_as": "こう"}
+
+        [shown] = shown_pieces(composite, {("こう", "こう"): (entries, "jmdict")})
 
         assert [sense["gloss"] for sense in shown["senses"]] == [
             ["to verb"],
             ["a noun"],
         ]
         assert shown["surface"] == "乙"
+
+    def test_a_composite_base_flags_no_readings_in_a_group(self):
+        # 生物 could also be read なまもの. Its own composite's piece flags
+        # that, but in a group its token already shows the reading options.
+        piece = gloss_piece(
+            "生物",
+            "せいぶつ",
+            ("生物", "せいぶつ"),
+            None,
+            ("名詞", "普通名詞", "一般", "*", "*", "*"),
+            flags_readings=True,
+        )
+        lookups = {("生物", "せいぶつ"): ([], "jmdict_miss")}
+        request = GroupGlossRequest(
+            base_key=("生物x", "せいぶつx"),
+            base_alt=None,
+            base_part_of_speech=("名詞", "普通名詞", "一般", "*", "*", "*"),
+            attached=(),
+            reading="せいぶつx",
+        )
+        found = {request.base_key: ({"pieces": [piece]}, "composite")}
+
+        [own] = shown_pieces({"pieces": [piece]}, lookups)
+        [grouped] = shown_pieces({"pieces": _group_pieces(request, found)}, lookups)
+
+        assert own["ambiguous_readings"] == ["なまもの"]
+        assert grouped["ambiguous_readings"] == []
 
 
 class TestSearchReadings:
@@ -218,9 +249,7 @@ class TestGetOrCreateGlossLookup:
             {"id": gloss_id},
         ).one()
         assert row.source == "composite"
-        pieces = shown_pieces(
-            row.entries["pieces"], piece_lookups(db_conn, [row.entries])
-        )
+        pieces = shown_pieces(row.entries, piece_lookups(db_conn, [row.entries]))
         assert [p["surface"] for p in pieces] == ["勝利", "の", "女神"]
         assert any(p["senses"] for p in pieces)
 
@@ -256,7 +285,7 @@ class TestGetOrCreateGlossLookup:
         )
 
         entries = _entries(db_conn, gloss_id)
-        pieces = shown_pieces(entries["pieces"], piece_lookups(db_conn, [entries]))
+        pieces = shown_pieces(entries, piece_lookups(db_conn, [entries]))
 
         assert [sense["gloss"] for sense in pieces[2]["senses"]] == [["new"]]
 
@@ -269,7 +298,7 @@ class TestGetOrCreateGlossLookup:
         )
 
         entries = _entries(db_conn, gloss_id)
-        pieces = shown_pieces(entries["pieces"], piece_lookups(db_conn, [entries]))
+        pieces = shown_pieces(entries, piece_lookups(db_conn, [entries]))
 
         assert pieces[0]["senses"]
         assert (

@@ -4,41 +4,46 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on ranking composite pieces when shown (migration 0023)
+## `/simplify` on caching dropped piece lookups and deriving pieces when shown (migration 0024)
 
-- **A piece whose lookup row was dropped is looked up again on every load,
-  never cached.** `piece_lookups` (`backend/app/glosses.py`) goes through
-  `gloss_entries`, which looks up and inserts a missing key, but
-  `get_document_tokens` (`backend/app/main.py`) first reads through
-  `engine.connect()`, which SQLAlchemy 2.0 rolls back on exit. If a migration
-  drops lookup rows that only composites refer to (no token is linked to
-  them, so nothing is unlinked and the repair branch never runs), every load
-  of each such document repeats the JMDict lookup, about 20ms a key, and
-  serves the right content without caching it. Fixing it means having the
-  read path only read the cache, report a piece whose lookup is missing the
-  way it reports an unlinked token, and let the existing `engine.begin()`
-  repair branch do the lookup and the insert. The round-trip counts in
-  `test_document_tokens.py` pin that read path. The cheaper alternative is a
-  rule that a migration dropping lookup rows looks them up again itself.
-  Sonnet 5, medium: the spec is clear, but it changes how the read path
-  splits from the repair path.
-- **A piece's `note` and `ambiguous_readings` are worked out when it's
-  cached.** `gloss_piece` stores `heteronym_readings` and the `grammar_note`
-  its caller passed, and `_group_pieces` blanks `ambiguous_readings` after
-  the fact, so a changed heteronym rule or reworded grammar note leaves cached
-  composites as they were. Both can come from the piece in `shown_pieces`
-  once it stores its `normalized_form` (the full tag is stored already),
-  with the blanking as a stored flag; the shape change needs a clearing
-  migration. Sonnet 5, medium: the move is mechanical, but each grammar
-  piece and helper-verb piece has to keep the note it shows today.
-- **`spell_with_kanji` is stored on every piece, though only a katakana
-  gloss sets it.** `_add_katakana_readings` is its only source, and that row
-  already carries `looked_up_as`, so `shown_pieces` could take the spelling
-  from the row and the flag could leave `gloss_piece` and `_group_pieces`.
-  Not done because it changes what's shown: a composite base copied into a
-  katakana gloss keeps its kana spelling today and would get kanji. No
-  migration needed, since the read just stops looking at the stored flag.
-  Sonnet 5, low, once someone decides the copied base should get kanji.
+- **A group's composite is shown once per member token.** `_fetch_tokens`
+  (`backend/app/main.py`) calls `shown_pieces` per row, and every member of a
+  group links to the same composite row, so an N-member group ranks and
+  derives its pieces N times. Memoizing by gloss id within one call would
+  avoid it, but it's well under a millisecond today. Worth doing only if
+  `rank_senses` shows up in a profile. Haiku 4.5, low: a dict keyed by gloss
+  id around one call.
+- **A missing piece lookup is signalled through `gloss is None`.**
+  `get_document_tokens` only repairs when a *glossable* token has no gloss,
+  so a composite linked only to non-glossable tokens with a dropped piece
+  lookup would be served unglossed and never repaired (no such case found
+  today: group bases, katakana words and A-split keys are all lexical). And
+  when that is the only reason to repair, `repair_gloss_links` runs for
+  nothing, since every token is still linked. Having
+  `piece_lookups(cache_only=True)` also return the missing keys would let
+  the repair branch run on that directly and skip `repair_gloss_links` when
+  nothing is unlinked. The round-trip counts in `test_document_tokens.py`
+  pin both paths. Sonnet 5, medium: the spec is clear, but it reshapes how
+  the read path hands off to the repair path.
+- **A word written in katakana for emphasis is never linked to its word's
+  card.** Decided: a katakana line in a song (ココロノコエ) should be one of the
+  lines a card for the kanji word (心の声, shown with furigana) can play, now
+  that the katakana gloss shows its pieces in kanji. Today
+  `unit_card_tokens` (`backend/app/cards.py`) keys the token by its own
+  spelling, whose gloss is a composite, so `_studyable` drops it and
+  `_occurrences` (`backend/app/card_content.py`) never offers its line to
+  any card. The stored composite already names each word: a piece's `key`
+  is its gloss key, which is the card key, and a grammar piece's
+  `normalized_form` is a grammar term's. So a katakana token could yield one
+  `CardTokens` per keyed piece, which means joining its gloss row in
+  `_token_rows`. Open questions: whether such a token should also harvest
+  new cards or only link lines to existing ones (its hiragana split is
+  Sudachi's guess, like the readings `_GUESSED_READING_REASONS` holds back);
+  how to highlight one word of several inside a single token, since
+  `Line`'s spans are whole tokens; and where the card shows the kanji word
+  with furigana when the line itself is in katakana. Opus 5, high: card
+  identity and harvest counting break silently, and three design calls are
+  still open.
 
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 

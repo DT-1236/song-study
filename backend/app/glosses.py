@@ -569,21 +569,21 @@ def gloss_piece(
     part_of_speech,
     *,
     senses_pos_major: str | None = None,
-    note: str | None = None,
-    spell_with_kanji: bool = False,
+    normalized_form: str | None = None,
+    flags_readings: bool = False,
 ) -> dict:
     """A composite gloss piece for `surface` read as `reading`, as stored:
     glossed from the lookup under `key` (with `alt_lookup_form` as its
     alternate spelling), its senses to be ranked for `part_of_speech`, a full
     Sudachi tag, or for `senses_pos_major` when the piece's role differs from
     its tag (a helper verb like the みる of 見てみる, ranked as 助動詞).
-    `note` explains a grammar word. `spell_with_kanji` shows the piece as its
-    entry is usually written, for a word only spelled in kana here (see
-    app/katakana.py).
+    `normalized_form` marks a grammar word, which is shown with a note
+    explaining it. `flags_readings` shows the other readings its surface
+    could have, for a piece whose word has no token of its own to show them.
 
-    The lookup's entries, their ranking and the spelling that follows from
-    it are all left to shown_pieces, so a change to any of them reaches every
-    cached composite."""
+    The lookup's entries, their ranking, the spelling that follows from it,
+    the note and the other readings are all left to shown_pieces, so a change
+    to any of them reaches every cached composite."""
     return {
         "surface": surface,
         "reading": reading,
@@ -593,58 +593,84 @@ def gloss_piece(
         # ranking that reads more of it needs no migration.
         "part_of_speech": list(part_of_speech),
         "senses_pos_major": senses_pos_major,
-        "ambiguous_readings": sorted(
-            {to_hiragana(r) for r in heteronym_readings(surface, tuple(part_of_speech))}
-            - {reading}
-        ),
-        "note": note,
-        "spell_with_kanji": spell_with_kanji,
+        "normalized_form": normalized_form,
+        "flags_readings": flags_readings,
     }
 
 
-def piece_lookups(conn, composites: Iterable[dict]) -> dict[GlossKey, tuple]:
+def piece_lookups(
+    conn, composites: Iterable[dict], *, cache_only: bool = False
+) -> dict[GlossKey, tuple]:
     """The (entries, source) of every lookup the pieces of `composites`,
     composite glosses' entries, are glossed from. One that isn't cached is
     looked up and cached first, so deleting a lookup's row is enough to
-    refresh every composite built on it."""
-    return gloss_entries(
-        conn,
-        [
-            (tuple(piece["key"]), piece["alt_lookup_form"])
-            for composite in composites
-            for piece in composite["pieces"]
-            if piece["key"] is not None
-        ],
-    )
+    refresh every composite built on it — unless `cache_only`, for a caller
+    that can't write: it is left out of the result instead.
+    """
+    requests = [
+        (tuple(piece["key"]), piece["alt_lookup_form"])
+        for composite in composites
+        for piece in composite["pieces"]
+        if piece["key"] is not None
+    ]
+    if cache_only:
+        return _cached_entries(conn, {key for key, _ in requests})
+    return gloss_entries(conn, requests)
 
 
-def shown_pieces(pieces: list[dict], lookups: dict[GlossKey, tuple]) -> list[dict]:
-    """A composite gloss's stored `pieces` as shown, given the (entries,
-    source) of their lookups (see piece_lookups): each with its lookup's
-    senses ranked for its role, and spelled as its first sense's entry
-    usually is, if it was built to be."""
+def shown_pieces(composite: dict, lookups: dict[GlossKey, tuple]) -> list[dict] | None:
+    """The pieces of `composite`, a composite gloss's entries, as shown, given
+    the (entries, source) of their lookups (see piece_lookups): each with its
+    lookup's senses ranked for its role. None if a piece's lookup isn't in
+    `lookups`, as under piece_lookups' cache_only."""
+    # A katakana word's gloss is written as the words usually are (心の声),
+    # not as the katakana spells them out (こころのこえ).
+    spell_with_kanji = "looked_up_as" in composite
     shown = []
-    for piece in pieces:
-        entries, source = (
-            lookups[tuple(piece["key"])] if piece["key"] is not None else ([], None)
-        )
+    for piece in composite["pieces"]:
+        if piece["key"] is None:
+            entries, source = [], None
+        elif tuple(piece["key"]) in lookups:
+            entries, source = lookups[tuple(piece["key"])]
+        else:
+            return None
         # Only a JMDict or English lookup's entries are senses: a composite's
         # are its own pieces.
         if source not in ("jmdict", "english_stub"):
             entries = []
         pos_major = piece["senses_pos_major"] or piece["part_of_speech"][0]
         senses = rank_senses(entries, pos_major)
-        spelling = piece["spell_with_kanji"] and _kanji_spelling(entries, senses)
+        spelling = spell_with_kanji and _kanji_spelling(entries, senses)
         shown.append(
             {
                 "surface": spelling or piece["surface"],
                 "reading": piece["reading"],
                 "senses": senses,
-                "ambiguous_readings": piece["ambiguous_readings"],
-                "note": piece["note"],
+                "ambiguous_readings": _ambiguous_readings(piece),
+                "note": (
+                    grammar_note(piece["normalized_form"], piece["part_of_speech"])
+                    if piece["normalized_form"] is not None
+                    else None
+                ),
             }
         )
     return shown
+
+
+def _ambiguous_readings(piece: dict) -> list[str]:
+    """The hiragana readings other than its own that `piece`'s surface could
+    have, if it's to flag them."""
+    if not piece["flags_readings"]:
+        return []
+    return sorted(
+        {
+            to_hiragana(r)
+            for r in heteronym_readings(
+                piece["surface"], tuple(piece["part_of_speech"])
+            )
+        }
+        - {piece["reading"]}
+    )
 
 
 def _add_composites(
@@ -686,7 +712,14 @@ def _add_composites(
             new_rows[key] = (
                 {
                     "pieces": [
-                        gloss_piece(surface, reading, (surface, reading), None, pos)
+                        gloss_piece(
+                            surface,
+                            reading,
+                            (surface, reading),
+                            None,
+                            pos,
+                            flags_readings=True,
+                        )
                         for surface, reading, pos in pieces
                     ]
                 },
@@ -765,14 +798,13 @@ def predicate_group_request(
 def _group_pieces(
     request: GroupGlossRequest,
     found: dict[GlossKey, tuple[object, str]],
-    spell_with_kanji: bool = False,
 ) -> list[dict]:
     """The composite pieces for `request`, with its base's (entries,
-    source) from `found`. `spell_with_kanji` passes through to
-    gloss_piece."""
+    source) from `found`."""
     entries, source = found[request.base_key]
     if source == "composite":
-        pieces = list(entries["pieces"])
+        # The base's words keep their own reading options on their tokens.
+        pieces = [{**piece, "flags_readings": False} for piece in entries["pieces"]]
     else:
         pieces = [
             gloss_piece(
@@ -781,11 +813,9 @@ def _group_pieces(
                 request.base_key,
                 request.base_alt,
                 request.base_part_of_speech,
-                spell_with_kanji=spell_with_kanji,
             )
         ]
     for part in request.attached:
-        note = grammar_note(part.normalized_form, part.part_of_speech)
         if is_helper_verb(part):
             pieces.append(
                 gloss_piece(
@@ -795,20 +825,17 @@ def _group_pieces(
                     part.dictionary_form,
                     part.part_of_speech,
                     senses_pos_major="助動詞",
-                    note=note,
-                    spell_with_kanji=spell_with_kanji,
+                    normalized_form=part.normalized_form,
                 )
             )
         else:
             pieces.append(_grammar_piece(part))
-    # A group's words keep their own reading options on their tokens, so a
-    # piece doesn't flag them again.
-    return [{**piece, "ambiguous_readings": []} for piece in pieces]
+    return pieces
 
 
 def _grammar_piece(part: GroupPart) -> dict:
-    """A composite gloss piece for a grammar word, as stored: its note, and
-    no senses."""
+    """A composite gloss piece for a grammar word, as stored: the form its
+    note is worked out from, and no senses."""
     return {
         "surface": part.dictionary_form,
         "reading": part.reading,
@@ -816,9 +843,8 @@ def _grammar_piece(part: GroupPart) -> dict:
         "alt_lookup_form": None,
         "part_of_speech": list(part.part_of_speech),
         "senses_pos_major": None,
-        "ambiguous_readings": [],
-        "note": grammar_note(part.normalized_form, part.part_of_speech),
-        "spell_with_kanji": False,
+        "normalized_form": part.normalized_form,
+        "flags_readings": False,
     }
 
 
@@ -837,12 +863,7 @@ def _piece_sources(
                     part.dictionary_form,
                 )
 
-    found = {
-        key: (row.entries, row.source)
-        for key, row in _cached_rows(
-            conn, alternates.keys() - new_rows.keys(), with_entries=True
-        ).items()
-    }
+    found = _cached_entries(conn, alternates.keys() - new_rows.keys())
     uncached = {
         key: _lookup(*key, alt)
         for key, alt in alternates.items()
@@ -902,10 +923,8 @@ def _add_katakana_readings(
         pieces = [
             piece
             for unit in units
-            # Written as the words usually are (心の声), not as the katakana
-            # spells them out (こころのこえ).
             for piece in (
-                _group_pieces(unit, found, spell_with_kanji=True)
+                _group_pieces(unit, found)
                 if isinstance(unit, GroupGlossRequest)
                 else [_grammar_piece(unit)]
             )
@@ -986,6 +1005,12 @@ def store_glosses(conn, plan: GlossPlan) -> dict[GlossKey, int]:
     return ids
 
 
+def _cached_entries(conn, keys) -> dict[GlossKey, tuple[object, str]]:
+    """The (entries, source) of each of `keys` that is cached."""
+    rows = _cached_rows(conn, keys, with_entries=True)
+    return {key: (row.entries, row.source) for key, row in rows.items()}
+
+
 def gloss_entries(
     conn, requests: Iterable[tuple[GlossKey, str | None]]
 ) -> dict[GlossKey, tuple[object, str]]:
@@ -993,18 +1018,13 @@ def gloss_entries(
     with an alternate spelling as plan_glosses takes it. A key that isn't
     cached is looked up and cached first."""
     requests = list(requests)
-
-    def cached(keys) -> dict[GlossKey, tuple[object, str]]:
-        rows = _cached_rows(conn, keys, with_entries=True)
-        return {key: (row.entries, row.source) for key, row in rows.items()}
-
-    found = cached({key for key, _ in requests})
+    found = _cached_entries(conn, {key for key, _ in requests})
     missing = [(key, alt) for key, alt in requests if key not in found]
     if missing:
         store_glosses(conn, plan_glosses(conn, missing))
         # Read back rather than taken from the plan, which leaves out a key
         # another transaction cached in the meantime.
-        found |= cached({key for key, _ in missing})
+        found |= _cached_entries(conn, {key for key, _ in missing})
     return found
 
 

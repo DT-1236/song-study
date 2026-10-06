@@ -699,8 +699,17 @@ class Token(BaseModel):
 
 
 def _fetch_tokens(
-    conn, document_id: int, token_ids: list[int] | None = None
+    conn,
+    document_id: int,
+    token_ids: list[int] | None = None,
+    *,
+    cache_only: bool = False,
 ) -> list[Token]:
+    """The document's tokens (or just `token_ids`) as shown. With
+    `cache_only`, for a connection whose work is rolled back, a composite
+    gloss with a piece whose lookup isn't cached comes back with no gloss,
+    as an unlinked token does, rather than looking it up to be lost.
+    """
     token_filter = "AND t.id = ANY(:token_ids)" if token_ids is not None else ""
     rows = conn.execute(
         text(
@@ -748,7 +757,9 @@ def _fetch_tokens(
 
     # Every composite's pieces' lookups, in one read.
     lookups = piece_lookups(
-        conn, [row.gloss_entries for row in rows if row.gloss_source == "composite"]
+        conn,
+        [row.gloss_entries for row in rows if row.gloss_source == "composite"],
+        cache_only=cache_only,
     )
     tokens = []
     for row in rows:
@@ -761,16 +772,20 @@ def _fetch_tokens(
             data["gloss"] = None
         elif gloss_source == "composite":
             # Each piece ranked for its own part of speech, not the token's.
-            data["gloss"] = Gloss(
-                reading=gloss_reading,
-                lookup_form=gloss_lookup_form,
-                senses=[],
-                source=gloss_source,
-                pieces=[
-                    GlossPiece(**piece)
-                    for piece in shown_pieces(gloss_entries["pieces"], lookups)
-                ],
-                looked_up_as=gloss_entries.get("looked_up_as"),
+            pieces = shown_pieces(gloss_entries, lookups)
+            # None only under cache_only, for a piece whose lookup isn't
+            # cached: shown unglossed, as an unlinked token is.
+            data["gloss"] = (
+                None
+                if pieces is None
+                else Gloss(
+                    reading=gloss_reading,
+                    lookup_form=gloss_lookup_form,
+                    senses=[],
+                    source=gloss_source,
+                    pieces=[GlossPiece(**piece) for piece in pieces],
+                    looked_up_as=gloss_entries.get("looked_up_as"),
+                )
             )
         else:
             data["gloss"] = Gloss(
@@ -896,7 +911,7 @@ def get_document_tokens(
 ) -> list[Token]:
     while True:
         with engine.connect() as conn:
-            existing = _fetch_tokens(conn, document_id)
+            existing = _fetch_tokens(conn, document_id, cache_only=True)
             if not existing:
                 # Tokens only exist for a document that does, so the document
                 # is only read (and checked for) when there are none.
@@ -914,7 +929,9 @@ def get_document_tokens(
                 return existing
             # Tokens missing their gloss link: tokenized before gloss support
             # existed, or unlinked by a migration that reset the gloss cache
-            # (as 0005 did).
+            # (as 0005 did). Or shown without one because a piece of their
+            # composite gloss has no cached lookup, which repair_gloss_links
+            # leaves alone: the fetch below, which can write, looks it up.
             with engine.begin() as conn:
                 repair_gloss_links(conn, document_id)
                 return _fetch_tokens(conn, document_id)
