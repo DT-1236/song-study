@@ -27,10 +27,10 @@ from app.cards import (
     CARD_KEYS_JOIN_SQL,
     CardKind,
     card_keys_param,
+    is_mature,
     song_card_keys,
     song_words,
 )
-from app.kanji import MATURE_STABILITY_DAYS
 from app.users import document_is_owned
 
 # Answering under `fast` is fast, and over `slow` is slow, for a card of each
@@ -410,12 +410,7 @@ def song_readiness(conn, user_id: int, units: list[list]) -> Readiness:
         readiness=known / total if total else 0.0,
         words=len(words.enrolled) + len(words.unenrolled),
         enrolled=len(words.enrolled),
-        mature=sum(
-            row.state == State.Review
-            and row.stability is not None
-            and row.stability >= MATURE_STABILITY_DAYS
-            for _, row in words.enrolled
-        ),
+        mature=sum(is_mature(row.state, row.stability) for _, row in words.enrolled),
         due=sum(row.due <= now for _, row in words.enrolled),
     )
 
