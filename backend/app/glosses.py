@@ -229,7 +229,7 @@ def search_jmdict(query: str, max_results_per_tier: int = 3) -> list[dict]:
 # same way. Built from the actual vocabulary on both sides seen across a
 # real document's cached glosses, not guessed — jamdict only exposes
 # expanded English descriptions, not JMDict's raw 2-4 letter codes, so this
-# matches on those strings directly.
+# matches on those strings directly. 動詞 isn't here: see _is_verb_sense.
 _SUDACHI_TO_JMDICT_POS: dict[str, frozenset[str]] = {
     "名詞": frozenset(
         {
@@ -240,20 +240,6 @@ _SUDACHI_TO_JMDICT_POS: dict[str, frozenset[str]] = {
             "nouns which may take the genitive case particle 'no'",
             "numeric",
             "counter",
-        }
-    ),
-    "動詞": frozenset(
-        {
-            "Godan verb - Iku/Yuku special class",
-            "Godan verb with 'ku' ending",
-            "Godan verb with 'mu' ending",
-            "Godan verb with 'ru' ending",
-            "Godan verb with 'su' ending",
-            "Godan verb with 'u' ending",
-            "Ichidan verb",
-            "Kuru verb - special class",
-            "intransitive verb",
-            "transitive verb",
         }
     ),
     "形容詞": frozenset({"adjective (keiyoushi)", "auxiliary adjective"}),
@@ -270,7 +256,27 @@ _SUDACHI_TO_JMDICT_POS: dict[str, frozenset[str]] = {
 }
 
 
+# JMDict tags a verb's sense with its conjugation class, of which there are
+# dozens (archaic Nidan and Yodan ones included), and often with its
+# transitivity as well, but not always: する's "to do" carries only "suru
+# verb - included". So for 動詞 every tag naming a verb counts, but these.
+_VERB_RE = re.compile(r"\bverb\b")
+_NOT_VERB_SENSES = frozenset(
+    {
+        "auxiliary verb",
+        "noun or participle which takes the aux. verb suru",
+        "noun or verb acting prenominally",
+    }
+)
+
+
+def _is_verb_sense(pos: str) -> bool:
+    return bool(_VERB_RE.search(pos)) and pos not in _NOT_VERB_SENSES
+
+
 def _sense_matches_pos(sense_pos: list[str], sudachi_major: str) -> bool:
+    if sudachi_major == "動詞":
+        return any(_is_verb_sense(p) for p in sense_pos)
     wanted = _SUDACHI_TO_JMDICT_POS.get(sudachi_major)
     return bool(wanted) and any(p in wanted for p in sense_pos)
 

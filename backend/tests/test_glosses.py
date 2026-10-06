@@ -8,6 +8,7 @@ JMDict rather than a mock, because these bugs were specifically about how
 real Sudachi/JMDict data interacts.
 """
 
+import pytest
 from sqlalchemy import text
 
 from app.glosses import (
@@ -76,6 +77,43 @@ class TestRankSenses:
         ]
         ranked = rank_senses(entries, "名詞")
         assert ranked[0]["gloss"] == ["common entry"]
+
+    def test_a_verb_sense_tagged_only_with_its_class_counts_as_a_verb(self):
+        # する's "to do" has no transitivity tag, only "suru verb -
+        # included", while its rarer senses are tagged intransitive.
+        entries = [
+            {
+                "idseq": 1,
+                "kanji_forms": [],
+                "senses": [
+                    self._sense("suru verb - included", "to do"),
+                    self._sense("intransitive verb", "to be sensed"),
+                ],
+            }
+        ]
+        ranked = rank_senses(entries, "動詞")
+        assert ranked[0]["gloss"] == ["to do"]
+
+    @pytest.mark.parametrize(
+        "tag, is_verb",
+        [
+            ("Yodan verb with 'ku' ending (archaic)", True),
+            ("verb unspecified", True),
+            ("auxiliary verb", False),
+            ("adverb (fukushi)", False),
+            ("noun or participle which takes the aux. verb suru", False),
+        ],
+    )
+    def test_every_tag_naming_a_verb_counts_as_one(self, tag, is_verb):
+        entries = [
+            {
+                "idseq": 1,
+                "kanji_forms": [],
+                "senses": [self._sense("pronoun", "other"), self._sense(tag, "tagged")],
+            }
+        ]
+        ranked = rank_senses(entries, "動詞")
+        assert (ranked[0]["gloss"] == ["tagged"]) == is_verb
 
 
 class TestSearchReadings:
