@@ -60,7 +60,7 @@ def to_hiragana(text: str) -> str:
     return text.translate(_KATA_TO_HIRA)
 
 
-def _is_kanji(ch: str) -> bool:
+def is_kanji(ch: str) -> bool:
     return bool(_KANJI_RE.match(ch))
 
 
@@ -314,9 +314,9 @@ def build_furigana_spans(surface: str, reading_katakana: str) -> FuriganaResult:
     segments: list[tuple[bool, int, int]] = []  # (is_kanji, start, end)
     i = 0
     while i < len(surface):
-        is_k = _is_kanji(surface[i])
+        is_k = is_kanji(surface[i])
         j = i + 1
-        while j < len(surface) and _is_kanji(surface[j]) == is_k:
+        while j < len(surface) and is_kanji(surface[j]) == is_k:
             j += 1
         segments.append((is_k, i, j))
         i = j

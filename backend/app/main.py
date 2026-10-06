@@ -51,6 +51,7 @@ from app.glosses import (
     store_glosses,
 )
 from app.grammar import find_predicate_groups
+from app.kanji import KanjiEntry
 from app.lrclib import (
     LrclibError,
     LrclibLyrics,
@@ -1185,6 +1186,8 @@ class QueuedCard(StudyCard):
     # A word's every sense, ranked, for the reveal; its options show the
     # first two.
     senses: list[GlossSense]
+    # Each kanji of the word, or the group it's in, for the reveal.
+    kanji: list[KanjiEntry]
 
 
 def _queued_cards(queue: list) -> list[QueuedCard]:

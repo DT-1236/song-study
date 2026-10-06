@@ -28,6 +28,14 @@ from app.cards import (
 from app.db import DOCUMENT_COLUMNS
 from app.glosses import GlossKey, gloss_entries, rank_senses
 from app.grammar import grammar_category, grammar_notes, notes_overlap
+from app.kanji import (
+    KanjiEntry,
+    KanjiInWord,
+    deck_cards,
+    kanji_entries,
+    kanji_in_spans,
+    kanji_in_word,
+)
 
 OPTION_COUNT = 4
 
@@ -103,6 +111,8 @@ class Content:
     # For a word: every sense it has, ranked for how the line uses it. Its
     # option shows the first OPTION_SENSE_LIMIT.
     senses: list[dict] = field(default_factory=list)
+    # For the reveal: each kanji of the word, or the group it's in.
+    kanji: list[KanjiEntry] = field(default_factory=list)
 
 
 @dataclass
@@ -578,6 +588,48 @@ class _Library:
                 yield glosses.senses(word)
 
 
+def _writes_its_kanji(occurrence: _Occurrence | None) -> bool:
+    """Whether the line of `occurrence` writes the kanji of its word: not for
+    a word sung in katakana, nor one with no line at all."""
+    return occurrence is not None and occurrence.found.written_as is None
+
+
+def _furigana(conn, occurrences: Iterable[_Occurrence | None]) -> dict[int, list]:
+    """The furigana, as the page shows it, of each token in the groups of the
+    occurrences that write their kanji, by token id."""
+    token_ids = [
+        row.id
+        for occurrence in occurrences
+        if _writes_its_kanji(occurrence)
+        for row in occurrence.unit
+    ]
+    rows = conn.execute(
+        text(
+            """
+            SELECT id, COALESCE(furigana_override, furigana_spans) AS spans
+            FROM tokens WHERE id = ANY(:token_ids)
+            """
+        ),
+        {"token_ids": token_ids},
+    )
+    return {row.id: row.spans for row in rows}
+
+
+def _written_kanji(
+    key: CardKey, occurrence: _Occurrence | None, furigana: dict[int, list]
+) -> list[KanjiInWord]:
+    """The kanji of the group a card's word or grammar term is in on its line,
+    given the `furigana` of the line's tokens; those of the word on its own
+    when the line doesn't write them (see _writes_its_kanji)."""
+    if _writes_its_kanji(occurrence):
+        return [
+            kanji
+            for row in occurrence.unit
+            for kanji in kanji_in_spans(furigana[row.id], row.dictionary_form)
+        ]
+    return kanji_in_word(key.lookup_form, key.reading) if key.reading else []
+
+
 def queue_contents(
     conn,
     user_id: int,
@@ -615,8 +667,20 @@ def queue_contents(
     # Every word card's own gloss, in one lookup.
     glosses.fetch(targets.values())
 
+    furigana = _furigana(conn, chosen)
+    written = [
+        _written_kanji(key, occurrence, furigana)
+        for key, occurrence in zip(keys, chosen, strict=True)
+    ]
+    # Every card's kanji, in one lookup.
+    deck = deck_cards(
+        conn,
+        user_id,
+        {item.character for kanji in written for item in kanji},
+    )
+
     queue = []
-    for card, key, occurrence in zip(cards, keys, chosen, strict=True):
+    for card, key, occurrence, kanji in zip(cards, keys, chosen, written, strict=True):
         line = occurrence.line if occurrence else None
         if key.kind == "grammar":
             content = grammar_content(key.lookup_form, line, rng)
@@ -629,5 +693,6 @@ def queue_contents(
                 line,
                 rng,
             )
+        content.kanji = kanji_entries(kanji, deck, card.id)
         queue.append((card, content))
     return queue

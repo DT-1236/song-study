@@ -74,7 +74,7 @@ def _lookup_english_entries(word: str) -> list[dict]:
 _jam_local = threading.local()
 
 
-def _get_jamdict() -> Jamdict:
+def get_jamdict() -> Jamdict:
     """One Jamdict instance per thread, not a shared module-level singleton.
 
     FastAPI runs sync endpoints in a worker thread pool, and Jamdict wraps
@@ -106,7 +106,7 @@ def _serialize_senses(entry) -> list[dict]:
 
 
 def _lookup_entries(lookup_form: str, reading_hiragana: str) -> list[dict]:
-    jam = _get_jamdict()
+    jam = get_jamdict()
     # Only result.entries is used, so the per-character (KanjiDic) and
     # name (JMnedict) lookups are skipped, as in search_jmdict.
     result = jam.lookup(lookup_form, lookup_chars=False, lookup_ne=False)
@@ -183,7 +183,7 @@ def search_jmdict(query: str, max_results_per_tier: int = 3) -> list[dict]:
     if not query:
         return []
 
-    jam = _get_jamdict()
+    jam = get_jamdict()
     # lookup_chars/lookup_ne pull in per-character dictionary and
     # name-entity data we never read (only result.entries is used below) —
     # for a common character, that extra work costs *seconds* on a query
@@ -315,7 +315,7 @@ def _get_raw_conn() -> sqlite3.Connection:
     headword checks too frequent to pay for Jamdict building whole entries."""
     conn = getattr(_jam_local, "raw_conn", None)
     if conn is None:
-        conn = sqlite3.connect(_get_jamdict().db_file)
+        conn = sqlite3.connect(get_jamdict().db_file)
         _jam_local.raw_conn = conn
     return conn
 
@@ -359,7 +359,7 @@ def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
     """Every kana form JMDict lists for the entries with `text` as a headword,
     as (not common, entry order, kana form), so sorting puts common readings
     first."""
-    jam = _get_jamdict()
+    jam = get_jamdict()
     result = jam.lookup(text, lookup_chars=False, lookup_ne=False)
     scored: list[tuple[bool, int, str]] = []
     for order, e in enumerate(result.entries):
