@@ -1516,3 +1516,63 @@ label.apply-to-all {
 .kanji-status.mature {
   color: var(--success);
 }
+
+.readiness {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.5rem;
+}
+
+.readiness-bar {
+  width: 8rem;
+  height: 0.6rem;
+  border-radius: 0.3rem;
+  background: rgba(128, 128, 128, 0.25);
+  overflow: hidden;
+}
+
+.readiness-fill {
+  height: 100%;
+  background: #4a9d6b;
+}
+
+.readiness-counts {
+  flex-basis: 100%;
+  font-size: 0.8em;
+  opacity: 0.7;
+}
+
+.run-lines {
+  padding-left: 1.5rem;
+}
+
+.run-lines li {
+  opacity: 0.6;
+}
+
+.run-lines .run-line-weak {
+  opacity: 1;
+}
+
+.run-lines .run-line-now {
+  font-weight: bold;
+  opacity: 1;
+}
+
+.run-pause {
+  margin: 1rem 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid rgba(128, 128, 128, 0.5);
+  border-radius: 0.5rem;
+}
+
+.run-weak {
+  list-style: none;
+  padding: 0;
+}
+
+.run-recall {
+  font-size: 0.8em;
+  opacity: 0.7;
+}

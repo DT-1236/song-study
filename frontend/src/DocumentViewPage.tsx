@@ -2452,6 +2452,8 @@ export function DocumentViewPage() {
       <div className="document-header" ref={setHeaderEl}>
         <h1>{doc.title}</h1>
         <Link to={`/documents/${doc.id}/study`}>Study this song</Link>
+        {' · '}
+        <Link to={`/documents/${doc.id}/run-through`}>Run through it</Link>
 
         <label htmlFor="title">Title</label>
         <p id="title" className="readonly-text">

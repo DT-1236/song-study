@@ -707,3 +707,81 @@ def queue_contents(
         content.kanji = card_kanji(kanji, entries)
         cards_content.append((card, content))
     return Queue(cards_content, entries)
+
+
+@dataclass(frozen=True)
+class WeakWord:
+    """A word or grammar term of a song the user's card for is fading."""
+
+    card_id: int
+    lookup_form: str
+    reading: str | None
+    # Their chance of recalling it now, 0 to 1.
+    retrievability: float
+    # Where in its line it is, as [begin, end) offsets.
+    focus: tuple[int, int]
+    # What it means: a word's first senses, as its options show them, or a
+    # grammar term's note. None for a word with no dictionary entry any more.
+    meaning: Option | None
+
+
+@dataclass(frozen=True)
+class RunLine:
+    """A line of a song, for playing it through."""
+
+    index: int
+    text: str
+    audio: Audio | None
+    weak: list[WeakWord]
+
+
+def run_through_lines(
+    conn, song: Song, weak: dict[CardKey, tuple[int, float]]
+) -> list[RunLine]:
+    """Each of `song`'s lines, with the words and grammar terms in `weak` (by
+    key, to the card's id and retrievability) that it has, the weakest
+    first."""
+    # Nothing to find the lines of when no word is fading.
+    occurrences = _occurrences(conn, [song]) if weak else {}
+    present = {key: occurrences[key] for key in weak if key in occurrences}
+    words = {
+        key: _Word.of(os[0].found)
+        for key, os in present.items()
+        if key.kind == "recognition"
+    }
+    glosses = _Glosses(conn)
+    glosses.fetch(words.values())
+    notes = grammar_notes()
+
+    def meaning(key: CardKey) -> Option | None:
+        if key.kind == "grammar":
+            return Option(note=notes[key.lookup_form])
+        senses = glosses.senses(words[key]).senses
+        if not senses:
+            return None
+        return Option(senses=[s["gloss"] for s in senses[:OPTION_SENSE_LIMIT]])
+
+    by_line: dict[int, list[WeakWord]] = {}
+    for key, found in present.items():
+        card_id, retrievability = weak[key]
+        for occurrence in found:
+            line = occurrence.line
+            by_line.setdefault(line.index, []).append(
+                WeakWord(
+                    card_id,
+                    key.lookup_form,
+                    key.reading,
+                    retrievability,
+                    line.focus,
+                    meaning(key),
+                )
+            )
+    return [
+        RunLine(
+            index,
+            text,
+            _audio(song, index),
+            sorted(by_line.get(index, []), key=lambda w: w.retrievability),
+        )
+        for index, text in enumerate(song.text.split("\n"))
+    ]

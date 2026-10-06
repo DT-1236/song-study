@@ -329,6 +329,21 @@ def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
     }
 
 
+def _found_words(units: list[list]) -> dict[CardKey, HarvestedWord]:
+    """Every word and grammar term of a document's `units` (see _units) that
+    could become a card, by key, in order of first occurrence."""
+    found: dict[CardKey, HarvestedWord] = {}
+    for unit in units:
+        for card in unit_card_tokens(unit, explicit=False):
+            if card.key in found:
+                found[card.key].occurrences += 1
+            else:
+                found[card.key] = HarvestedWord(
+                    card.key, card.alt_lookup_form, 1, unit[0].position
+                )
+    return found
+
+
 def harvest(conn, units: list[list], user_id: int) -> list[HarvestedWord]:
     """Every word and grammar term of a document's `units` (see _units) that
     becomes a card when enrolled, in order of first occurrence, except those
@@ -340,24 +355,51 @@ def harvest(conn, units: list[list], user_id: int) -> list[HarvestedWord]:
     reading is corrected. A predicate group's head is a word of its own; the
     grammar attached to it, or to a phrase, gives grammar terms, when they
     have an explanation of their own."""
-    found: dict[CardKey, HarvestedWord] = {}
-    for unit in units:
-        for card in unit_card_tokens(unit, explicit=False):
-            if card.key in found:
-                found[card.key].occurrences += 1
-            else:
-                found[card.key] = HarvestedWord(
-                    card.key, card.alt_lookup_form, 1, unit[0].position
-                )
+    return song_words(conn, units, user_id).unenrolled
 
-    # Dropped before _studyable, which would look up (and maybe fetch) the
-    # gloss of every word the user already has a card for.
-    carded = _carded_keys(conn, user_id, list(found))
-    wanted = [w for w in found.values() if w.key not in carded]
+
+@dataclass
+class SongWords:
+    """The words and grammar terms a song gives cards, as harvest finds
+    them, by whether the user has a card for each yet."""
+
+    # Each with its card's row (CARD_COLUMNS and its schedule).
+    enrolled: list[tuple[HarvestedWord, object]]
+    unenrolled: list[HarvestedWord]
+
+
+def song_words(conn, units: list[list], user_id: int) -> SongWords:
+    """What a document's `units` (see _units) gives the user's cards: the
+    words they have a card for and the ones harvest would enroll. A word
+    whose card they removed is in neither, as it's no longer part of what
+    they study."""
+    found = _found_words(units)
+    rows = {
+        CardKey(row.kind, row.lookup_form, row.reading): row
+        for row in conn.execute(
+            text(
+                f"""
+                SELECT {CARD_COLUMNS}, c.state, c.step, c.stability, c.difficulty,
+                       c.last_review
+                FROM study_cards c {CARD_KEYS_JOIN_SQL}
+                WHERE c.user_id = :user_id
+                """
+            ),
+            {"user_id": user_id, "keys": card_keys_param(found)},
+        )
+    }
+    wanted = [w for w in found.values() if w.key not in rows]
     studyable = _studyable(
         conn, [(w.key, w.alt_lookup_form) for w in wanted if w.key.kind != "grammar"]
     )
-    return [w for w in wanted if w.key.kind == "grammar" or w.key in studyable]
+    return SongWords(
+        [
+            (word, rows[word.key])
+            for word in found.values()
+            if word.key in rows and not rows[word.key].suspended
+        ],
+        [w for w in wanted if w.key.kind == "grammar" or w.key in studyable],
+    )
 
 
 def document_card_keys(conn, units: list[list]) -> set[CardKey]:
@@ -368,25 +410,6 @@ def document_card_keys(conn, units: list[list]) -> set[CardKey]:
     lookups = katakana_lookups(conn, units)
     return {
         card.key for unit in units for card in unit_card_tokens(unit, katakana=lookups)
-    }
-
-
-def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
-    """Those of `keys` the user has a card for, removed ones included."""
-    if not keys:
-        return set()
-    return {
-        CardKey(row.kind, row.lookup_form, row.reading)
-        for row in conn.execute(
-            text(
-                f"""
-                SELECT c.kind, c.lookup_form, c.reading
-                FROM study_cards c {CARD_KEYS_JOIN_SQL}
-                WHERE c.user_id = :user_id
-                """
-            ),
-            {"user_id": user_id, "keys": card_keys_param(keys)},
-        )
     }
 
 

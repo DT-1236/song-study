@@ -982,8 +982,7 @@ dates are shared state. Default parameters are fitted on ~727M reviews and are f
    only its scope isn't.)
 2. **Should a run-through log reviews?** No for v1, with the cost noted in §6 — the progress bar
    won't move for practice. Anki makes this a toggle, and this probably will too.
-3. **Readiness on the documents list** — compute for every song on every list render, or only for
-   the song you open? The list is paginated, so N songs means N roll-ups.
+3. ~~**Readiness on the documents list**~~ Settled in step 8: computed for every song on the page.
 4. **Option count** — four everywhere, or more? Six drops the guess floor from 25% to 17% but
    makes the card slower to read and harder to fit on a phone.
 5. **Is Easy-unreachable acceptable?** Discussed in §3. Provisionally yes, since push-out covers
@@ -1200,6 +1199,29 @@ share. No behavior change.
 
 **8 — Progress.** Song readiness (§6), its surfacing on the documents list, and run-through mode.
 
+*As built* (`study.py`, `card_content.py`, `RunThroughPage.tsx`, `ReadinessMeter.tsx`) — what later
+steps build on:
+- `cards.song_words` is what harvest finds in a song, split into the words the user has an
+  unsuspended card for (each with its row) and those harvest would enroll. A removed card is in
+  neither, so removing a word takes it out of the song's denominator rather than leaving a
+  permanent zero. `harvest` shares its first half (`_found_words`).
+- `study.song_readiness` is §6's definition, with `mature` (stability of 21 days or more, in Review)
+  and `due` (due now, not "today", as the queue reads it) counted alongside. Retrievability comes
+  from py-fsrs, so a card never reviewed counts as zero.
+- `GET /documents` carries each item's `readiness`, computed for every song on the page (§10's
+  third question): a few queries per song, and a gloss the cache lost is fetched on the way, so the
+  list now runs in a transaction. `GET /documents/{id}/readiness` serves one song.
+- The list column isn't sortable: sorting by readiness needs it for every song, not the page's.
+- Run-through is `GET /documents/{id}/run-through`: every line in order with its audio, and the
+  words in it whose card's retrievability is below the user's desired retention, weakest first,
+  each with the first senses its card options show (a grammar term's note). A song with no new
+  cards yet has none to pause on, since a word with no card isn't one the user is forgetting.
+  It logs and reschedules nothing.
+- `/documents/:id/run-through` plays the lines through one `YouTubePlayer`, pauses at the end of a
+  line with weak words (`⏎` continues, `r` replays), and skips a gap of more than half a second
+  between lines. It needs a video and timings.
+- Not checked in a browser: playback itself.
+
 **9 — Correction and deck management.** The "wrong reading?" flow from inside a session (§3), and
 the gloss popup's add / remove / restore affordance (§1).
 *Watch:* the popup is already crowded and its edge-nudge positioning is delicate — this is a real
@@ -1246,7 +1268,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 5 — Kanji sidebar data | Done | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
 | 6 — Study UI | Done | Sonnet 5 | medium | A new page is conventional React against a specified layout |
 | 7 — Gloss rendering extraction | Done | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
-| 8 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
+| 8 — Progress | Done | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
 | 9 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
 
 For the later items: Type C and OAuth/deployment suit Sonnet 5 at medium; typed conjugation

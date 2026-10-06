@@ -8,20 +8,29 @@ FSRS's four ratings") and which cards a session is made of.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
 
 from fsrs import Card, Rating, Scheduler, State
 from sqlalchemy import text
 
-from app.card_content import Queue, load_songs, queue_contents
+from app.card_content import (
+    Queue,
+    RunLine,
+    load_songs,
+    queue_contents,
+    run_through_lines,
+)
 from app.cards import (
     CARD_COLUMNS,
     CARD_KEYS_JOIN_SQL,
     CardKind,
     card_keys_param,
     song_card_keys,
+    song_words,
 )
+from app.kanji import MATURE_STABILITY_DAYS
 from app.users import document_is_owned
 
 # Answering under `fast` is fast, and over `slow` is slow, for a card of each
@@ -356,3 +365,87 @@ def set_new_cards_per_day(conn, user_id: int, document_id: int, limit: int) -> i
     if saved is None:
         raise DocumentNotFound()
     return saved
+
+
+@dataclass
+class Readiness:
+    """How much of a song is in the user's head (see song_readiness)."""
+
+    # 0 to 1: the mean chance of recalling each of the song's words, by how
+    # often it's sung, with any the user has no card for yet at zero.
+    readiness: float
+    words: int
+    enrolled: int
+    # Cards with stability of 21 days or more.
+    mature: int
+    due: int
+
+
+# Retrievability doesn't depend on a user's desired retention.
+_RETRIEVABILITY_SCHEDULER = Scheduler()
+
+
+def _retrievability(row, now: datetime) -> float:
+    """The predicted chance the user recalls the card `row` right now; zero
+    for one never reviewed."""
+    return _RETRIEVABILITY_SCHEDULER.get_card_retrievability(_fsrs_card(row), now)
+
+
+def song_readiness(conn, user_id: int, units: list[list]) -> Readiness:
+    """The user's readiness for a song with tokens in `units` (see
+    cards._units): the mean chance of recalling each of its words, weighted
+    by how often the song has it. A word with no card yet counts as zero, so
+    that the number is how much of the song is known rather than how well
+    the part studied so far is.
+
+    Computed from the schedule as it is now, never stored: a card's
+    retrievability decays with every day that passes."""
+    words = song_words(conn, units, user_id)
+    now = datetime.now(UTC)
+    total = sum(w.occurrences for w, _ in words.enrolled) + sum(
+        w.occurrences for w in words.unenrolled
+    )
+    known = sum(w.occurrences * _retrievability(row, now) for w, row in words.enrolled)
+    return Readiness(
+        readiness=known / total if total else 0.0,
+        words=len(words.enrolled) + len(words.unenrolled),
+        enrolled=len(words.enrolled),
+        mature=sum(
+            row.state == State.Review
+            and row.stability is not None
+            and row.stability >= MATURE_STABILITY_DAYS
+            for _, row in words.enrolled
+        ),
+        due=sum(row.due <= now for _, row in words.enrolled),
+    )
+
+
+def documents_readiness(
+    conn, user_id: int, document_ids: list[int]
+) -> dict[int, Readiness]:
+    """song_readiness for each of the user's documents among `document_ids`."""
+    songs = load_songs(conn, user_id, document_ids)
+    return {id: song_readiness(conn, user_id, song.units) for id, song in songs.items()}
+
+
+def run_through(
+    conn, user_id: int, document_id: int
+) -> tuple[str | None, list[RunLine]]:
+    """The song's lines in order, and its video, for playing it through:
+    line with the words in it the user has a card for whose chance of being
+    recalled has fallen below their desired retention, weakest first.
+    Nothing is logged or rescheduled.
+
+    Raises DocumentNotFound if the document isn't the user's."""
+    songs = load_songs(conn, user_id, [document_id])
+    if document_id not in songs:
+        raise DocumentNotFound()
+    song = songs[document_id]
+    now = datetime.now(UTC)
+    threshold = get_desired_retention(conn, user_id)
+    weak = {}
+    for word, row in song_words(conn, song.units, user_id).enrolled:
+        retrievability = _retrievability(row, now)
+        if retrievability < threshold:
+            weak[word.key] = (row.id, retrievability)
+    return song.youtube_video_id, run_through_lines(conn, song, weak)

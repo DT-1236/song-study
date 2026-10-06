@@ -1,11 +1,6 @@
-import type { CardOption, QueuedCard } from './api'
+import type { QueuedCard } from './api'
+import { codePointSlice, optionText } from './cardText'
 import { SenseList } from './SenseList'
-
-// The code points of `text` from `begin` to `end`, which is how the backend
-// counts the offsets of a line.
-function codePointSlice(text: string, begin: number, end?: number): string {
-  return Array.from(text).slice(begin, end).join('')
-}
 
 // The card's line, dimmed except its target until the reveal brightens it.
 function LineText({ card, revealed }: { card: QueuedCard; revealed: boolean }) {
@@ -43,11 +38,6 @@ function LineText({ card, revealed }: { card: QueuedCard; revealed: boolean }) {
       </span>
     </p>
   )
-}
-
-function optionText(option: CardOption): string {
-  if (option.note !== null) return option.note
-  return (option.senses ?? []).map((gloss) => gloss.join(', ')).join(' · ')
 }
 
 function question(card: QueuedCard): string {

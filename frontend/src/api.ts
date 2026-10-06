@@ -181,11 +181,26 @@ export async function saveLineTimings(
   return response.json()
 }
 
+// How much of a song is in the user's head, as of the request: the mean
+// chance of recalling each of its words, weighted by how often it's sung,
+// with the words they have no card for yet at zero.
+export type SongReadiness = {
+  // 0 to 1.
+  readiness: number
+  // Words and grammar terms the song gives cards.
+  words: number
+  enrolled: number
+  // Cards with a stability of 21 days or more.
+  mature: number
+  due: number
+}
+
 export type DocumentListItem = {
   id: number
   title: string
   youtube_video_id: string | null
   created_at: string
+  readiness: SongReadiness
 }
 
 export type DocumentPage = {
@@ -597,6 +612,43 @@ export type StudyQueue = {
 }
 
 export type PushOutMonths = 1 | 3 | 6
+
+// A word or grammar term of a song that the user's card for is fading.
+export type WeakWord = {
+  card_id: number
+  lookup_form: string
+  reading: string | null
+  // Their chance of recalling it now, 0 to 1.
+  retrievability: number
+  // Where in its line it is, as [begin, end) offsets in code points.
+  focus: [number, number]
+  // Null for a word with no dictionary entry any more.
+  meaning: CardOption | null
+}
+
+export type RunLine = {
+  index: number
+  text: string
+  // Null when the song has no video, or no timing for this line.
+  audio: CardAudio | null
+  // Weakest first.
+  weak: WeakWord[]
+}
+
+export type RunThrough = {
+  youtube_video_id: string | null
+  lines: RunLine[]
+}
+
+// The song's lines in order, with the words in each that the user is
+// forgetting, for playing it through. Logs nothing and moves no card.
+export async function fetchRunThrough(documentId: number): Promise<RunThrough> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/run-through`)
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
 
 const CARD_ERRORS = {
   404: 'Card not found.',
