@@ -860,13 +860,13 @@ A word sung in **katakana for emphasis** (ココロノコエ) is glossed as the 
 into (心の声). **Decided:** such a line links to those words' cards. It counts toward the song's
 cards and can be the line a card plays. It never harvests a card, because turning kana into kanji
 is a guess (コエ could be 声 or 越え), just as a heteronym's reading is. Adding one of its words by
-hand is still allowed (step 8).
+hand is still allowed (step 9).
 
 Each word links under the spelling its gloss shows (アイタイ's あう is 会う, the entry of its
 top-ranked sense), so it reaches the card a kanji spelling of the word gives. Linking to every card
 with the same reading instead was rejected: it avoids the guess only by being certainly wrong
 whenever two homophones are both carded, and it leaves no single choice to correct. The guess is
-treated as a heteronym's default is: taken, and correctable (step 8). Where the gloss's spelling
+treated as a heteronym's default is: taken, and correctable (step 9). Where the gloss's spelling
 differs from the spelling Sudachi gives the kanji word (分かる vs 解る), the line doesn't link.
 
 ---
@@ -1084,7 +1084,7 @@ grow a line field rather than the cards gaining a column.
 - `line` has the song, the line's `index` (into `text.split("\n")`, which is also its timing's
   index — `line_index()` is the backend helper from §8), its `text`, and `focus` / `group` as
   [begin, end) offsets in it: 聞こえ within 聞こえてるんだって for a group's head word, the token for a
-  grammar term, the whole phrase for an accepted one. `token_id` is for step 8's reading
+  grammar term, the whole phrase for an accepted one. `token_id` is for step 9's reading
   correction. `audio` (video id, start, end) is present only when the song has a video and the line
   a timing with some length, edited timings taking LRCLIB's place as on the song's page.
 - The per-song queue plays a line of the studied song; the all-songs queue, any song with the word.
@@ -1160,8 +1160,8 @@ the correct outcome, not a gap to fill.
 
 **6 — The study UI.** The route, the card frame with dimming, autoplay plus persistent mute,
 keyboard handling, reveal, session summary, and the kanji sidebar from step 5 rendered on the
-reveal. Extract the shared gloss rendering out of `DocumentViewPage.tsx` rather than duplicating
-it.
+reveal. It renders the gloss itself rather than reaching into `DocumentViewPage.tsx`; step 7
+removes the duplication once both consumers exist.
 *Watch:* audio needs a `youtube_video_id` **and** line timings, so this is the step that depends
 on the queued LRCLIB work. Also the pending `.new-document-form` CSS narrowing, which currently
 overrides every document-page button and will catch this page too. A line sung in katakana
@@ -1170,9 +1170,13 @@ just on the reveal. Take the spelling from `Line.written_as`, which marks a kata
 UI can't infer it, because a conjugated surface still shows its dictionary form only on the
 reveal.
 
-**7 — Progress.** Song readiness (§6), its surfacing on the documents list, and run-through mode.
+**7 — Extract the gloss rendering.** Pull the gloss rendering the document page and the study UI
+now both carry out of `DocumentViewPage.tsx` into a shared module, shaped by what the two actually
+share. No behavior change.
 
-**8 — Correction and deck management.** The "wrong reading?" flow from inside a session (§3), and
+**8 — Progress.** Song readiness (§6), its surfacing on the documents list, and run-through mode.
+
+**9 — Correction and deck management.** The "wrong reading?" flow from inside a session (§3), and
 the gloss popup's add / remove / restore affordance (§1).
 *Watch:* the popup is already crowded and its edge-nudge positioning is delicate — this is a real
 UI change, not a bolt-on. A katakana word's gloss (§7) offers an add for each of its words whose
@@ -1217,9 +1221,9 @@ that has already failed at its recommended level, or for debugging something tha
 | 4 — Card content | Done | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
 | 5 — Kanji sidebar data | Done | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
 | 6 — Study UI | Not started | Sonnet 5 | medium | A new page is conventional React against a specified layout |
-| 6 — …the `DocumentViewPage` extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
-| 7 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
-| 8 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
+| 7 — Gloss rendering extraction | Not started | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
+| 8 — Progress | Not started | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
+| 9 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
 
 For the later items: Type C and OAuth/deployment suit Sonnet 5 at medium; typed conjugation
 production wants Opus 5 at high, since the ている/てる variant-matching problem is where it gets
