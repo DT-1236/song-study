@@ -860,7 +860,7 @@ A word sung in **katakana for emphasis** (ココロノコエ) is glossed as the 
 into (心の声). **Decided:** such a line links to those words' cards. It counts toward the song's
 cards and can be the line a card plays. It never harvests a card, because turning kana into kanji
 is a guess (コエ could be 声 or 越え), just as a heteronym's reading is. Adding one of its words by
-hand is still allowed (step 8). Not built yet; see `docs/backlog.md`.
+hand is still allowed (step 8).
 
 ---
 

@@ -34,6 +34,9 @@ LATENCY_MS: dict[CardKind, tuple[int, int]] = {
 
 # The kinds answered by picking one of a few options, whose blind-guess floor
 # keeps a fast answer from counting as Easy.
+# Apart from LATENCY_MS though both say the same of every kind today: Type C
+# (docs/flashcards.md) is the first kind that differs. If it's dropped
+# instead, fold the two into one table of (fast_ms, slow_ms, multiple_choice).
 MULTIPLE_CHOICE_KINDS: set[CardKind] = {"recognition", "grammar"}
 
 # The "I know this" ladder: how many days out each rung, in months, pushes a
