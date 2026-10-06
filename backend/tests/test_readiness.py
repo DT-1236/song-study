@@ -150,6 +150,26 @@ def test_the_documents_list_shows_each_songs_readiness(committed_engine):
     assert item.readiness.words == 5
 
 
+def test_the_documents_list_sorts_by_readiness_before_cutting_a_page(
+    committed_engine,
+):
+    ready = create_tokenized_document(SONG)
+    start_song_session(ready)
+    _recalled_now(committed_engine, "聞こえる")
+    create_tokenized_document("花が咲く。")
+
+    least_first = list_documents(
+        page=1, page_size=1, sort_by="readiness", sort_dir="asc"
+    )
+    most_first = list_documents(
+        page=1, page_size=1, sort_by="readiness", sort_dir="desc"
+    )
+
+    assert [item.id for item in most_first.items] == [ready]
+    assert most_first.total == least_first.total
+    assert least_first.items[0].readiness.readiness == 0
+
+
 def test_a_run_through_pauses_on_lines_with_fading_words_weakest_first(
     committed_engine,
 ):
