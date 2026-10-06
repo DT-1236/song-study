@@ -6,11 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on the kanji sidebar data (flashcards step 5: `kanji.py`, `card_content.py`)
 
-- Batch the KANJIDIC2 reads in `kanji._character`: each cold kanji costs its own `kd2.get_char`
-  (about 10 ms), so a cold queue of ~100 distinct kanji adds about a second once per process. Read the
-  needed `character`, reading and meaning tables with one `IN (...)` query each on the raw sqlite
-  connection, as `glosses.py` does for headword checks, or warm the cache at startup. Sonnet 5, medium —
-  the pattern exists, but the jamdict schema has to be read first.
 - Cap `kanji.deck_cards` in SQL: it returns every card containing each kanji and `kanji_entries` keeps
   five. Number the rows per kanji with `row_number() OVER (PARTITION BY k.character ORDER BY ...)`
   and keep `MAX_DECK_WORDS + 1`, the extra covering the card's own row. Haiku 4.5, low — one query,

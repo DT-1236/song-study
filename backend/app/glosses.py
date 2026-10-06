@@ -310,7 +310,7 @@ def rank_senses(entries: list[dict], sudachi_major: str) -> list[dict]:
     return [sense for _, sense in scored]
 
 
-def _get_raw_conn() -> sqlite3.Connection:
+def get_raw_conn() -> sqlite3.Connection:
     """A thread-local connection straight to JMDict's sqlite database, for
     headword checks too frequent to pay for Jamdict building whole entries."""
     conn = getattr(_jam_local, "raw_conn", None)
@@ -328,7 +328,7 @@ def _prefix_upper_bound(s: str) -> str:
 def phrase_prefix_state(candidate: str) -> tuple[bool, bool]:
     """Whether `candidate` is a JMDict headword, and whether a longer headword
     starts with it."""
-    conn = _get_raw_conn()
+    conn = get_raw_conn()
     # A range scan rather than LIKE 'x%', which SQLite only runs as one for
     # ASCII: on Japanese text it was ~1000x slower.
     hi = _prefix_upper_bound(candidate)

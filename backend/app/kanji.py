@@ -10,14 +10,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from functools import lru_cache
 from typing import Literal
 from unicodedata import normalize
 
 from fsrs import State
+from jamdict.kanjidic2 import KangxiRadical
 from sqlalchemy import text
 
-from app.glosses import get_jamdict
+from app.glosses import get_jamdict, get_raw_conn
 from app.tokenization import furigana_spans_for_reading, is_kanji, to_katakana
 
 # A card is mature once its memory is expected to last this many days,
@@ -137,38 +137,94 @@ class _Character:
     components: tuple[str, ...]
 
 
-@lru_cache(maxsize=4096)
+# Every kanji looked up so far; None for one KANJIDIC2 has no entry for.
+# KANJIDIC2 is finite (about 13,000 characters), so it can't grow without bound.
+_characters: dict[str, _Character | None] = {}
+
+
+def load_characters(literals: Iterable[str]) -> None:
+    """Reads what the dictionaries know of each of `literals` not yet looked
+    up, so that `kanji_entries` finds them without a query apiece."""
+    missing = sorted(set(literals) - _characters.keys())
+    if not missing:
+        return
+    jam = get_jamdict()
+    conn = get_raw_conn()
+    marks = ",".join("?" * len(missing))
+    chars = {
+        literal: (id_, grade, freq)
+        for id_, literal, grade, freq in conn.execute(
+            f"SELECT ID, literal, grade, freq FROM character WHERE literal IN ({marks})",
+            missing,
+        )
+    }
+    by_id = {id_: literal for literal, (id_, _, _) in chars.items()}
+    id_marks = ",".join("?" * len(by_id))
+    ids = list(by_id)
+    classical: dict[str, str] = {}
+    for cid, value in conn.execute(
+        f"SELECT cid, value FROM radical WHERE rad_type = 'classical' "
+        f"AND cid IN ({id_marks})",
+        ids,
+    ):
+        classical[by_id[cid]] = value
+    # rowid order is KANJIDIC2's own order, which the readings and meanings
+    # are shown in.
+    on: dict[str, list[str]] = {}
+    kun: dict[str, list[str]] = {}
+    for cid, r_type, value in conn.execute(
+        "SELECT g.cid, r.r_type, r.value FROM reading r "
+        "JOIN rm_group g ON g.ID = r.gid "
+        f"WHERE r.r_type IN ('ja_on', 'ja_kun') AND g.cid IN ({id_marks}) "
+        "ORDER BY g.ID, r.rowid",
+        ids,
+    ):
+        (on if r_type == "ja_on" else kun).setdefault(by_id[cid], []).append(value)
+    meanings: dict[str, list[str]] = {}
+    for cid, value in conn.execute(
+        "SELECT g.cid, m.value FROM meaning m "
+        "JOIN rm_group g ON g.ID = m.gid "
+        # KANJIDIC2 also carries French, Spanish and Portuguese meanings.
+        f"WHERE m.m_lang = '' AND g.cid IN ({id_marks}) "
+        "ORDER BY g.ID, m.rowid",
+        ids,
+    ):
+        meanings.setdefault(by_id[cid], []).append(value)
+
+    for literal in missing:
+        if literal not in chars:
+            _characters[literal] = None
+            continue
+        _, grade, freq = chars[literal]
+        # NFC, since KRADFILE writes some components as compatibility
+        # characters that look the same but aren't the codepoint a font or a
+        # comparison expects (its 辶 is U+FA66).
+        components = tuple(normalize("NFC", c) for c in jam.krad.get(literal, ()))
+        radical = None
+        if literal in classical:
+            kangxi = KangxiRadical.kangxi()[classical[literal]]
+            shown = _radical_form(kangxi.radical, components)
+            radical = Radical(shown, kangxi.meaning)
+            # What's left once the radical is accounted for.
+            components = tuple(_without_first(components, shown))
+        _characters[literal] = _Character(
+            tuple(on.get(literal, ())),
+            tuple(kun.get(literal, ())),
+            tuple(meanings.get(literal, ())),
+            # KANJIDIC2 gives both as text, and omits either for a kanji
+            # without it.
+            int(grade) if grade else None,
+            int(freq) if freq else None,
+            radical,
+            tuple(c for c in components if c not in _STROKE_SHAPES),
+        )
+
+
 def _character(literal: str) -> _Character | None:
     """What the dictionaries know of `literal`, or None if KANJIDIC2 has no
     entry for it (々)."""
-    jam = get_jamdict()
-    found = jam.kd2.get_char(literal)
-    if found is None:
-        return None
-    groups = found.rm_groups
-    # NFC, since KRADFILE writes some components as compatibility characters
-    # that look the same but aren't the codepoint a font or a comparison
-    # expects (its 辶 is U+FA66).
-    components = tuple(normalize("NFC", c) for c in jam.krad.get(literal, ()))
-    radical = None
-    if found.radical is not None:
-        classical = found.radical.radical
-        shown = _radical_form(classical, components)
-        radical = Radical(shown, found.radical.meaning)
-        # What's left once the radical is accounted for.
-        components = tuple(_without_first(components, shown))
-    components = tuple(c for c in components if c not in _STROKE_SHAPES)
-    return _Character(
-        tuple(r.value for group in groups for r in group.on_readings),
-        tuple(r.value for group in groups for r in group.kun_readings),
-        # KANJIDIC2 also carries French, Spanish and Portuguese meanings.
-        tuple(m.value for group in groups for m in group.meanings if m.m_lang == ""),
-        # KANJIDIC2 gives both as text, and omits either for a kanji without it.
-        int(found.grade) if found.grade else None,
-        int(found.freq) if found.freq else None,
-        radical,
-        components,
-    )
+    load_characters([literal])
+    return _characters[literal]
 
 
 def _radical_form(classical: str, components: tuple[str, ...]) -> str:
