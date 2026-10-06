@@ -355,16 +355,7 @@ def harvest(conn, units: list[list], user_id: int) -> list[HarvestedWord]:
     reading is corrected. A predicate group's head is a word of its own; the
     grammar attached to it, or to a phrase, gives grammar terms, when they
     have an explanation of their own."""
-    found = _found_words(units)
-
-    # Dropped before _studyable, which would look up (and maybe fetch) the
-    # gloss of every word the user already has a card for.
-    carded = _carded_keys(conn, user_id, list(found))
-    wanted = [w for w in found.values() if w.key not in carded]
-    studyable = _studyable(
-        conn, [(w.key, w.alt_lookup_form) for w in wanted if w.key.kind != "grammar"]
-    )
-    return [w for w in wanted if w.key.kind == "grammar" or w.key in studyable]
+    return song_words(conn, units, user_id).unenrolled
 
 
 @dataclass
@@ -419,25 +410,6 @@ def document_card_keys(conn, units: list[list]) -> set[CardKey]:
     lookups = katakana_lookups(conn, units)
     return {
         card.key for unit in units for card in unit_card_tokens(unit, katakana=lookups)
-    }
-
-
-def _carded_keys(conn, user_id: int, keys: list[CardKey]) -> set[CardKey]:
-    """Those of `keys` the user has a card for, removed ones included."""
-    if not keys:
-        return set()
-    return {
-        CardKey(row.kind, row.lookup_form, row.reading)
-        for row in conn.execute(
-            text(
-                f"""
-                SELECT c.kind, c.lookup_form, c.reading
-                FROM study_cards c {CARD_KEYS_JOIN_SQL}
-                WHERE c.user_id = :user_id
-                """
-            ),
-            {"user_id": user_id, "keys": card_keys_param(keys)},
-        )
     }
 
 

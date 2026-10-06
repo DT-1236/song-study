@@ -550,24 +550,12 @@ def save_line_timings(
 SortField = Literal["id", "title", "youtube_video_id", "created_at"]
 
 
-class SongReadiness(BaseModel):
-    # How much of the song is in the user's head, 0 to 1: the mean chance of
-    # recalling each of its words, by how often it's sung, with any they have
-    # no card for yet at zero.
-    readiness: float
-    words: int
-    enrolled: int
-    # Cards with stability of 21 days or more.
-    mature: int
-    due: int
-
-
 class DocumentListItem(BaseModel):
     id: int
     title: str
     youtube_video_id: str | None
     created_at: datetime
-    readiness: SongReadiness
+    readiness: study.Readiness
 
 
 class DocumentPage(BaseModel):
@@ -613,7 +601,7 @@ def list_documents(
             title=row.title,
             youtube_video_id=row.youtube_video_id,
             created_at=row.created_at,
-            readiness=SongReadiness(**dataclasses.asdict(readiness[row.id])),
+            readiness=readiness[row.id],
         )
         for row in rows
     ]
@@ -1312,14 +1300,14 @@ def start_song_session(document_id: OwnedDocument, user_id: CurrentUser) -> Stud
         return _study_queue(study.song_queue(conn, user_id, document_id))
 
 
-@api.get("/documents/{document_id}/readiness", response_model=SongReadiness)
+@api.get("/documents/{document_id}/readiness", response_model=study.Readiness)
 def get_song_readiness(
     document_id: OwnedDocument, user_id: CurrentUser
-) -> SongReadiness:
+) -> study.Readiness:
     """How ready the user is for the song as of now."""
     with engine.begin() as conn:
         readiness = study.documents_readiness(conn, user_id, [document_id])
-    return SongReadiness(**dataclasses.asdict(readiness[document_id]))
+    return readiness[document_id]
 
 
 class RunThrough(BaseModel):

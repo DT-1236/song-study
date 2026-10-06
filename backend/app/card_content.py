@@ -741,7 +741,8 @@ def run_through_lines(
     """Each of `song`'s lines, with the words and grammar terms in `weak` (by
     key, to the card's id and retrievability) that it has, the weakest
     first."""
-    occurrences = _occurrences(conn, [song])
+    # Nothing to find the lines of when no word is fading.
+    occurrences = _occurrences(conn, [song]) if weak else {}
     present = {key: occurrences[key] for key in weak if key in occurrences}
     words = {
         key: _Word.of(os[0].found)

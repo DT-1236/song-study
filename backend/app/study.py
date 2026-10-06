@@ -371,18 +371,24 @@ def set_new_cards_per_day(conn, user_id: int, document_id: int, limit: int) -> i
 class Readiness:
     """How much of a song is in the user's head (see song_readiness)."""
 
-    # 0 to 1.
+    # 0 to 1: the mean chance of recalling each of the song's words, by how
+    # often it's sung, with any the user has no card for yet at zero.
     readiness: float
     words: int
     enrolled: int
+    # Cards with stability of 21 days or more.
     mature: int
     due: int
+
+
+# Retrievability doesn't depend on a user's desired retention.
+_RETRIEVABILITY_SCHEDULER = Scheduler()
 
 
 def _retrievability(row, now: datetime) -> float:
     """The predicted chance the user recalls the card `row` right now; zero
     for one never reviewed."""
-    return Scheduler().get_card_retrievability(_fsrs_card(row), now)
+    return _RETRIEVABILITY_SCHEDULER.get_card_retrievability(_fsrs_card(row), now)
 
 
 def song_readiness(conn, user_id: int, units: list[list]) -> Readiness:

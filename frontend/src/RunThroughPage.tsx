@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchRunThrough } from './api'
 import type { RunLine, RunThrough } from './api'
@@ -61,7 +61,10 @@ function RunThroughPlayer({
   run: RunThrough
   documentId: number
 }) {
-  const playable = run.lines.filter((line) => line.audio !== null)
+  const playable = useMemo(
+    () => run.lines.filter((line) => line.audio !== null),
+    [run],
+  )
   const pauses = playable.filter((line) => line.weak.length > 0).length
   const videoId = run.youtube_video_id
 
@@ -80,9 +83,7 @@ function RunThroughPlayer({
       setStatus('playing')
       playerRef.current?.playFrom(audio.start)
     },
-    // `playable` is the same lines on every render.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run],
+    [playable],
   )
 
   // Moves on from the line `position` once it has ended: to the next, or to
@@ -99,8 +100,7 @@ function RunThroughPlayer({
         setPosition(position + 1)
       }
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [run, position, playLine],
+    [playable, position, playLine],
   )
 
   useEffect(() => {
@@ -201,11 +201,11 @@ function RunThroughPlayer({
           <li
             key={l.index}
             className={[
-              l.weak.length > 0 ? 'run-line-weak' : '',
-              status !== 'idle' && line?.index === l.index
-                ? 'run-line-now'
-                : '',
-            ].join(' ')}
+              l.weak.length > 0 && 'run-line-weak',
+              status !== 'idle' && line?.index === l.index && 'run-line-now',
+            ]
+              .filter(Boolean)
+              .join(' ')}
           >
             <LineText line={l} />
           </li>

@@ -2,8 +2,8 @@ import type { SongReadiness } from './api'
 
 // A song's readiness as a bar and the counts behind it.
 export function ReadinessMeter({ readiness }: { readiness: SongReadiness }) {
-  const percent = Math.round(readiness.readiness * 100)
   if (readiness.words === 0) return <span>—</span>
+  const percent = Math.round(readiness.readiness * 100)
 
   return (
     <div className="readiness">
