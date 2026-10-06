@@ -592,6 +592,8 @@ export type StudyQueue = {
   cards: QueuedCard[]
   // The sidebar entry of every kanji of the cards, by character.
   kanji: Record<string, KanjiEntry>
+  // How many deck_words the sidebar lists under a kanji.
+  max_deck_words: number
 }
 
 export type PushOutMonths = 1 | 3 | 6

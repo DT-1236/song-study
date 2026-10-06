@@ -51,7 +51,7 @@ from app.glosses import (
     store_glosses,
 )
 from app.grammar import find_predicate_groups
-from app.kanji import CardKanji, KanjiEntry
+from app.kanji import MAX_DECK_WORDS, CardKanji, KanjiEntry
 from app.lrclib import (
     LrclibError,
     LrclibLyrics,
@@ -1197,6 +1197,8 @@ class StudyQueue(BaseModel):
     # however many cards have it. Its deck_words may include the card it's
     # shown on, which the sidebar leaves out, and one more word than it shows.
     kanji: dict[str, KanjiEntry]
+    # How many deck_words the sidebar lists under a kanji.
+    max_deck_words: int = MAX_DECK_WORDS
 
 
 def _study_queue(queue: Queue) -> StudyQueue:

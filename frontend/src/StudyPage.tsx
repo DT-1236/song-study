@@ -285,6 +285,7 @@ function StudySession({
             kanji={card.kanji}
             entries={queue.kanji}
             cardId={card.id}
+            maxDeckWords={queue.max_deck_words}
           />
         )}
       </div>
