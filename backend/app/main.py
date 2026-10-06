@@ -768,28 +768,24 @@ def _fetch_tokens(
         gloss_entries = data.pop("gloss_entries")
         gloss_source = data.pop("gloss_source")
         gloss_lookup_form = data.pop("gloss_lookup_form")
-        if gloss_reading is None or (
-            gloss_source == "composite"
-            and any(
-                piece["key"] is not None and tuple(piece["key"]) not in lookups
-                for piece in gloss_entries["pieces"]
-            )
-        ):
-            # Only possible under cache_only: otherwise every piece's lookup
-            # is cached by now.
+        if gloss_reading is None:
             data["gloss"] = None
         elif gloss_source == "composite":
             # Each piece ranked for its own part of speech, not the token's.
-            data["gloss"] = Gloss(
-                reading=gloss_reading,
-                lookup_form=gloss_lookup_form,
-                senses=[],
-                source=gloss_source,
-                pieces=[
-                    GlossPiece(**piece)
-                    for piece in shown_pieces(gloss_entries["pieces"], lookups)
-                ],
-                looked_up_as=gloss_entries.get("looked_up_as"),
+            pieces = shown_pieces(gloss_entries, lookups)
+            # None only under cache_only, for a piece whose lookup isn't
+            # cached: shown unglossed, as an unlinked token is.
+            data["gloss"] = (
+                None
+                if pieces is None
+                else Gloss(
+                    reading=gloss_reading,
+                    lookup_form=gloss_lookup_form,
+                    senses=[],
+                    source=gloss_source,
+                    pieces=[GlossPiece(**piece) for piece in pieces],
+                    looked_up_as=gloss_entries.get("looked_up_as"),
+                )
             )
         else:
             data["gloss"] = Gloss(
@@ -933,8 +929,9 @@ def get_document_tokens(
                 return existing
             # Tokens missing their gloss link: tokenized before gloss support
             # existed, or unlinked by a migration that reset the gloss cache
-            # (as 0005 did), or whose composite gloss has a piece whose
-            # lookup row was dropped.
+            # (as 0005 did). Or shown without one because a piece of their
+            # composite gloss has no cached lookup, which repair_gloss_links
+            # leaves alone: the fetch below, which can write, looks it up.
             with engine.begin() as conn:
                 repair_gloss_links(conn, document_id)
                 return _fetch_tokens(conn, document_id)

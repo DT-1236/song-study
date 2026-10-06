@@ -28,7 +28,7 @@ def _gloss(conn, gloss_id):
 
 def _shown(conn, gloss) -> list[dict]:
     """The pieces of `gloss`, a composite gloss row, as shown."""
-    return shown_pieces(gloss.entries["pieces"], piece_lookups(conn, [gloss.entries]))
+    return shown_pieces(gloss.entries, piece_lookups(conn, [gloss.entries]))
 
 
 class TestHiraganaUnits:

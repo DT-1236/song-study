@@ -570,8 +570,7 @@ def gloss_piece(
     *,
     senses_pos_major: str | None = None,
     normalized_form: str | None = None,
-    flags_readings: bool = True,
-    spell_with_kanji: bool = False,
+    flags_readings: bool = False,
 ) -> dict:
     """A composite gloss piece for `surface` read as `reading`, as stored:
     glossed from the lookup under `key` (with `alt_lookup_form` as its
@@ -580,10 +579,7 @@ def gloss_piece(
     its tag (a helper verb like the みる of 見てみる, ranked as 助動詞).
     `normalized_form` marks a grammar word, which is shown with a note
     explaining it. `flags_readings` shows the other readings its surface
-    could have, unless the piece's word keeps them on its own token.
-    `spell_with_kanji` shows the piece as its
-    entry is usually written, for a word only spelled in kana here (see
-    app/katakana.py).
+    could have, for a piece whose word has no token of its own to show them.
 
     The lookup's entries, their ranking, the spelling that follows from it,
     the note and the other readings are all left to shown_pieces, so a change
@@ -599,7 +595,6 @@ def gloss_piece(
         "senses_pos_major": senses_pos_major,
         "normalized_form": normalized_form,
         "flags_readings": flags_readings,
-        "spell_with_kanji": spell_with_kanji,
     }
 
 
@@ -623,23 +618,29 @@ def piece_lookups(
     return gloss_entries(conn, requests)
 
 
-def shown_pieces(pieces: list[dict], lookups: dict[GlossKey, tuple]) -> list[dict]:
-    """A composite gloss's stored `pieces` as shown, given the (entries,
-    source) of their lookups (see piece_lookups): each with its lookup's
-    senses ranked for its role, and spelled as its first sense's entry
-    usually is, if it was built to be."""
+def shown_pieces(composite: dict, lookups: dict[GlossKey, tuple]) -> list[dict] | None:
+    """The pieces of `composite`, a composite gloss's entries, as shown, given
+    the (entries, source) of their lookups (see piece_lookups): each with its
+    lookup's senses ranked for its role. None if a piece's lookup isn't in
+    `lookups`, as under piece_lookups' cache_only."""
+    # A katakana word's gloss is written as the words usually are (心の声),
+    # not as the katakana spells them out (こころのこえ).
+    spell_with_kanji = "looked_up_as" in composite
     shown = []
-    for piece in pieces:
-        entries, source = (
-            lookups[tuple(piece["key"])] if piece["key"] is not None else ([], None)
-        )
+    for piece in composite["pieces"]:
+        if piece["key"] is None:
+            entries, source = [], None
+        elif tuple(piece["key"]) in lookups:
+            entries, source = lookups[tuple(piece["key"])]
+        else:
+            return None
         # Only a JMDict or English lookup's entries are senses: a composite's
         # are its own pieces.
         if source not in ("jmdict", "english_stub"):
             entries = []
         pos_major = piece["senses_pos_major"] or piece["part_of_speech"][0]
         senses = rank_senses(entries, pos_major)
-        spelling = piece["spell_with_kanji"] and _kanji_spelling(entries, senses)
+        spelling = spell_with_kanji and _kanji_spelling(entries, senses)
         shown.append(
             {
                 "surface": spelling or piece["surface"],
@@ -711,7 +712,14 @@ def _add_composites(
             new_rows[key] = (
                 {
                     "pieces": [
-                        gloss_piece(surface, reading, (surface, reading), None, pos)
+                        gloss_piece(
+                            surface,
+                            reading,
+                            (surface, reading),
+                            None,
+                            pos,
+                            flags_readings=True,
+                        )
                         for surface, reading, pos in pieces
                     ]
                 },
@@ -790,14 +798,13 @@ def predicate_group_request(
 def _group_pieces(
     request: GroupGlossRequest,
     found: dict[GlossKey, tuple[object, str]],
-    spell_with_kanji: bool = False,
 ) -> list[dict]:
     """The composite pieces for `request`, with its base's (entries,
-    source) from `found`. `spell_with_kanji` passes through to
-    gloss_piece."""
+    source) from `found`."""
     entries, source = found[request.base_key]
     if source == "composite":
-        pieces = list(entries["pieces"])
+        # The base's words keep their own reading options on their tokens.
+        pieces = [{**piece, "flags_readings": False} for piece in entries["pieces"]]
     else:
         pieces = [
             gloss_piece(
@@ -806,8 +813,6 @@ def _group_pieces(
                 request.base_key,
                 request.base_alt,
                 request.base_part_of_speech,
-                flags_readings=False,
-                spell_with_kanji=spell_with_kanji,
             )
         ]
     for part in request.attached:
@@ -821,8 +826,6 @@ def _group_pieces(
                     part.part_of_speech,
                     senses_pos_major="助動詞",
                     normalized_form=part.normalized_form,
-                    flags_readings=False,
-                    spell_with_kanji=spell_with_kanji,
                 )
             )
         else:
@@ -831,8 +834,8 @@ def _group_pieces(
 
 
 def _grammar_piece(part: GroupPart) -> dict:
-    """A composite gloss piece for a grammar word, as stored: its note, and
-    no senses."""
+    """A composite gloss piece for a grammar word, as stored: the form its
+    note is worked out from, and no senses."""
     return {
         "surface": part.dictionary_form,
         "reading": part.reading,
@@ -842,7 +845,6 @@ def _grammar_piece(part: GroupPart) -> dict:
         "senses_pos_major": None,
         "normalized_form": part.normalized_form,
         "flags_readings": False,
-        "spell_with_kanji": False,
     }
 
 
@@ -861,12 +863,7 @@ def _piece_sources(
                     part.dictionary_form,
                 )
 
-    found = {
-        key: (row.entries, row.source)
-        for key, row in _cached_rows(
-            conn, alternates.keys() - new_rows.keys(), with_entries=True
-        ).items()
-    }
+    found = _cached_entries(conn, alternates.keys() - new_rows.keys())
     uncached = {
         key: _lookup(*key, alt)
         for key, alt in alternates.items()
@@ -926,10 +923,8 @@ def _add_katakana_readings(
         pieces = [
             piece
             for unit in units
-            # Written as the words usually are (心の声), not as the katakana
-            # spells them out (こころのこえ).
             for piece in (
-                _group_pieces(unit, found, spell_with_kanji=True)
+                _group_pieces(unit, found)
                 if isinstance(unit, GroupGlossRequest)
                 else [_grammar_piece(unit)]
             )
