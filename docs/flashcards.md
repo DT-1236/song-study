@@ -856,6 +856,12 @@ has no headword row of its own. Type B dissolves that: **the group is the
 conjugation card, and the head verb is separately harvested as a Type A card** from its own
 `normalized_form`. Nothing gets skipped.
 
+A word sung in **katakana for emphasis** (ココロノコエ) is glossed as the words its hiragana splits
+into (心の声). **Decided:** such a line links to those words' cards. It counts toward the song's
+cards and can be the line a card plays. It never harvests a card, because turning kana into kanji
+is a guess (コエ could be 声 or 越え), just as a heteronym's reading is. Adding one of its words by
+hand is still allowed (step 8). Not built yet; see `docs/backlog.md`.
+
 ---
 
 ## 8. What the experience needs from the data
@@ -1120,14 +1126,22 @@ reveal. Extract the shared gloss rendering out of `DocumentViewPage.tsx` rather 
 it.
 *Watch:* audio needs a `youtube_video_id` **and** line timings, so this is the step that depends
 on the queued LRCLIB work. Also the pending `.new-document-form` CSS narrowing, which currently
-overrides every document-page button and will catch this page too.
+overrides every document-page button and will catch this page too. A line sung in katakana
+(§7) shows the card's word in kanji (声) beside the highlighted katakana (コエ) on the prompt, not
+just on the reveal. Take the spelling from the `Line` field that marks a katakana occurrence; the
+UI can't infer it, because a conjugated surface still shows its dictionary form only on the
+reveal.
 
 **7 — Progress.** Song readiness (§6), its surfacing on the documents list, and run-through mode.
 
 **8 — Correction and deck management.** The "wrong reading?" flow from inside a session (§3), and
 the gloss popup's add / remove / restore affordance (§1).
 *Watch:* the popup is already crowded and its edge-nudge positioning is delicate — this is a real
-UI change, not a bolt-on.
+UI change, not a bolt-on. A katakana word's gloss (§7) offers an add for each of its words whose
+lookup is a JMDict hit, though the harvest never adds them. `enroll_token` takes one word per
+token today, so it has to grow a way to name the piece as well as the token. "Wrong reading?"
+(`Line.token_id`) doesn't fit a katakana line, since the katakana is its reading. What can be
+wrong there is how it splits into words, which has no correction flow yet.
 
 **Later, in rough order of value:** Type C production cards (opt-in, default off), which also
 brings the queue-ordering rule that a word's recognition and production cards don't appear back to

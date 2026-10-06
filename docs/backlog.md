@@ -17,14 +17,34 @@ so it can be picked up without re-deriving the reasoning.
   is its gloss key, which is the card key, and a grammar piece's
   `normalized_form` is a grammar term's. So a katakana token could yield one
   `CardTokens` per keyed piece, which means joining its gloss row in
-  `_token_rows`. Open questions: whether such a token should also harvest
-  new cards or only link lines to existing ones (its hiragana split is
-  Sudachi's guess, like the readings `_GUESSED_READING_REASONS` holds back);
-  how to highlight one word of several inside a single token, since
-  `Line`'s spans are whole tokens; and where the card shows the kanji word
-  with furigana when the line itself is in katakana. Opus 5, high: card
-  identity and harvest counting break silently, and three design calls are
-  still open.
+  `_token_rows`. Decided:
+  - *Link only, never harvest.* A token whose gloss has `looked_up_as` gives
+    its words, and its grammar that has a note, to `document_card_keys`, so
+    the card is part of that song's deck, and to `_occurrences`, so the line
+    can play. `harvest` skips them. Turning kana into kanji is a guess
+    (コエ could be 声 or 越え, カエル could be 帰る or 蛙), as a heteronym's
+    reading is. That's the same trade `_GUESSED_READING_REASONS` makes:
+    enroll late rather than build on a guess.
+  - *Focus is the word's own span, and the group is the whole token.*
+    Converting katakana to hiragana keeps the length, so the offsets from
+    the hiragana tokenization in `hiragana_units` (`backend/app/katakana.py`)
+    map one-to-one onto the token. `_add_katakana_readings` stores a
+    `[begin, end)` on each piece. A migration then clears the cached
+    katakana composites so they regloss, as 0013–0015 did.
+  - *`Line` carries a katakana occurrence's kanji spelling*, which flashcards
+    step 6 shows on the prompt. The UI can't infer it, because a conjugated
+    surface must not show its dictionary form on the prompt. Use the
+    spelling `shown_pieces` gives (`_kanji_spelling`), so it matches the
+    reading view.
+
+  Wrinkles: the stored pieces are a flat list, so a stand-alone particle
+  (the の between words) looks the same as grammar attached inside a group.
+  Only attached grammar becomes a grammar card, so store each piece's unit
+  alongside its span. A helper-verb piece has both a `key` and a
+  `normalized_form`, and counts as grammar, as in `_attached_grammar`. A
+  token whose `gloss_lookup_id` is NULL, waiting for the next view to
+  repair it, drops out until then. Opus 5, medium: the design is settled, but card
+  identity and a song's card set still break silently.
 
 ## `/simplify` on PRs #34, #35 and #37 (rekeying glosses by the page reading, regloss of accepted phrases, study-card scheduling)
 
