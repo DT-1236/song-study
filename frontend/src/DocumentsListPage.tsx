@@ -1,11 +1,14 @@
 import { useCallback, useState } from 'react'
 import { fetchDocuments } from './api'
 import type { SortDir, SortField } from './api'
+import { ReadinessMeter } from './ReadinessMeter'
 import { useTabs } from './TabsContext'
 import { useApiResource } from './useApiResource'
 
 const PAGE_SIZE = 20
 
+// Not sortable: readiness is computed on read, so only the page's own rows
+// have one to order by.
 const COLUMNS: { field: SortField; label: string }[] = [
   { field: 'id', label: 'ID' },
   { field: 'title', label: 'Title' },
@@ -43,7 +46,7 @@ export function DocumentsListPage() {
   }
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
-  const columnCount = COLUMNS.length + 1
+  const columnCount = COLUMNS.length + 2
 
   return (
     <div className="documents-list">
@@ -67,6 +70,7 @@ export function DocumentsListPage() {
                 </button>
               </th>
             ))}
+            <th>Readiness</th>
           </tr>
         </thead>
         <tbody>
@@ -102,6 +106,9 @@ export function DocumentsListPage() {
               <td>{doc.title}</td>
               <td>{doc.youtube_video_id ?? '—'}</td>
               <td>{new Date(doc.created_at).toLocaleString()}</td>
+              <td>
+                <ReadinessMeter readiness={doc.readiness} />
+              </td>
             </tr>
           ))}
         </tbody>

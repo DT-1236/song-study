@@ -16,7 +16,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from app import study
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
-from app.card_content import Line, Option, Queue
+from app.card_content import Line, Option, Queue, RunLine
 from app.cards import CardKind, NotStudyable, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
@@ -550,11 +550,24 @@ def save_line_timings(
 SortField = Literal["id", "title", "youtube_video_id", "created_at"]
 
 
+class SongReadiness(BaseModel):
+    # How much of the song is in the user's head, 0 to 1: the mean chance of
+    # recalling each of its words, by how often it's sung, with any they have
+    # no card for yet at zero.
+    readiness: float
+    words: int
+    enrolled: int
+    # Cards with stability of 21 days or more.
+    mature: int
+    due: int
+
+
 class DocumentListItem(BaseModel):
     id: int
     title: str
     youtube_video_id: str | None
     created_at: datetime
+    readiness: SongReadiness
 
 
 class DocumentPage(BaseModel):
@@ -575,7 +588,9 @@ def list_documents(
     direction = "ASC" if sort_dir == "asc" else "DESC"
     offset = (page - 1) * page_size
 
-    with engine.connect() as conn:
+    # A transaction, since the gloss of a word the cache has lost is looked up
+    # again and stored.
+    with engine.begin() as conn:
         rows = conn.execute(
             text(
                 f"""
@@ -589,6 +604,7 @@ def list_documents(
             ),
             {"owner_id": user_id, "limit": page_size, "offset": offset},
         ).all()
+        readiness = study.documents_readiness(conn, user_id, [row.id for row in rows])
 
     total = rows[0].total if rows else 0
     items = [
@@ -597,6 +613,7 @@ def list_documents(
             title=row.title,
             youtube_video_id=row.youtube_video_id,
             created_at=row.created_at,
+            readiness=SongReadiness(**dataclasses.asdict(readiness[row.id])),
         )
         for row in rows
     ]
@@ -1293,6 +1310,31 @@ def start_song_session(document_id: OwnedDocument, user_id: CurrentUser) -> Stud
     of the song to play and the options to answer it from."""
     with engine.begin() as conn:
         return _study_queue(study.song_queue(conn, user_id, document_id))
+
+
+@api.get("/documents/{document_id}/readiness", response_model=SongReadiness)
+def get_song_readiness(
+    document_id: OwnedDocument, user_id: CurrentUser
+) -> SongReadiness:
+    """How ready the user is for the song as of now."""
+    with engine.begin() as conn:
+        readiness = study.documents_readiness(conn, user_id, [document_id])
+    return SongReadiness(**dataclasses.asdict(readiness[document_id]))
+
+
+class RunThrough(BaseModel):
+    youtube_video_id: str | None
+    lines: list[RunLine]
+
+
+@api.get("/documents/{document_id}/run-through", response_model=RunThrough)
+def get_run_through(document_id: OwnedDocument, user_id: CurrentUser) -> RunThrough:
+    """The song's lines in order, each with the words in it that the user's
+    cards say they're forgetting, for playing it through and pausing on
+    those. Not a review: nothing is logged and no card moves."""
+    with engine.begin() as conn:
+        video_id, lines = study.run_through(conn, user_id, document_id)
+    return RunThrough(youtube_video_id=video_id, lines=lines)
 
 
 class StudySettings(BaseModel):
