@@ -176,18 +176,18 @@ def load_characters(literals: Iterable[str]) -> None:
     # are shown in.
     readings = _grouped(
         conn,
-        "SELECT g.cid, r.r_type, r.value FROM reading r "
-        "JOIN rm_group g ON g.ID = r.gid "
-        "WHERE r.r_type IN ('ja_on', 'ja_kun') AND g.cid IN ({marks}) "
+        "SELECT g.cid, r.r_type, r.value FROM rm_group g "
+        "JOIN reading r ON r.gid = g.ID "
+        "WHERE g.cid IN ({marks}) AND r.r_type IN ('ja_on', 'ja_kun') "
         "ORDER BY g.ID, r.rowid",
         ids,
     )
     meanings = _grouped(
         conn,
-        "SELECT g.cid, m.value FROM meaning m "
-        "JOIN rm_group g ON g.ID = m.gid "
+        "SELECT g.cid, m.value FROM rm_group g "
+        "JOIN meaning m ON m.gid = g.ID "
         # KANJIDIC2 also carries French, Spanish and Portuguese meanings.
-        "WHERE m.m_lang = '' AND g.cid IN ({marks}) "
+        "WHERE g.cid IN ({marks}) AND m.m_lang = '' "
         "ORDER BY g.ID, m.rowid",
         ids,
     )
