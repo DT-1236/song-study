@@ -348,16 +348,22 @@ def deck_cards(
     rows = conn.execute(
         text(
             """
-            SELECT k.character, c.id, c.lookup_form, c.reading,
-                   CASE
-                       WHEN c.last_review IS NULL THEN 'new'
-                       WHEN c.state = :review AND c.stability >= :mature THEN 'mature'
-                       ELSE 'learning'
-                   END AS status
-            FROM unnest(CAST(:characters AS TEXT[])) AS k(character)
-            JOIN study_cards c ON strpos(c.lookup_form, k.character) > 0
-            WHERE c.user_id = :user_id AND c.kind = 'recognition' AND NOT c.suspended
-            ORDER BY k.character, length(c.lookup_form), c.lookup_form, c.reading
+            WITH ranked AS (
+                SELECT k.character, c.id, c.lookup_form, c.reading,
+                       CASE
+                           WHEN c.last_review IS NULL THEN 'new'
+                           WHEN c.state = :review AND c.stability >= :mature THEN 'mature'
+                           ELSE 'learning'
+                       END AS status,
+                       row_number() OVER (PARTITION BY k.character ORDER BY length(c.lookup_form), c.lookup_form, c.reading) AS rn
+                FROM unnest(CAST(:characters AS TEXT[])) AS k(character)
+                JOIN study_cards c ON strpos(c.lookup_form, k.character) > 0
+                WHERE c.user_id = :user_id AND c.kind = 'recognition' AND NOT c.suspended
+            )
+            SELECT character, id, lookup_form, reading, status
+            FROM ranked
+            WHERE rn <= :max_rows
+            ORDER BY character, rn
             """
         ),
         {
@@ -365,6 +371,7 @@ def deck_cards(
             "characters": characters,
             "review": int(State.Review),
             "mature": MATURE_STABILITY_DAYS,
+            "max_rows": MAX_DECK_WORDS + 1,
         },
     )
     found: dict[str, list[tuple[int, DeckWord]]] = {}
