@@ -17,12 +17,9 @@ from fsrs import State
 from jamdict.kanjidic2 import KangxiRadical
 from sqlalchemy import text
 
+from app.cards import MATURE_STABILITY_DAYS
 from app.glosses import KanjidicRow, get_jamdict, kanjidic_rows
 from app.tokenization import furigana_spans_for_reading, is_kanji, to_katakana
-
-# A card is mature once its memory is expected to last this many days,
-# Anki's convention.
-MATURE_STABILITY_DAYS = 21
 
 # How many of the deck's words a kanji lists, and how many of the other
 # components KRADFILE finds in it.

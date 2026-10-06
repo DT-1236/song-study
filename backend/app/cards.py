@@ -15,6 +15,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Literal
 
+from fsrs import State
 from sqlalchemy import text
 
 from app.conflicts import NON_READING_KINDS, TokenNotFound
@@ -35,6 +36,21 @@ CardKind = Literal["recognition", "grammar"]
 # as, is still Sudachi's guess. A no_kana_anchor token's reading is certain;
 # only how its furigana splits across the kanji isn't.
 _GUESSED_READING_REASONS = ("heteronym", "oov")
+
+# A card is mature once its memory is expected to last this many days,
+# Anki's convention.
+MATURE_STABILITY_DAYS = 21
+
+
+def is_mature(state: int, stability: float | None) -> bool:
+    """Whether a card in FSRS `state` with `stability` (in days) is mature.
+    kanji.py's deck-word status query spells the same rule in SQL."""
+    return (
+        state == State.Review
+        and stability is not None
+        and stability >= MATURE_STABILITY_DAYS
+    )
+
 
 CARD_COLUMNS = "id, kind, lookup_form, reading, suspended, due, first_seen_document_id"
 
