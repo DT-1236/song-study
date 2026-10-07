@@ -616,7 +616,11 @@ function StudyListControl({
     <div className="study-list">
       <button
         type="button"
-        className={studied ? 'study-list-icon studied' : 'study-list-icon'}
+        className={
+          studied
+            ? 'icon-button study-list-icon studied'
+            : 'icon-button study-list-icon'
+        }
         title={label}
         aria-label={label}
         disabled={saving}
@@ -1522,7 +1526,7 @@ const LinePlayButton = memo(function LinePlayButton({
   return (
     <button
       type="button"
-      className="line-play"
+      className="icon-button line-play"
       aria-label="Play from this line"
       title="Play from this line"
       // Leaves focus where it was, so Space keeps playing and pausing rather
@@ -2308,7 +2312,7 @@ const TimingEditor = memo(function TimingEditor({
                 {start !== null && (
                   <button
                     type="button"
-                    className="timing-delete"
+                    className="icon-button timing-delete"
                     aria-label="Delete this line's timing"
                     title="Delete this line's timing"
                     // Leaves focus where it was, so Space keeps playing and
