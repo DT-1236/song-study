@@ -8,7 +8,6 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from app.cards import CardKey
 from app.glosses import with_picked_words
 from app.main import (
     CardReadingCorrection,
@@ -30,21 +29,13 @@ from tests.support import (
     review_card,
     start_song_session,
     suspend_card,
+    user_cards,
+    word_key,
 )
 
 # ボク/ノ/アイ/タイ: 僕, the の between two words, 会う, and たい attached to it.
 KATAKANA_SONG = "ボクノアイタイ。"
 BOKU, NO, AU, TAI = range(4)
-
-
-def _cards(engine) -> dict[CardKey, object]:
-    with engine.connect() as conn:
-        rows = conn.execute(text("SELECT * FROM study_cards")).all()
-    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
-
-
-def _word(lookup_form: str, reading: str) -> CardKey:
-    return CardKey("recognition", lookup_form, reading)
 
 
 def _words(document_id: int) -> dict[tuple[str, str], object]:
@@ -73,7 +64,7 @@ def test_each_word_of_a_song_is_offered_with_the_users_card_for_it(committed_eng
     assert words[("呼ぶ", "よぶ")].card is None
 
 
-def test_every_token_of_a_predicate_group_stands_for_its_head_word(committed_engine):
+def test_every_token_of_a_predicate_group_stands_for_its_headword_key(committed_engine):
     document_id = create_tokenized_document(text="聞こえてるんだって")
 
     [word] = get_document_words(document_id)
@@ -150,7 +141,7 @@ def test_a_katakana_token_can_only_be_added_by_a_word_piece(committed_engine, pi
         add_token_card(document_id, _katakana_token(document_id).id, piece=piece)
 
     assert exc.value.status_code == 422
-    assert _cards(committed_engine) == {}
+    assert user_cards() == {}
 
 
 def test_a_token_not_sung_in_katakana_cant_be_added_by_a_piece(committed_engine):
@@ -192,7 +183,7 @@ def _pick(document_id: int, token_ids: list[int], spelling: str, piece: int = AU
     )
 
 
-def test_picking_another_word_for_a_piece_glosses_it_as_that_word(committed_engine):
+def test_picking_another_word_for_a_piece_glosses_it_as_thatword_key(committed_engine):
     document_id = create_tokenized_document(text=KATAKANA_SONG)
     token = _katakana_token(document_id)
 
@@ -258,8 +249,18 @@ def test_a_pick_is_left_out_once_its_piece_reads_otherwise():
     composite = {
         "looked_up_as": "あいたい",
         "pieces": [
-            {"surface": "あう", "key": ["あう", "あう"], "alt_lookup_form": None},
-            {"surface": "たい", "key": None, "alt_lookup_form": None},
+            {
+                "surface": "あう",
+                "key": ["あう", "あう"],
+                "alt_lookup_form": None,
+                "normalized_form": None,
+            },
+            {
+                "surface": "たい",
+                "key": None,
+                "alt_lookup_form": None,
+                "normalized_form": "たい",
+            },
         ],
     }
 
@@ -303,7 +304,7 @@ def test_correcting_a_cards_reading_moves_the_song_to_another_card(committed_eng
     assert correction.card.first_seen_document_id == document_id
     # Nothing was learned on it, so it's gone.
     assert not correction.kept
-    assert set(_cards(committed_engine)) == {_word("辛い", "からい")}
+    assert set(user_cards()) == {word_key("辛い", "からい")}
     assert [(w.lookup_form, w.reading) for w in get_document_words(document_id)] == [
         ("辛い", "からい")
     ]
@@ -317,9 +318,9 @@ def test_a_corrected_card_with_reviews_keeps_them(committed_engine):
     correction = _correct_reading(old.id, document_id, "辛い", "からい")
 
     assert correction.kept
-    cards = _cards(committed_engine)
-    assert set(cards) == {_word("辛い", "つらい"), _word("辛い", "からい")}
-    assert cards[_word("辛い", "つらい")].last_review is not None
+    cards = user_cards()
+    assert set(cards) == {word_key("辛い", "つらい"), word_key("辛い", "からい")}
+    assert cards[word_key("辛い", "つらい")].last_review is not None
     with committed_engine.connect() as conn:
         reviewed = (
             conn.execute(text("SELECT card_id FROM study_reviews")).scalars().all()
@@ -333,7 +334,7 @@ def test_a_correction_to_a_word_already_carded_restores_that_card(committed_engi
     old = _card_for(document_id, "辛い")
     other = create_tokenized_document(text="辛い")
     _correct_reading(old.id, other, "辛い", "からい")
-    [tsurai] = _cards(committed_engine).values()
+    [tsurai] = user_cards().values()
     suspend_card(tsurai.id)
     again = _card_for(document_id, "辛い")
 
@@ -353,7 +354,7 @@ def test_correcting_to_a_reading_with_no_entry_leaves_the_song_no_card(
 
     assert correction.card is None
     assert not correction.kept
-    assert _cards(committed_engine) == {}
+    assert user_cards() == {}
 
 
 def test_a_card_the_token_had_already_left_is_kept(committed_engine):
@@ -370,10 +371,10 @@ def test_a_card_the_token_had_already_left_is_kept(committed_engine):
     correction = _correct_reading(old.id, document_id, "辛い", "つらい")
 
     assert correction.kept
-    assert _word("辛い", "つらい") in _cards(committed_engine)
+    assert word_key("辛い", "つらい") in user_cards()
 
 
-def test_correcting_a_katakana_cards_word_moves_the_song_to_the_picked_word(
+def test_correcting_a_katakana_cards_word_moves_the_song_to_the_pickedword_key(
     committed_engine,
 ):
     document_id = create_tokenized_document(text=KATAKANA_SONG)
@@ -389,7 +390,7 @@ def test_correcting_a_katakana_cards_word_moves_the_song_to_the_picked_word(
 
     assert (correction.card.lookup_form, correction.card.reading) == ("合う", "あう")
     assert not correction.kept
-    assert set(_cards(committed_engine)) == {_word("合う", "あう")}
+    assert set(user_cards()) == {word_key("合う", "あう")}
 
 
 def test_correcting_another_users_card_is_refused(committed_engine, other_user):
@@ -461,3 +462,28 @@ def test_an_accepted_phrase_cant_be_corrected_from_its_card(committed_engine):
     }
 
     assert lines["真に受ける"].correction is None
+
+
+def test_correcting_an_accepted_phrases_reading_from_its_card_is_refused(
+    committed_engine,
+):
+    from app.main import PhraseAcceptance
+    from tests.support import accept_phrase_suggestions_endpoint
+
+    document_id = create_tokenized_document(text="真に受けてみて")
+    [suggestion] = [
+        c.id
+        for t in get_document_tokens(document_id)
+        for c in t.conflicts
+        if c.kind == "phrase"
+    ]
+    accept_phrase_suggestions_endpoint(
+        document_id, PhraseAcceptance(conflict_ids=[suggestion])
+    )
+    card = _card_for(document_id, "真")
+
+    with pytest.raises(HTTPException) as exc:
+        _correct_reading(card.id, document_id, "真", "しん")
+
+    assert exc.value.status_code == 422
+    assert get_document_tokens(document_id)[0].group_kind == "phrase"

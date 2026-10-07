@@ -1253,9 +1253,10 @@ migration 0027, `CardCorrectionPanel.tsx`) — what later steps build on:
   picks as it does readings.
 - A card corrects its line's token alone (`POST /cards/{id}/reading` and `/word`), since a
   heteronym's reading belongs to one occurrence. The token's word then gets its card, created or
-  restored. The old card is deleted if the token belonged to it and it has no reviews. A queued
-  card's `Line.correction` says which correction applies: `reading`, `word` (with `Line.piece`),
-  or none, for a grammar term or an accepted phrase, which a reading pick would split.
+  restored. The old card is deleted if the token belonged to it and it has no reviews. Which
+  correction a word takes is `CardTokens.correction`: `reading`, `word` (with its piece), or none,
+  for a grammar term or an accepted phrase, which a reading pick would split. A queued card's
+  `Line` carries it, and `correct_card` refuses any other.
 - The reading only shows on the reveal, so a session holds each answer until the card is left
   (Next, push-out, remove, or leaving the page, sent with `keepalive`), and a correction drops it
   unrated. Reviewed and accuracy count only answers sent; the summary's readiness waits for them.

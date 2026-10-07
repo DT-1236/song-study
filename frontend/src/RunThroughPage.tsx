@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { fetchRunThrough } from './api'
 import type { RunLine, RunThrough } from './api'
-import { codePointSlice, optionText } from './cardText'
+import { codePointSlice, optionText, wordLabel } from './cardText'
 import { useApiResource } from './useApiResource'
 import { useLineEndPolling } from './useLineEndPolling'
 import { YouTubePlayer } from './YouTubePlayer'
@@ -39,10 +39,7 @@ function WeakWords({ line }: { line: RunLine }) {
     <ul className="run-weak">
       {line.weak.map((word) => (
         <li key={`${word.card_id}-${word.focus[0]}`}>
-          <strong>
-            {word.lookup_form}
-            {word.reading && `（${word.reading}）`}
-          </strong>{' '}
+          <strong>{wordLabel(word.lookup_form, word.reading)}</strong>{' '}
           {word.meaning ? `— ${optionText(word.meaning)}` : ''}{' '}
           <span className="run-recall">
             {Math.round(word.retrievability * 100)}% recalled

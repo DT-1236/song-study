@@ -1,6 +1,7 @@
 import dataclasses
 import json
 import re
+from collections.abc import Callable
 from datetime import datetime
 from decimal import Decimal
 from itertools import pairwise
@@ -39,6 +40,7 @@ from app.conflicts import (
 )
 from app.db import DOCUMENT_COLUMNS, engine, json_param, owned_document_row
 from app.glosses import (
+    KATAKANA_PICKS_SQL,
     GlossKey,
     GlossPlan,
     alternate_reading_options,
@@ -128,6 +130,15 @@ def conflict_not_found(request: Request, exc: ConflictNotFound) -> JSONResponse:
     """A 404 for a conflict option that isn't in the document the route names."""
     return JSONResponse(
         status_code=404, content={"detail": "Conflict option not found."}
+    )
+
+
+@app.exception_handler(study.NotCorrectable)
+def not_correctable(request: Request, exc: study.NotCorrectable) -> JSONResponse:
+    """A 422 for a correction a card's token doesn't take."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "This word can't be corrected that way."},
     )
 
 
@@ -777,10 +788,7 @@ def _read_tokens(
                    END AS group_kind,
                    gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source,
                    gl.lookup_form AS gloss_lookup_form,
-                   (
-                       SELECT jsonb_agg(jsonb_build_array(kp.piece, kp.reading, kp.spelling))
-                       FROM katakana_picks kp WHERE kp.token_id = t.id
-                   ) AS katakana_picks
+                   {KATAKANA_PICKS_SQL} AS katakana_picks
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
             WHERE t.document_id = :document_id {token_filter}
@@ -813,11 +821,7 @@ def _read_tokens(
     # Each composite gloss as its token shows it: a katakana token's with the
     # words picked for its pieces.
     composites = {
-        row.id: (
-            with_picked_words(row.gloss_entries, row.katakana_picks)
-            if row.katakana_picks
-            else row.gloss_entries
-        )
+        row.id: with_picked_words(row.gloss_entries, row.katakana_picks)
         for row in rows
         if row.gloss_source == "composite"
     }
@@ -1238,14 +1242,11 @@ class PieceWordPick(TokenIds):
 def pick_piece_word_endpoint(
     document_id: OwnedDocument, body: PieceWordPick, user_id: CurrentUser
 ) -> list[Token]:
-    """Make `spelling` the word that piece `piece` of the gloss of each of
-    the tokens in `token_ids`, sung in katakana, is, as pick_piece_word
+    """Pick a word for a piece of the tokens' gloss, as pick_piece_word
     does. Returns the tokens."""
     with engine.begin() as conn:
-        picked = pick_piece_word(
-            conn, document_id, body.token_ids, body.piece, body.spelling
-        )
-        return _fetch_tokens(conn, document_id, token_ids=picked)
+        pick_piece_word(conn, document_id, body.token_ids, body.piece, body.spelling)
+        return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
 
 
 class StudyCard(BaseModel):
@@ -1421,11 +1422,20 @@ class CardCorrection(BaseModel):
     kept: bool
 
 
-def _card_correction(correction: study.Correction) -> CardCorrection:
-    return CardCorrection(
-        card=StudyCard(**correction.card._mapping) if correction.card else None,
-        kept=correction.kept,
-    )
+def _correct_card(
+    user_id: int,
+    card_id: int,
+    document_id: int,
+    token_id: int,
+    piece: int | None,
+    correct: Callable[[object], object],
+) -> CardCorrection:
+    """study.correct_card in a transaction of its own, as a response."""
+    with engine.begin() as conn:
+        card, kept = study.correct_card(
+            conn, user_id, card_id, document_id, token_id, piece, correct
+        )
+    return CardCorrection(card=StudyCard(**card._mapping) if card else None, kept=kept)
 
 
 @api.post("/cards/{card_id}/reading", response_model=CardCorrection)
@@ -1433,50 +1443,37 @@ def correct_card_reading(
     card_id: int, body: CardReadingCorrection, user_id: CurrentUser
 ) -> CardCorrection:
     """Select `reading` for the token the user's card was being studied
-    from, as /tokens/reading does, moving the song to the card for the word
-    the token is then (see study.correct_card). Nothing is logged."""
-    with engine.begin() as conn:
-        return _card_correction(
-            study.correct_card(
-                conn,
-                user_id,
-                card_id,
-                body.document_id,
-                body.token_id,
-                None,
-                lambda: select_reading(
-                    conn,
-                    body.document_id,
-                    [body.token_id],
-                    body.reading,
-                    body.furigana_spans,
-                ),
-            )
-        )
+    from, as /tokens/reading does, as study.correct_card does. Nothing is
+    logged."""
+    return _correct_card(
+        user_id,
+        card_id,
+        body.document_id,
+        body.token_id,
+        None,
+        lambda conn: select_reading(
+            conn, body.document_id, [body.token_id], body.reading, body.furigana_spans
+        ),
+    )
 
 
 @api.post("/cards/{card_id}/word", response_model=CardCorrection)
 def correct_card_word(
     card_id: int, body: CardWordCorrection, user_id: CurrentUser
 ) -> CardCorrection:
-    """Pick `spelling` as the word that piece `piece` of the katakana token
-    the user's card was being studied from is, as /tokens/piece-word does,
-    moving the song to the card for that word (see study.correct_card).
-    Nothing is logged."""
-    with engine.begin() as conn:
-        return _card_correction(
-            study.correct_card(
-                conn,
-                user_id,
-                card_id,
-                body.document_id,
-                body.token_id,
-                body.piece,
-                lambda: pick_piece_word(
-                    conn, body.document_id, [body.token_id], body.piece, body.spelling
-                ),
-            )
-        )
+    """Pick a word for a piece of the katakana token the user's card was
+    being studied from, as /tokens/piece-word does, as study.correct_card
+    does. Nothing is logged."""
+    return _correct_card(
+        user_id,
+        card_id,
+        body.document_id,
+        body.token_id,
+        body.piece,
+        lambda conn: pick_piece_word(
+            conn, body.document_id, [body.token_id], body.piece, body.spelling
+        ),
+    )
 
 
 @api.get("/study/queue", response_model=StudyQueue)

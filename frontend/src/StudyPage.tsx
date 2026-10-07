@@ -132,8 +132,8 @@ function StudySession({
   )
   const [index, setIndex] = useState(0)
   const [picked, setPicked] = useState<number | null>(null)
-  const [laddering, setLaddering] = useState(false)
-  const [correcting, setCorrecting] = useState(false)
+  // The push-out ladder or the correction panel, whichever is open.
+  const [panel, setPanel] = useState<'ladder' | 'correct' | null>(null)
   // What the last correction did, said on the card after it.
   const [notice, setNotice] = useState<string | null>(null)
   const [tally, setTally] = useState(EMPTY_TALLY)
@@ -225,8 +225,7 @@ function StudySession({
     commitAnswer()
     setIndex((i) => i + 1)
     setPicked(null)
-    setLaddering(false)
-    setCorrecting(false)
+    setPanel(null)
     setNotice(null)
     setError(null)
     shownAt.current = performance.now()
@@ -283,17 +282,6 @@ function StudySession({
     setNotice(message)
   }
 
-  // The push-out ladder and the correction panel, one at a time.
-  function startLaddering() {
-    setCorrecting(false)
-    setLaddering(true)
-  }
-
-  function startCorrecting() {
-    setLaddering(false)
-    setCorrecting(true)
-  }
-
   useEffect(() => {
     function handleKey(event: KeyboardEvent) {
       if (event.ctrlKey || event.metaKey || event.altKey) return
@@ -304,18 +292,18 @@ function StudySession({
       )
         return
       // The correction panel handles its own keys.
-      if (!card || correcting) return
+      if (!card || panel === 'correct') return
 
-      if (laddering) {
+      if (panel === 'ladder') {
         if (event.key in PUSH_OUT_KEYS) pushOut(PUSH_OUT_KEYS[event.key])
-        else if (event.key === 'Escape') setLaddering(false)
+        else if (event.key === 'Escape') setPanel(null)
         else return
       } else if (event.key === '!') {
-        startLaddering()
+        setPanel('ladder')
       } else if (event.key === '-') {
         remove()
       } else if (event.key === 'w' && card.line?.correction) {
-        startCorrecting()
+        setPanel('correct')
       } else if (event.key === ' ') {
         setReplays((n) => n + 1)
       } else if (event.key === 'Enter' && picked !== null) {
@@ -369,20 +357,20 @@ function StudySession({
             ▸ Replay (space)
           </button>
         )}
-        <button type="button" onClick={startLaddering}>
+        <button type="button" onClick={() => setPanel('ladder')}>
           I know this (!)
         </button>
         <button type="button" onClick={remove}>
           Remove (-)
         </button>
         {card.line?.correction && (
-          <button type="button" onClick={startCorrecting}>
+          <button type="button" onClick={() => setPanel('correct')}>
             Wrong {card.line.correction} (w)
           </button>
         )}
       </div>
 
-      {laddering && (
+      {panel === 'ladder' && (
         <div className="study-ladder" role="group" aria-label="Push out">
           Push it out:
           {Object.entries(PUSH_OUT_KEYS).map(([key, months]) => (
@@ -390,18 +378,18 @@ function StudySession({
               <kbd>{key}</kbd> {months} {months === 1 ? 'month' : 'months'}
             </button>
           ))}
-          <button type="button" onClick={() => setLaddering(false)}>
+          <button type="button" onClick={() => setPanel(null)}>
             Cancel
           </button>
         </div>
       )}
 
-      {correcting && card.line && (
+      {panel === 'correct' && card.line && (
         <CardCorrectionPanel
           card={card}
           line={card.line}
           onCorrected={handleCorrected}
-          onCancel={() => setCorrecting(false)}
+          onCancel={() => setPanel(null)}
         />
       )}
 

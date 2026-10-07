@@ -61,6 +61,7 @@ import {
 } from './timing'
 import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
+import { useSave } from './useSave'
 import { usePersistentState } from './usePersistentState'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
@@ -276,31 +277,6 @@ function renderFuriganaSpans(spans: FuriganaSpan[]) {
       <span key={i}>{span.text}</span>
     ),
   )
-}
-
-// State for a control that saves with one request: whether it's saving, and
-// the message its last attempt failed with. save() runs `request`, then
-// `onSaved` with its result, or records why it failed.
-function useSave() {
-  const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function save<T>(
-    request: () => Promise<T>,
-    onSaved: (result: T) => void,
-  ) {
-    setSaving(true)
-    setError(null)
-    try {
-      onSaved(await request())
-    } catch (err) {
-      setError(errorMessage(err, 'Failed to save — try again.'))
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return { saving, error, setError, save }
 }
 
 function ReadingCorrectionForm({
@@ -2527,7 +2503,9 @@ export function DocumentViewPage() {
     const byToken = new Map<number, DocumentWord[]>()
     for (const word of words ?? []) {
       for (const id of word.token_ids) {
-        byToken.set(id, [...(byToken.get(id) ?? []), word])
+        const list = byToken.get(id)
+        if (list) list.push(word)
+        else byToken.set(id, [word])
       }
     }
     return byToken

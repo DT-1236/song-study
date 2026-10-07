@@ -732,17 +732,36 @@ def _spelling(composite: dict, piece: dict, entries, senses) -> str:
 # reading when it was picked, the word's spelling).
 KatakanaPick = tuple[int, str, str]
 
+# The picks of token `t` as KatakanaPick arrays, as with_picked_words takes
+# them; NULL for a token with none.
+KATAKANA_PICKS_SQL = """
+    (
+        SELECT jsonb_agg(jsonb_build_array(kp.piece, kp.reading, kp.spelling))
+        FROM katakana_picks kp WHERE kp.token_id = t.id
+    )
+"""
 
-def with_picked_words(composite: dict, picks: Iterable[KatakanaPick]) -> dict:
+
+def is_word_piece(piece: dict) -> bool:
+    """Whether a piece of a katakana token's gloss is a word, rather than
+    grammar: the pieces a card can be for, and a word picked."""
+    return piece["key"] is not None and piece["normalized_form"] is None
+
+
+def with_picked_words(composite: dict, picks: Iterable[KatakanaPick] | None) -> dict:
     """`composite`, a katakana token's gloss, with each piece the user picked
     a word for glossed as that word: spelled as picked, and looked up under
     it. A pick for a piece that no longer has the reading it was picked for,
     as after the gloss was built again, is left out."""
+    if not picks:
+        return composite
     pieces = list(composite["pieces"])
     for index, reading, spelling in picks:
-        if index >= len(pieces) or pieces[index]["key"] is None:
-            continue
-        if pieces[index]["key"][1] != reading:
+        if not (
+            index < len(pieces)
+            and is_word_piece(pieces[index])
+            and pieces[index]["key"][1] == reading
+        ):
             continue
         pieces[index] = {
             **pieces[index],

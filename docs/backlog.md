@@ -19,3 +19,35 @@ so it can be picked up without re-deriving the reasoning.
   the default from a session. Add the token's own reading options (its `conflicts` rows) to what
   the panel offers, less the card's reading. Model: Sonnet 5, low effort — a small union, but it
   has to dedupe options that differ only in furigana split.
+
+## `/simplify` on PR #74 (flashcards step 9)
+
+- Store the picked JMDict entry, not just its spelling, in `katakana_picks`. A picked piece is
+  looked up under `(spelling, reading)`, so a word with no kanji (spelled in kana) is looked up
+  under its bare reading and shows whichever entry ranks first, and `word_options` dedupes by
+  spelling, so two entries with the same usual spelling can't be told apart. Add an `idseq`
+  column (0027 is unreleased, so it can change in place if nothing has migrated past it), return
+  it from `word_options`, carry it on the picked piece, and have `_ranked_senses` keep only that
+  entry's senses; `_spelling`'s `picked` special case then goes, since `_kanji_spelling` finds the
+  right form. Model: Opus 5, high effort — touches the gloss cache's piece shape and the card
+  key a pick produces, where a mistake is silent.
+- Reload a song's words (`GET /documents/{id}/words`) only after an edit that can change which
+  word a token is (a reading, a piece word, accepting or unmerging a phrase), not on every
+  `tokens` change: `DocumentViewPage.tsx`'s effect keys on `tokens`, so ignoring a gloss or
+  picking a phrase's furigana also recomputes every word of the song. Bump a counter from those
+  handlers instead. Model: Sonnet 5, medium effort — each token-editing handler needs sorting
+  into "changes a word" or not.
+- Read only the token's group in `cards.token_word`, which loads every unit of the document to
+  find one (twice per `study.correct_card`). Select the tokens sharing its
+  `phrase_start_position`, or the token alone, and share that reader with `enroll_token`. Model:
+  Sonnet 5, low effort — a scoped variant of `_token_rows`.
+- Merge `PieceWordPicker` and `AlternateReadingSearch` in `DocumentViewPage.tsx` into one
+  "options searched on demand" component taking the fetch, the apply, how to render an option
+  and which is selected: they share their state, two `useSave`s and layout. Model: Sonnet 5,
+  medium effort — the two differ in labels and selected-state rules.
+- Send each review as soon as it's answered and have a card correction undo it, instead of
+  holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
+  a closed tab). Needs `study_reviews` to keep the card's schedule from before each review, the
+  review's id returned by `/review`, and `correct_card` to delete that review and restore the
+  schedule when it's the card's latest. Model: Opus 5, high effort — a migration plus FSRS state
+  restored exactly, where a mistake corrupts scheduling silently.

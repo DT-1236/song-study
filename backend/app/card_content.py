@@ -91,11 +91,9 @@ class Line:
     # For a word or grammar term sung in katakana, its dictionary form as its
     # gloss writes it (声 for コエ); None for one that isn't.
     written_as: str | None
-    # How the card's word can be corrected from here, if it can: "reading"
-    # for a word written in kanji, by picking another reading of the token;
-    # "word" for a word sung in katakana, by picking another word with its
-    # reading for `piece` of the token's gloss. Not for a grammar term, nor
-    # an accepted phrase, which picking a reading of one token would split.
+    # How the card's word can be corrected from here, if it can (see
+    # cards.CardTokens), and for a "word" correction, which piece of the
+    # token's gloss it is.
     correction: Literal["reading", "word"] | None
     piece: int | None
 
@@ -213,13 +211,6 @@ class _Occurrence:
             # A katakana word's span is within its one token.
             focus = (focus[0] + self.found.span[0], focus[0] + self.found.span[1])
 
-        correction = None
-        if self.found.key.kind == "recognition":
-            if self.found.piece is not None:
-                correction = "word"
-            elif self.unit[0].accepted_phrase is None:
-                correction = "reading"
-
         index = line_index(lyrics, begin)
         return Line(
             self.song.id,
@@ -231,8 +222,8 @@ class _Occurrence:
             on_line(self.unit[0], self.unit[-1]),
             _audio(self.song, index),
             self.found.written_as,
-            correction,
-            self.found.piece,
+            self.found.correction,
+            self.found.piece if self.found.correction == "word" else None,
         )
 
 

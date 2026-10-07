@@ -66,6 +66,7 @@ def _test_database_url() -> str:
 os.environ["DATABASE_URL"] = _test_database_url()
 
 from app import main
+from app.cards import CardKey
 from app.db import engine
 from app.users import current_user_id
 
@@ -281,6 +282,21 @@ def pick_reading(document_id: int, surface: str, reading: str) -> None:
     resolve_token_conflict(
         document_id, token.id, ConflictResolution(conflict_id=option.id)
     )
+
+
+def word_key(lookup_form: str, reading: str) -> CardKey:
+    """The key of the card for a word."""
+    return CardKey("recognition", lookup_form, reading)
+
+
+def user_cards(user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
+    """The user's card rows, removed or not, by key."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM study_cards WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        ).all()
+    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
 
 
 def selected_reading(token) -> str:

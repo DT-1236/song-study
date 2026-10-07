@@ -28,11 +28,9 @@ from tests.support import (
     get_document_tokens,
     pick_reading,
     set_tokens_ignored,
+    user_cards,
+    word_key,
 )
-
-
-def _word(lookup_form: str, reading: str) -> CardKey:
-    return CardKey("recognition", lookup_form, reading)
 
 
 def _grammar(term: str) -> CardKey:
@@ -62,15 +60,6 @@ def _enroll(engine, document_id: int, limit: int | None = None) -> list[CardKey]
     return [CardKey(*row) for row in rows]
 
 
-def _cards(engine, user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
-    with engine.connect() as conn:
-        rows = conn.execute(
-            text("SELECT * FROM study_cards WHERE user_id = :user_id"),
-            {"user_id": user_id},
-        ).all()
-    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
-
-
 # The harvest
 
 
@@ -79,9 +68,9 @@ def test_a_predicate_group_gives_its_head_word_and_its_grammar(committed_engine)
     document_id = create_tokenized_document(text="君の声が聞こえてるんだって。")
 
     assert _harvest(committed_engine, document_id) == {
-        _word("君", "きみ"): 1,
+        word_key("君", "きみ"): 1,
         # As the verb it is, not as the group's composite gloss.
-        _word("聞こえる", "きこえる"): 1,
+        word_key("聞こえる", "きこえる"): 1,
         _grammar("てる"): 1,
         # ん, as Sudachi normalizes it when it explains.
         _grammar("の"): 1,
@@ -94,8 +83,8 @@ def test_particles_outside_a_group_give_nothing(committed_engine):
     document_id = create_tokenized_document(text="君を呼ぶ。")
 
     assert _harvest(committed_engine, document_id) == {
-        _word("君", "きみ"): 1,
-        _word("呼ぶ", "よぶ"): 1,
+        word_key("君", "きみ"): 1,
+        word_key("呼ぶ", "よぶ"): 1,
     }
 
 
@@ -103,7 +92,7 @@ def test_a_word_counts_every_occurrence_under_one_card(committed_engine):
     document_id = create_tokenized_document(text="聞こえてる。聞こえた。")
 
     assert _harvest(committed_engine, document_id) == {
-        _word("聞こえる", "きこえる"): 2,
+        word_key("聞こえる", "きこえる"): 2,
         _grammar("てる"): 1,
         _grammar("た"): 1,
     }
@@ -113,7 +102,7 @@ def test_a_word_without_a_jmdict_headword_is_left_out(committed_engine):
     # An English word, and a proper noun only glossed through its parts.
     document_id = create_tokenized_document(text="yeah ゲーム、女神の涙")
 
-    assert _harvest(committed_engine, document_id) == {_word("ゲーム", "ゲーム"): 1}
+    assert _harvest(committed_engine, document_id) == {word_key("ゲーム", "ゲーム"): 1}
 
 
 def test_a_word_marked_as_needing_no_gloss_is_left_out(committed_engine):
@@ -125,7 +114,7 @@ def test_a_word_marked_as_needing_no_gloss_is_left_out(committed_engine):
         ),
     )
 
-    assert _harvest(committed_engine, document_id) == {_word("呼ぶ", "よぶ"): 1}
+    assert _harvest(committed_engine, document_id) == {word_key("呼ぶ", "よぶ"): 1}
 
 
 def test_a_heteronym_is_harvested_under_its_reading_once_one_is_picked(
@@ -136,7 +125,7 @@ def test_a_heteronym_is_harvested_under_its_reading_once_one_is_picked(
 
     pick_reading(document_id, "今日", "こんにち")
 
-    assert _harvest(committed_engine, document_id) == {_word("今日", "こんにち"): 1}
+    assert _harvest(committed_engine, document_id) == {word_key("今日", "こんにち"): 1}
 
 
 def test_picking_the_default_reading_also_counts_as_reviewing_it(committed_engine):
@@ -144,7 +133,7 @@ def test_picking_the_default_reading_also_counts_as_reviewing_it(committed_engin
 
     pick_reading(document_id, "今日", "きょう")
 
-    assert _harvest(committed_engine, document_id) == {_word("今日", "きょう"): 1}
+    assert _harvest(committed_engine, document_id) == {word_key("今日", "きょう"): 1}
 
 
 @pytest.mark.parametrize(
@@ -173,7 +162,7 @@ def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engi
     document_id = create_tokenized_document(text="真に受けてみて")
     # 真 is an unreviewed heteronym on its own.
     assert _harvest(committed_engine, document_id) == {
-        _word("受ける", "うける"): 1,
+        word_key("受ける", "うける"): 1,
         _grammar("て"): 2,
         _grammar("見る"): 1,
     }
@@ -190,7 +179,7 @@ def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engi
 
     # The phrase's own に is part of the headword, not grammar.
     assert _harvest(committed_engine, document_id) == {
-        _word("真に受ける", "まにうける"): 1,
+        word_key("真に受ける", "まにうける"): 1,
         _grammar("て"): 2,
         _grammar("見る"): 1,
     }
@@ -205,7 +194,7 @@ def test_a_harvest_after_the_gloss_cache_is_emptied_looks_its_words_up_again(
         text="さり気ない歌を。君の声が聞こえてるんだって。"
     )
     before = _harvest(committed_engine, document_id)
-    assert _word("さり気無い", "さりげない") in before
+    assert word_key("さり気無い", "さりげない") in before
 
     empty_gloss_cache()
 
@@ -229,9 +218,9 @@ def test_a_katakana_word_belongs_to_the_cards_of_the_words_it_splits_into(
     assert get_document_tokens(document_id)[0].surface == "ボクノアイタイ"
 
     assert _song_keys(committed_engine, document_id) == {
-        _word("僕", "ぼく"),
+        word_key("僕", "ぼく"),
         # Written as its gloss writes it, so it's the card 会いたい gives.
-        _word("会う", "あう"),
+        word_key("会う", "あう"),
         # Attached to 会う. The の between the two words is grammar on its
         # own, which gives nothing.
         _grammar("たい"),
@@ -249,8 +238,8 @@ def test_a_katakana_word_unlinked_from_its_gloss_links_to_no_card(committed_engi
     clear_gloss_links(document_id)
 
     assert not _song_keys(committed_engine, document_id) & {
-        _word("僕", "ぼく"),
-        _word("会う", "あう"),
+        word_key("僕", "ぼく"),
+        word_key("会う", "あう"),
         _grammar("たい"),
     }
 
@@ -265,7 +254,7 @@ def test_a_cards_gloss_is_looked_up_again_after_the_cache_is_emptied(
     _enroll(committed_engine, document_id)
     empty_gloss_cache()
 
-    [card] = _cards(committed_engine).values()
+    [card] = user_cards().values()
     key = (card.lookup_form, card.reading)
     with committed_engine.begin() as conn:
         source = gloss_sources(conn, [(key, card.alt_lookup_form)])[key]
@@ -279,13 +268,13 @@ def test_emptying_the_gloss_cache_keeps_every_card(committed_engine):
 
     empty_gloss_cache()
 
-    assert set(_cards(committed_engine)) == set(enrolled)
+    assert set(user_cards()) == set(enrolled)
 
 
 def test_a_card_with_reviews_cant_be_deleted(committed_engine):
     document_id = create_tokenized_document(text="君")
     _enroll(committed_engine, document_id)
-    [card] = _cards(committed_engine).values()
+    [card] = user_cards().values()
     with committed_engine.begin() as conn:
         conn.execute(
             text(
@@ -310,8 +299,8 @@ def test_enrolling_creates_new_cards_for_the_most_sung_words_first(committed_eng
     first = _enroll(committed_engine, document_id, limit=2)
     rest = _enroll(committed_engine, document_id)
 
-    assert first == [_word("聞こえる", "きこえる"), _word("君", "きみ")]
-    assert rest == [_word("呼ぶ", "よぶ"), _grammar("てる"), _grammar("た")]
+    assert first == [word_key("聞こえる", "きこえる"), word_key("君", "きみ")]
+    assert rest == [word_key("呼ぶ", "よぶ"), _grammar("てる"), _grammar("た")]
     assert _enroll(committed_engine, document_id) == []
 
 
@@ -319,7 +308,7 @@ def test_a_new_card_starts_unscheduled_and_remembers_its_song(committed_engine):
     document_id = create_tokenized_document(text="君")
     _enroll(committed_engine, document_id)
 
-    [card] = _cards(committed_engine).values()
+    [card] = user_cards().values()
     # py-fsrs's new card: Learning, at its first step.
     assert (card.state, card.step, card.stability, card.difficulty) == (
         1,
@@ -338,9 +327,7 @@ def test_a_word_already_carded_from_another_song_is_not_new(committed_engine):
     _enroll(committed_engine, first_song)
 
     assert _enroll(committed_engine, second_song) == []
-    assert _cards(committed_engine)[_word("君", "きみ")].first_seen_document_id == (
-        first_song
-    )
+    assert user_cards()[word_key("君", "きみ")].first_seen_document_id == (first_song)
 
 
 def test_each_user_has_their_own_cards(committed_engine, other_user):
@@ -352,7 +339,7 @@ def test_each_user_has_their_own_cards(committed_engine, other_user):
     with committed_engine.begin() as conn:
         enroll_new_words(conn, other_user, theirs)
 
-    assert set(_cards(committed_engine)) == set(_cards(committed_engine, other_user))
+    assert set(user_cards()) == set(user_cards(other_user))
 
 
 def test_enrolling_again_doesnt_restore_a_removed_card(committed_engine):
@@ -362,7 +349,7 @@ def test_enrolling_again_doesnt_restore_a_removed_card(committed_engine):
         conn.execute(text("UPDATE study_cards SET suspended = TRUE"))
 
     assert _enroll(committed_engine, document_id) == []
-    assert _cards(committed_engine)[_word("君", "きみ")].suspended
+    assert user_cards()[word_key("君", "きみ")].suspended
 
 
 # Adding a word by hand
@@ -381,7 +368,7 @@ def test_adding_a_removed_word_restores_its_card_and_history(committed_engine):
     card = add_token_card(document_id, document_tokens(document_id, "君")[0].id)
 
     assert not card.suspended
-    restored = _cards(committed_engine)[_word("君", "きみ")]
+    restored = user_cards()[word_key("君", "きみ")]
     assert (restored.id, restored.state, restored.stability) == (card.id, 2, 30)
 
 
@@ -408,7 +395,7 @@ def test_adding_a_word_by_hand_takes_one_marked_as_needing_no_gloss(
     assert add_token_card(document_id, token_id).lookup_form == "君"
 
 
-def test_adding_any_token_of_a_predicate_group_adds_its_head_word(committed_engine):
+def test_adding_any_token_of_a_predicate_group_adds_its_headword_key(committed_engine):
     document_id = create_tokenized_document(text="聞こえてるんだって")
 
     card = add_token_card(document_id, document_tokens(document_id, "って")[0].id)
@@ -426,7 +413,7 @@ def test_a_token_that_isnt_a_word_with_a_headword_cant_be_added(
         add_token_card(document_id, document_tokens(document_id, surface)[0].id)
 
     assert exc.value.status_code == 422
-    assert _cards(committed_engine) == {}
+    assert user_cards() == {}
 
 
 def test_adding_another_documents_token_is_refused(committed_engine):

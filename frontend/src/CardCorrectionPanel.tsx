@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import {
   correctCardReading,
   correctCardWord,
-  errorMessage,
   fetchAlternateReadings,
   fetchPieceWords,
 } from './api'
 import type { CardCorrection, CardLine, QueuedCard } from './api'
+import { wordLabel } from './cardText'
 import { useApiResource } from './useApiResource'
+import { useSave } from './useSave'
 
 // Another word the token of a card's line could be.
 type Choice = {
@@ -16,10 +17,6 @@ type Choice = {
   // What it means, for words told apart by meaning rather than reading.
   detail: string | null
   apply: () => Promise<CardCorrection>
-}
-
-function wordLabel(lookupForm: string, reading: string | null): string {
-  return reading ? `${lookupForm}（${reading}）` : lookupForm
 }
 
 // The other words `line`'s token could be than `card`'s: the other readings
@@ -106,28 +103,19 @@ export function CardCorrectionPanel({
     [card, line],
     'Failed to load the other words.',
   )
-  const [applying, setApplying] = useState(false)
-  const [error, setError] = useState<string | null>(null)
+  const { saving: applying, error, save } = useSave('Failed to correct it.')
 
   function pick(choice: Choice) {
     if (applying) return
-    setApplying(true)
-    setError(null)
-    choice
-      .apply()
-      .then((result) =>
-        onCorrected(
-          correctionMessage(
-            wordLabel(card.lookup_form, card.reading),
-            choice.label,
-            result,
-          ),
+    save(choice.apply, (result) =>
+      onCorrected(
+        correctionMessage(
+          wordLabel(card.lookup_form, card.reading),
+          choice.label,
+          result,
         ),
-      )
-      .catch((err) => {
-        setError(errorMessage(err, 'Failed to correct it.'))
-        setApplying(false)
-      })
+      ),
+    )
   }
 
   useEffect(() => {

@@ -20,7 +20,9 @@ from sqlalchemy import text
 
 from app.conflicts import NON_READING_KINDS, TokenNotFound
 from app.glosses import (
+    KATAKANA_PICKS_SQL,
     GlossKey,
+    is_word_piece,
     own_gloss_key,
     piece_lookups,
     piece_pos_major,
@@ -111,6 +113,12 @@ class CardTokens:
     alt_lookup_form: str | None
     # The tokens it's written with: all of an accepted phrase's, else one.
     tokens: list
+    # How a card's word can be corrected from a line it's on: "reading" for
+    # a word written in kanji, by picking another reading of its token;
+    # "word" for a word sung in katakana, by picking another word for its
+    # piece. Never a grammar term, nor an accepted phrase, which picking a
+    # reading of one of its tokens would split.
+    correction: Literal["reading", "word"] | None = None
     # Set only for one of the words of a token sung in katakana: which piece
     # of its gloss it is, where in the token it is, as [begin, end) offsets,
     # how its gloss writes it (声 for コエ), and the part of speech its senses
@@ -132,17 +140,13 @@ def _token_rows(conn, document_ids: list[int]) -> list:
     app.katakana) and the words the user picked for its pieces."""
     return conn.execute(
         text(
-            """
+            f"""
             SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end,
                    t.normalized_form, t.dictionary_form, t.part_of_speech,
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase,
-                   kg.entries AS katakana_gloss,
-                   (
-                       SELECT jsonb_agg(jsonb_build_array(kp.piece, kp.reading, kp.spelling))
-                       FROM katakana_picks kp WHERE kp.token_id = t.id
-                   ) AS katakana_picks
+                   kg.entries AS katakana_gloss, {KATAKANA_PICKS_SQL} AS katakana_picks
             FROM tokens t
             -- A token has at most one selected conflict, so neither join
             -- repeats it. A phrase's value has a reading too, so only reading
@@ -252,13 +256,13 @@ def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
     # A predicate group's head is studied as the word it is on its own, not
     # as the group's composite gloss.
     word = _own_word(head, explicit)
-    return CardTokens(*word, [head]) if word else None
+    return CardTokens(*word, [head], correction="reading") if word else None
 
 
 def katakana_gloss(row) -> dict:
     """The gloss of token `row` (see _token_rows), sung in katakana, with the
     words the user picked for its pieces."""
-    return with_picked_words(row.katakana_gloss, row.katakana_picks or [])
+    return with_picked_words(row.katakana_gloss, row.katakana_picks)
 
 
 def katakana_lookups(conn, units: Iterable[list]) -> dict[GlossKey, tuple]:
@@ -286,9 +290,8 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
     pieces = gloss["pieces"]
     found = []
     for index, (piece, spelling) in enumerate(zip(pieces, spellings, strict=True)):
-        if piece["normalized_form"] is None:
-            # Every piece but a grammar word's has a key. Its reading is the
-            # word's whichever way it's written.
+        if is_word_piece(piece):
+            # Its reading is the word's whichever way it's written.
             key = CardKey("recognition", spelling, piece["key"][1])
         # Grammar between two words (the の of 心の声) is a unit of its own,
         # and like a particle outside a group, gives nothing. A helper verb
@@ -302,6 +305,7 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
                 key,
                 piece["alt_lookup_form"],
                 [row],
+                correction="word" if key.kind == "recognition" else None,
                 piece=index,
                 span=tuple(piece["span"]),
                 written_as=spelling,
@@ -398,6 +402,24 @@ class SongWords:
     unenrolled: list[HarvestedWord]
 
 
+def _user_cards(
+    conn, user_id: int, keys: Iterable[CardKey], extra_columns: str = ""
+) -> dict[CardKey, object]:
+    """The user's cards with any of `keys`, removed or not, by key: rows of
+    CARD_COLUMNS and `extra_columns`, a list of `c.` columns led by a
+    comma."""
+    rows = conn.execute(
+        text(
+            f"""
+            SELECT {CARD_COLUMNS}{extra_columns} FROM study_cards c {CARD_KEYS_JOIN_SQL}
+            WHERE c.user_id = :user_id
+            """
+        ),
+        {"user_id": user_id, "keys": card_keys_param(keys)},
+    )
+    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
+
+
 def song_words(conn, units: list[list], user_id: int) -> SongWords:
     """songs_words for the one document of `units` (see _units)."""
     [words] = songs_words(conn, [units], user_id)
@@ -410,23 +432,12 @@ def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
     ones harvest would enroll. A word whose card they removed is in neither,
     as it's no longer part of what they study."""
     found = [_found_words(units) for units in songs]
-    rows = {
-        CardKey(row.kind, row.lookup_form, row.reading): row
-        for row in conn.execute(
-            text(
-                f"""
-                SELECT {CARD_COLUMNS}, c.state, c.step, c.stability, c.difficulty,
-                       c.last_review
-                FROM study_cards c {CARD_KEYS_JOIN_SQL}
-                WHERE c.user_id = :user_id
-                """
-            ),
-            {
-                "user_id": user_id,
-                "keys": card_keys_param({key for words in found for key in words}),
-            },
-        )
-    }
+    rows = _user_cards(
+        conn,
+        user_id,
+        {key for words in found for key in words},
+        ", c.state, c.step, c.stability, c.difficulty, c.last_review",
+    )
     wanted = [[w for w in words.values() if w.key not in rows] for words in found]
     # One gloss plan for every song. A word several songs share is planned
     # with the first one's alternate spelling, as it would be if each song
@@ -611,15 +622,9 @@ def add_card(conn, user_id: int, document_id: int, word: CardTokens):
 def enroll_token(
     conn, user_id: int, document_id: int, token_id: int, piece: int | None = None
 ):
-    """The user's card row for the word `token_id` is part of (see
-    token_word), created if they have none, or restored with its history if
-    they removed it. Unlike enroll_new_words, this takes a word marked as
-    needing no gloss, or read as a guess, and a word of a token sung in
-    katakana, since adding it is an explicit choice.
-
-    Raises TokenNotFound if the document has no token `token_id`, and
-    NotStudyable if it isn't part of a word glossed from a JMDict
-    headword."""
+    """add_card for the word token_word finds for `token_id`. Unlike
+    enroll_new_words, this takes a word marked as needing no gloss, read as
+    a guess, or sung in katakana, since adding it is an explicit choice."""
     return add_card(
         conn, user_id, document_id, token_word(conn, document_id, token_id, piece)
     )
@@ -653,18 +658,7 @@ def document_words(conn, user_id: int, document_id: int) -> list[TokenWord]:
         if word.key.kind == "recognition"
     ]
     studyable = _studyable(conn, [(w.key, w.alt_lookup_form) for _, w in found])
-    cards = {
-        CardKey(row.kind, row.lookup_form, row.reading): row
-        for row in conn.execute(
-            text(
-                f"""
-                SELECT {CARD_COLUMNS} FROM study_cards c {CARD_KEYS_JOIN_SQL}
-                WHERE c.user_id = :user_id
-                """
-            ),
-            {"user_id": user_id, "keys": card_keys_param(studyable)},
-        )
-    }
+    cards = _user_cards(conn, user_id, studyable)
     return [
         TokenWord([row.id for row in unit], word.piece, word.key, cards.get(word.key))
         for unit, word in found

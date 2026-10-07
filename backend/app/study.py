@@ -259,15 +259,8 @@ def suspend_card(conn, user_id: int, card_id: int):
     return row
 
 
-@dataclass
-class Correction:
-    """What correcting which word a card's line has did."""
-
-    # The user's card for the word the line has now (CARD_COLUMNS); None if
-    # that word has no dictionary entry to study.
-    card: object | None
-    # Whether the card corrected was kept, which it is once it has reviews.
-    kept: bool
+class NotCorrectable(Exception):
+    pass
 
 
 def correct_card(
@@ -277,24 +270,30 @@ def correct_card(
     document_id: int,
     token_id: int,
     piece: int | None,
-    correct: Callable[[], object],
-) -> Correction:
-    """Apply `correct`, a change to which word `token_id` of the document
-    is (or `piece` of it, for a token sung in katakana; see
+    correct: Callable[[object], object],
+) -> tuple[object | None, bool]:
+    """Apply `correct(conn)`, a change to which word `token_id` of the
+    document is (or `piece` of it, for a token sung in katakana; see
     cards.token_word), made while it was the line of the user's card
     `card_id`. The token then belongs to the card for the word it is now,
     which is created, or restored, if need be. The old card is deleted if it
     has no reviews, since nothing was learned on it; with reviews, it stays.
 
+    Returns the token's card now (CARD_COLUMNS), None if its word has no
+    dictionary entry to study, and whether the old card was kept.
+
     Raises CardNotFound if the card isn't the user's, DocumentNotFound if
-    the document isn't, and as cards.token_word does if the token isn't part
-    of a word."""
+    the document isn't, NotCorrectable if the token's word doesn't take this
+    correction (see cards.CardTokens), and as cards.token_word does if the
+    token isn't part of a word."""
     row = _locked_card(conn, user_id, card_id)
     if not document_is_owned(conn, document_id, user_id):
         raise DocumentNotFound()
     old = CardKey(row.kind, row.lookup_form, row.reading)
-    before = token_word(conn, document_id, token_id, piece).key
-    correct()
+    before = token_word(conn, document_id, token_id, piece)
+    if before.correction != ("reading" if piece is None else "word"):
+        raise NotCorrectable()
+    correct(conn)
     try:
         word = token_word(conn, document_id, token_id, piece)
         card = add_card(conn, user_id, document_id, word)
@@ -303,8 +302,8 @@ def correct_card(
 
     # Only the card the token belonged to, in case another change got there
     # first.
-    if before != old or (word is not None and word.key == old):
-        return Correction(card, kept=True)
+    if before.key != old or (word is not None and word.key == old):
+        return card, True
     deleted = conn.execute(
         text(
             """
@@ -316,7 +315,7 @@ def correct_card(
         ),
         {"card_id": card_id},
     ).one_or_none()
-    return Correction(card, kept=deleted is None)
+    return card, deleted is None
 
 
 def _due_cards(conn, user_id: int, keys=None) -> list:

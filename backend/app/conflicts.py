@@ -20,6 +20,7 @@ from app.glosses import (
     GroupPart,
     attach_glosses,
     get_or_create_gloss_lookup,
+    is_word_piece,
     own_gloss_key,
     plan_glosses,
     predicate_group_request,
@@ -1112,13 +1113,12 @@ class WordNotOffered(Exception):
 
 def pick_piece_word(
     conn, document_id: int, token_ids: list[int], piece: int, spelling: str
-) -> list[int]:
+) -> None:
     """Make `spelling` the word that piece `piece` of the gloss of each of
     the document's tokens in `token_ids`, sung in katakana, is: one of the
     words JMDict has with the piece's reading (see word_options), in place
     of the one the gloss guessed (合う for the アイ of アイタイ, rather than
     会う). The tokens must be ones lock_token_group accepts together.
-    Returns their ids.
 
     Raises WordNotOffered if a token isn't sung in katakana, `piece` isn't
     one of its words, or `spelling` isn't a word with the piece's reading."""
@@ -1143,7 +1143,6 @@ def pick_piece_word(
             "spelling": spelling,
         },
     )
-    return token_ids
 
 
 def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> list[dict]:
@@ -1192,13 +1191,7 @@ def _piece_reading(conn, token_ids: list[int], piece: int) -> str:
     readings = set()
     for gloss in glosses:
         pieces = gloss["pieces"]
-        # A word's piece has a key and isn't grammar (see
-        # cards._katakana_card_tokens).
-        if (
-            piece >= len(pieces)
-            or pieces[piece]["key"] is None
-            or pieces[piece]["normalized_form"] is not None
-        ):
+        if piece >= len(pieces) or not is_word_piece(pieces[piece]):
             raise WordNotOffered()
         readings.add(pieces[piece]["key"][1])
     # Tokens spelled the same are glossed the same, unless one was given
