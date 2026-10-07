@@ -22,12 +22,14 @@ from app.glosses import (
     alternate_reading_options,
     attach_glosses,
     get_or_create_gloss_lookup,
+    gloss_entries,
     is_word_piece,
     own_gloss_key,
     piece_current_idseq,
     plan_glosses,
     predicate_group_request,
     store_glosses,
+    with_picked_words,
     word_options,
 )
 from app.tokenization import (
@@ -1179,10 +1181,18 @@ def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> lis
     if row.composite is None:
         raise WordNotOffered()
     reading = _shared_reading([row.composite], piece)
-    current = piece_current_idseq(conn, row.composite, row.picks, piece)
+    # The piece's own lookup and its reading's are the same key for a piece
+    # that is picked, so one call fetches both.
+    shown = with_picked_words(row.composite, row.picks)["pieces"][piece]
+    reading_key = (reading, reading)
+    lookups = gloss_entries(
+        conn,
+        [(tuple(shown["key"]), shown["alt_lookup_form"]), (reading_key, None)],
+    )
+    current = piece_current_idseq(conn, row.composite, row.picks, piece, lookups)
     return [
         {**option, "current": option["idseq"] == current}
-        for option in word_options(conn, reading)
+        for option in word_options(conn, reading, lookups[reading_key])
     ]
 
 

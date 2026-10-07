@@ -827,15 +827,24 @@ def with_picked_words(composite: dict, picks: Iterable[KatakanaPick] | None) -> 
 
 
 def piece_current_idseq(
-    conn, composite: dict, picks: Iterable[KatakanaPick] | None, piece: int
+    conn,
+    composite: dict,
+    picks: Iterable[KatakanaPick] | None,
+    piece: int,
+    lookups: dict[GlossKey, tuple] | None = None,
 ) -> int | None:
     """The JMDict entry piece `piece` of `composite`, a katakana token's
     gloss, is shown as given the token's `picks`: the one picked for it, or
-    else the one its first sense comes from. None if it has no senses."""
+    else the one its first sense comes from. None if it has no senses.
+
+    `lookups` are lookups the caller already has; the piece's own is read
+    only if they lack it."""
     shown = with_picked_words(composite, picks)["pieces"][piece]
-    # Only the piece's own lookup, not the rest of the token's. A word
-    # piece always has one.
-    lookups = gloss_entries(conn, [(tuple(shown["key"]), shown["alt_lookup_form"])])
+    key = tuple(shown["key"])
+    if lookups is None or key not in lookups:
+        # Only the piece's own lookup, not the rest of the token's. A word
+        # piece always has one.
+        lookups = gloss_entries(conn, [(key, shown["alt_lookup_form"])])
     ranked = _ranked_senses(shown, lookups)
     # gloss_entries looks up what it's missing, so the lookup is there.
     assert ranked is not None
@@ -843,13 +852,18 @@ def piece_current_idseq(
     return senses[0]["entry_idseq"] if senses else None
 
 
-def word_options(conn, reading: str) -> list[dict]:
+def word_options(conn, reading: str, lookup: tuple | None = None) -> list[dict]:
     """The words JMDict has that are read `reading` (hiragana), common ones
     first: what a piece of katakana read that way could be. Each is its
     entry's idseq, its usual spelling, and the glosses of its first sense,
-    which tell apart two written alike."""
-    key = (reading, reading)
-    entries, source = gloss_entries(conn, [(key, None)])[key]
+    which tell apart two written alike.
+
+    `lookup` is the (entries, source) of `reading`'s own lookup, if the
+    caller already has it."""
+    if lookup is None:
+        key = (reading, reading)
+        lookup = gloss_entries(conn, [(key, None)])[key]
+    entries, source = lookup
     if source != "jmdict":
         return []
     return [
