@@ -620,7 +620,6 @@ function StudyListControl({
             ? 'icon-button study-list-icon studied'
             : 'icon-button study-list-icon'
         }
-        title={label}
         aria-label={label}
         disabled={saving}
         onClick={(e) => {
@@ -655,7 +654,16 @@ function StudyListControl({
           )}
         </svg>
       </button>
-      {error && <div className="study-list-error">{error}</div>}
+      {/* In place of a title, whose delay only the browser sets. Hidden from
+          screen readers, which get the label from aria-label, and while an
+          error takes its place. */}
+      {error ? (
+        <div className="study-list-error">{error}</div>
+      ) : (
+        <span className="study-list-tooltip" aria-hidden="true">
+          {label}
+        </span>
+      )}
     </div>
   )
 }

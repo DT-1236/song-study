@@ -1107,6 +1107,32 @@ label.apply-to-all {
   opacity: 0.4;
 }
 
+/* Shown a beat after hovering or focusing the icon, so passing over it
+   doesn't flash it. Hidden again at once. */
+.study-list-tooltip {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  z-index: 1;
+  width: max-content;
+  max-width: 14rem;
+  padding: 0.2rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: right;
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.study-list-icon:hover + .study-list-tooltip,
+.study-list-icon:focus-visible + .study-list-tooltip {
+  visibility: visible;
+  transition: visibility 0s 125ms;
+}
+
 .study-list-error {
   position: absolute;
   color: var(--danger);
