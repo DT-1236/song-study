@@ -1,4 +1,5 @@
 import {
+  Children,
   Fragment,
   type ReactNode,
   memo,
@@ -133,6 +134,27 @@ function hasMissingGloss(token: Token): boolean {
     token.gloss !== null &&
     token.gloss.senses.length === 0 &&
     token.gloss.source !== 'composite'
+  )
+}
+
+// No dictionary entry under the current reading at all, which a manual
+// correction could fix, and which the user hasn't dismissed. Not tied to
+// needs_review, since Sudachi's own heteronym check doesn't catch this case
+// (e.g. 三股 as みまた never got flagged, but still has no JMDict hit).
+function needsCorrection(token: Token): boolean {
+  return hasPopup(token) && hasMissingGloss(token) && !token.gloss_ignored
+}
+
+// Sudachi surfaced real alternative readings and the user hasn't picked one
+// yet. Excludes plain 'oov' tokens, which have needs_review set but no actual
+// alternatives to review — those are a needsCorrection case instead. Also
+// covers a composite piece with its own unresolved reading ambiguity (e.g.
+// 女神 within 勝利の女神): the same "hasn't been reviewed yet" signal, just
+// without a picker behind it yet.
+function needsReadingReview(token: Token): boolean {
+  return (
+    (hasReadingOptions(token) && token.needs_review) ||
+    hasAmbiguousCompositePiece(token)
   )
 }
 
@@ -584,16 +606,19 @@ function StudyListControl({
   const card = word.card
   const studied = card !== null && !card.suspended
 
+  const label = studied
+    ? 'In your study list — click to remove'
+    : card
+      ? 'Removed from your study list — click to restore'
+      : 'Add to study list'
+
   return (
     <div className="study-list">
-      {card && (
-        <span className="conflict-note">
-          {studied ? 'In your study list ✓' : 'Removed from your study list'}
-        </span>
-      )}
       <button
         type="button"
-        className="conflict-option"
+        className={studied ? 'study-list-icon studied' : 'study-list-icon'}
+        title={label}
+        aria-label={label}
         disabled={saving}
         onClick={(e) => {
           e.stopPropagation()
@@ -606,10 +631,42 @@ function StudyListControl({
           )
         }}
       >
-        {studied ? 'Remove' : card ? 'Restore' : 'Add to study list'}
+        <svg
+          viewBox="0 0 24 24"
+          width="14"
+          height="14"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
+          <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
+          {/* A check once in the list, a plus for adding it. */}
+          {studied ? (
+            <path d="m15 10 1.5 1.5L19 8.5" />
+          ) : (
+            <path d="M17.5 8v5M15 10.5h5" />
+          )}
+        </svg>
       </button>
-      {error && <div className="conflict-error">{error}</div>}
+      {error && <div className="study-list-error">{error}</div>}
     </div>
+  )
+}
+
+// Controls kept out of the way until asked for: everything on a token that no
+// underline calls for.
+function MoreOptions({ children }: { children: ReactNode }) {
+  if (Children.toArray(children).length === 0) return null
+
+  return (
+    <details className="more-options">
+      <summary>More options</summary>
+      {children}
+    </details>
   )
 }
 
@@ -861,15 +918,25 @@ function PhraseFuriganaOptions({
 // from their options or typed in, and whether the ones with no gloss need
 // one. The first target with options supplies them — a word's options are
 // the same wherever it has any, but not every instance is flagged.
+//
+// Only the decisions an underline calls for are shown; the rest, and the
+// caller's `more`, wait under "More options".
 function TokenDecisions({
   targets: allTargets,
   offerCorrection,
+  scope,
+  more = [],
   documentId,
   onTokensUpdated,
 }: {
   targets: Token[]
   // Whether to offer typing a reading even when every target has a gloss.
   offerCorrection: boolean
+  // What sets which instances the decisions apply to: shown with the
+  // decisions an underline calls for, or with the others if none does.
+  scope?: ReactNode
+  // Keyed options of the caller's, always under "More options".
+  more?: ReactNode[]
   documentId: number
   onTokensUpdated: TokensUpdated
 }) {
@@ -887,39 +954,77 @@ function TokenDecisions({
   // Typing a reading is only for OOV tokens, which have no dictionary entry
   // to search. Every target shares one review_reason (see groupKey).
   const isOov = targets[0]?.review_reason === 'oov'
+  // Whether an underline calls for a decision is judged by the token being
+  // looked at, the first target, so ticking "apply to all" can't move the
+  // decisions in or out of "More options" under the user's cursor.
+  const focus = targets[0]
+  const readingUrgent = source === focus && focus.needs_review
+  const correctionUrgent = needsCorrection(focus)
+
+  const readingOptions = source && (
+    <ReadingOptions
+      key="reading-options"
+      token={source}
+      targets={targets}
+      documentId={documentId}
+      onTokensUpdated={onTokensUpdated}
+    />
+  )
+  const correction = isOov ? (
+    (offerCorrection || missingGloss.length > 0) && (
+      <ReadingCorrectionForm
+        key="correction"
+        targets={targets}
+        documentId={documentId}
+        onTokensUpdated={onTokensUpdated}
+      />
+    )
+  ) : (
+    <AlternateReadingSearch
+      key="correction"
+      targets={targets}
+      documentId={documentId}
+      onTokensUpdated={onTokensUpdated}
+    />
+  )
+  const ignoreGloss = missingGloss.length > 0 && (
+    <IgnoreGlossButton
+      key="ignore-gloss"
+      targets={missingGloss}
+      documentId={documentId}
+      onTokensUpdated={onTokensUpdated}
+    />
+  )
+  const hasUrgent = readingUrgent || correctionUrgent
 
   return (
     <>
-      {source && (
-        <ReadingOptions
-          token={source}
-          targets={targets}
-          documentId={documentId}
-          onTokensUpdated={onTokensUpdated}
-        />
+      {hasUrgent && (
+        <>
+          {readingUrgent && (
+            <div className="conflict-title">
+              {REVIEW_REASON_LABELS[focus.review_reason ?? ''] ??
+                'Needs review'}
+            </div>
+          )}
+          {scope}
+          {readingUrgent && readingOptions}
+          {correctionUrgent && correction}
+          {correctionUrgent && ignoreGloss}
+        </>
       )}
-      {isOov ? (
-        (offerCorrection || missingGloss.length > 0) && (
-          <ReadingCorrectionForm
-            targets={targets}
-            documentId={documentId}
-            onTokensUpdated={onTokensUpdated}
-          />
-        )
-      ) : (
-        <AlternateReadingSearch
-          targets={targets}
-          documentId={documentId}
-          onTokensUpdated={onTokensUpdated}
-        />
-      )}
-      {missingGloss.length > 0 && (
-        <IgnoreGlossButton
-          targets={missingGloss}
-          documentId={documentId}
-          onTokensUpdated={onTokensUpdated}
-        />
-      )}
+      <MoreOptions>
+        {!hasUrgent && scope}
+        {more}
+        {!readingUrgent && readingOptions && (
+          <div key="other-readings" className="phrase-suggestion">
+            <div className="conflict-note">Readings:</div>
+            {readingOptions}
+          </div>
+        )}
+        {!correctionUrgent && correction}
+        {!correctionUrgent && ignoreGloss}
+      </MoreOptions>
     </>
   )
 }
@@ -989,7 +1094,7 @@ function ConflictResolver({
         />
       )}
       {isInAcceptedPhrase(token) ? (
-        <>
+        <MoreOptions>
           <PhraseFuriganaOptions
             token={token}
             documentId={documentId}
@@ -1000,23 +1105,9 @@ function ConflictResolver({
             documentId={documentId}
             onTokensUpdated={onTokensUpdated}
           />
-        </>
+        </MoreOptions>
       ) : (
         <>
-          {isMerged(token) && (
-            <UnmergePhraseOption
-              token={token}
-              documentId={documentId}
-              onTokensUpdated={onTokensUpdated}
-            />
-          )}
-          {regroup && (
-            <RegroupOption
-              group={regroup}
-              documentId={documentId}
-              onTokensUpdated={onTokensUpdated}
-            />
-          )}
           {isOov && !token.gloss?.looked_up_as && (
             <>
               <div className="conflict-title">Not in dictionary</div>
@@ -1025,32 +1116,46 @@ function ConflictResolver({
               </div>
             </>
           )}
-          {hasReadingOptions(token) && (
-            <div className="conflict-title">
-              {REVIEW_REASON_LABELS[token.review_reason ?? ''] ??
-                'Needs review'}
-            </div>
-          )}
-          {instances.length > 1 && (
-            <ApplyToAllOption
-              count={instances.length}
-              surface={token.surface}
-              checked={applyToAll}
-              onChange={setApplyToAll}
-            />
-          )}
-          {wordPieces.map((piece) => (
-            <PieceWordPicker
-              key={piece}
-              piece={piece}
-              targets={targets}
-              documentId={documentId}
-              onTokensUpdated={onTokensUpdated}
-            />
-          ))}
           <TokenDecisions
             targets={targets}
             offerCorrection={false}
+            scope={
+              instances.length > 1 && (
+                <ApplyToAllOption
+                  count={instances.length}
+                  surface={token.surface}
+                  checked={applyToAll}
+                  onChange={setApplyToAll}
+                />
+              )
+            }
+            more={[
+              isMerged(token) && (
+                <UnmergePhraseOption
+                  key="unmerge"
+                  token={token}
+                  documentId={documentId}
+                  onTokensUpdated={onTokensUpdated}
+                />
+              ),
+              regroup && (
+                <RegroupOption
+                  key="regroup"
+                  group={regroup}
+                  documentId={documentId}
+                  onTokensUpdated={onTokensUpdated}
+                />
+              ),
+              ...wordPieces.map((piece) => (
+                <PieceWordPicker
+                  key={`piece-${piece}`}
+                  piece={piece}
+                  targets={targets}
+                  documentId={documentId}
+                  onTokensUpdated={onTokensUpdated}
+                />
+              )),
+            ]}
             documentId={documentId}
             onTokensUpdated={onTokensUpdated}
           />
@@ -1061,7 +1166,7 @@ function ConflictResolver({
 }
 
 // A token's dictionary form, part of speech, and gloss, as its popup and the
-// selection panel show them, with `pieceControls` under each piece of a
+// selection panel show them, with `pieceControls` in the corner of each piece of a
 // gloss shown as its parts.
 function GlossDetails({
   token,
@@ -1128,6 +1233,7 @@ function GlossDetails({
           </div>
           {gloss.pieces.map((piece, i) => (
             <div key={i} className="gloss-piece">
+              {pieceControls?.(i)}
               <div className="gloss-popup-reading">
                 {piece.surface}
                 {piece.reading !== piece.surface && `「${piece.reading}」`}
@@ -1147,7 +1253,6 @@ function GlossDetails({
                   below for the whole word if this one is wrong.
                 </div>
               )}
-              {pieceControls?.(i)}
             </div>
           ))}
         </div>
@@ -1249,6 +1354,13 @@ function GlossPopup({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      {ownWord && (
+        <StudyListControl
+          word={ownWord}
+          documentId={documentId}
+          onCardChanged={onCardChanged}
+        />
+      )}
       <GlossDetails
         token={token}
         pieceControls={(piece) => {
@@ -1264,13 +1376,6 @@ function GlossPopup({
           )
         }}
       />
-      {ownWord && (
-        <StudyListControl
-          word={ownWord}
-          documentId={documentId}
-          onCardChanged={onCardChanged}
-        />
-      )}
       {/* Always mounted: the reading search is offered for every non-OOV token. */}
       {!token.is_english && (
         <ConflictResolver
@@ -1379,17 +1484,19 @@ function SelectionPanel({
               anywhere else to finish.
             </div>
           )}
-          {instances.length > selected.length && (
-            <ApplyToAllOption
-              count={instances.length}
-              surface={selected[0].surface}
-              checked={applyToAll}
-              onChange={setApplyToAll}
-            />
-          )}
           <TokenDecisions
             targets={targets}
             offerCorrection
+            scope={
+              instances.length > selected.length && (
+                <ApplyToAllOption
+                  count={instances.length}
+                  surface={selected[0].surface}
+                  checked={applyToAll}
+                  onChange={setApplyToAll}
+                />
+              )
+            }
             documentId={documentId}
             onTokensUpdated={onTokensUpdated}
           />
@@ -1771,24 +1878,9 @@ const TokenizedText = memo(function TokenizedText({
           const showPopup = isActive && interactive && selected.length === 0
 
           // Two independent signals, deliberately not the same underline:
-          // - needs-correction (red): no dictionary entry under the current
-          //   reading at all — a manual correction could fix it. Not tied to
-          //   needs_review, since Sudachi's own heteronym check doesn't catch
-          //   this case (e.g. 三股 as みまた never got flagged, but still has
-          //   no JMDict hit). A composite gloss (勝利の女神 -> 勝利/の/女神) means
-          //   real content WAS found, just as parts, so it's excluded here.
-          // - needs-review (blue): Sudachi surfaced real alternative readings
-          //   and the user hasn't picked one yet. Excludes plain 'oov' tokens,
-          //   which have needs_review set but no actual alternatives to
-          //   review — those are a needs-correction case instead. Also covers
-          //   a composite piece with its own unresolved reading ambiguity
-          //   (e.g. 女神 within 勝利の女神) — same "hasn't been reviewed yet"
-          //   signal, just without a picker behind it yet.
-          const needsCorrection =
-            interactive && hasMissingGloss(token) && !token.gloss_ignored
-          const needsReadingReview =
-            (hasReadingOptions(token) && token.needs_review) ||
-            hasAmbiguousCompositePiece(token)
+          // needs-correction (red) and needs-review (blue). A composite gloss
+          // (勝利の女神 -> 勝利/の/女神) means real content WAS found, just as
+          // parts, so it's no needs-correction case.
 
           // An accepted phrase is underlined as one run (see .phrase-merged).
           // Predicate groups are too common to underline, so they're only
@@ -1806,8 +1898,8 @@ const TokenizedText = memo(function TokenizedText({
               token.phrase_start_position
 
           const classNames = ['token']
-          if (needsReadingReview) classNames.push('needs-review')
-          if (needsCorrection) classNames.push('needs-correction')
+          if (needsReadingReview(token)) classNames.push('needs-review')
+          if (needsCorrection(token)) classNames.push('needs-correction')
           if (interactive) classNames.push('has-gloss')
           if (isPinned) classNames.push('pinned')
           if (lineOf[index] === playingLine) classNames.push('playing')

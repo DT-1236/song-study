@@ -1055,12 +1055,86 @@ label.apply-to-all {
   margin-top: 0.4rem;
 }
 
+/* The study-list icon floats in the top-right corner of the gloss it belongs
+   to (the popup, or one of its pieces), inside its edge. Text wraps around it
+   instead of running under it, and the negative margins tuck it into the
+   popup's padding so it adds no height. */
 .study-list {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
+  position: relative;
+  float: right;
+  margin: 0 -0.5rem 0 0.4rem;
+}
+
+.gloss-popup > .study-list {
+  margin-top: -0.35rem;
+  margin-bottom: 0.1rem;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.study-list .study-list-icon {
+  margin-top: 0;
+  padding: 0.15rem;
+}
+
+.study-list-icon {
+  display: inline-flex;
+  border: none;
+  border-radius: 4px;
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.study-list-icon svg {
+  opacity: 0.55;
+}
+
+.study-list-icon:hover:not(:disabled),
+.study-list-icon:focus-visible {
+  color: var(--accent);
+}
+
+.study-list-icon:hover:not(:disabled) svg,
+.study-list-icon:focus-visible svg,
+.study-list-icon.studied svg {
+  opacity: 1;
+}
+
+.study-list-icon.studied {
+  color: var(--success);
+}
+
+.study-list-icon:disabled {
+  opacity: 0.4;
+}
+
+.study-list-error {
+  position: absolute;
+  color: var(--danger);
+  top: 100%;
+  right: 0;
+  width: 10rem;
+  margin: 0;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  background-color: var(--bg-elevated);
+  text-align: right;
+}
+
+/* Everything on a token that no underline calls for. */
+.more-options {
   margin-top: 0.4rem;
+}
+
+.more-options > summary {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  cursor: pointer;
+  user-select: none;
+}
+
+.more-options > summary:hover {
+  color: var(--text);
 }
 
 .phrase-suggestion {
@@ -1121,6 +1195,8 @@ label.apply-to-all {
 }
 
 .gloss-popup {
+  /* Holds the study-list icon's float inside it. */
+  display: flow-root;
   position: absolute;
   top: 100%;
   left: 50%;
@@ -1207,6 +1283,7 @@ label.apply-to-all {
 }
 
 .gloss-piece {
+  display: flow-root;
   margin-bottom: 0.5rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--border);
