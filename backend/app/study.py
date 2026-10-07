@@ -131,17 +131,23 @@ def _locked_card(conn, user_id: int, card_id: int):
     return row
 
 
+# study_cards' scheduling columns, which study_reviews repeats as prev_* and
+# next_*. Each is also the name of the py-fsrs Card attribute that holds it.
+SCHEDULE_COLUMNS = ("state", "step", "stability", "difficulty", "due", "last_review")
+
+
+def _schedule_sql(template: str) -> str:
+    """The comma-separated `template` for each scheduling column, with `{0}`
+    standing for the column's name."""
+    return ", ".join(template.format(column) for column in SCHEDULE_COLUMNS)
+
+
 def _schedule_params(card: Card, prefix: str = "") -> dict:
     """py-fsrs's `card` as bind parameters named for study_cards' scheduling
     columns, each name led by `prefix`."""
-    return {
-        f"{prefix}state": card.state.value,
-        f"{prefix}step": card.step,
-        f"{prefix}stability": card.stability,
-        f"{prefix}difficulty": card.difficulty,
-        f"{prefix}due": card.due,
-        f"{prefix}last_review": card.last_review,
-    }
+    params = {column: getattr(card, column) for column in SCHEDULE_COLUMNS}
+    params["state"] = card.state.value
+    return {f"{prefix}{column}": value for column, value in params.items()}
 
 
 def _store_schedule(conn, card: Card):
@@ -150,8 +156,7 @@ def _store_schedule(conn, card: Card):
         text(
             f"""
             UPDATE study_cards
-            SET state = :state, step = :step, stability = :stability,
-                difficulty = :difficulty, due = :due, last_review = :last_review
+            SET {_schedule_sql("{0} = :{0}")}
             WHERE id = :id
             RETURNING {CARD_COLUMNS}
             """
@@ -194,16 +199,16 @@ def review_card(
 
     review_id = conn.execute(
         text(
-            """
+            f"""
             INSERT INTO study_reviews (
                 card_id, document_id, reviewed_at, correct, duration_ms, fast_ms, slow_ms, rating,
-                prev_state, prev_step, prev_stability, prev_difficulty, prev_due, prev_last_review,
-                next_state, next_step, next_stability, next_difficulty, next_due, next_last_review
+                {_schedule_sql("prev_{0}")},
+                {_schedule_sql("next_{0}")}
             )
             VALUES (
                 :card_id, :document_id, :reviewed_at, :correct, :duration_ms, :fast_ms, :slow_ms, :rating,
-                :prev_state, :prev_step, :prev_stability, :prev_difficulty, :prev_due, :prev_last_review,
-                :next_state, :next_step, :next_stability, :next_difficulty, :next_due, :next_last_review
+                {_schedule_sql(":prev_{0}")},
+                {_schedule_sql(":next_{0}")}
             )
             RETURNING id
             """
@@ -295,16 +300,13 @@ def _undo_review(conn, card_id: int, review_id: int) -> None:
     # nor has one logged before 0031, with no prior schedule to go back to.
     before = conn.execute(
         text(
-            """
+            f"""
             DELETE FROM study_reviews r
             USING study_cards c
             WHERE r.id = :review_id AND r.card_id = :card_id AND c.id = r.card_id
-              AND (c.state, c.step, c.stability, c.difficulty, c.due, c.last_review)
-                  IS NOT DISTINCT FROM (r.next_state, r.next_step, r.next_stability,
-                                        r.next_difficulty, r.next_due, r.next_last_review)
-            RETURNING r.card_id AS id, r.prev_state AS state, r.prev_step AS step,
-                      r.prev_stability AS stability, r.prev_difficulty AS difficulty,
-                      r.prev_due AS due, r.prev_last_review AS last_review
+              AND ({_schedule_sql("c.{0}")})
+                  IS NOT DISTINCT FROM ({_schedule_sql("r.next_{0}")})
+            RETURNING r.card_id AS id, {_schedule_sql("r.prev_{0} AS {0}")}
             """
         ),
         params,

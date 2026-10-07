@@ -20,17 +20,17 @@ from sqlalchemy import text
 
 from app.conflicts import NON_READING_KINDS, TokenNotFound
 from app.glosses import (
-    KATAKANA_PICKS_SQL,
+    KATAKANA_GLOSS_COLUMNS,
     GlossKey,
     gloss_entries,
     is_word_piece,
     own_gloss_key,
+    picked_katakana_gloss,
     piece_lookups,
     piece_pos_major,
     plan_glosses,
     shown_spellings,
     store_glosses,
-    with_picked_words,
 )
 from app.grammar import has_grammar_note, is_grammar_word
 
@@ -164,17 +164,16 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
                    pc.value AS accepted_phrase,
                    -- A group's members share the group's gloss, which is never
                    -- a katakana one, so only a token on its own has one.
-                   CASE WHEN g.entries ? 'looked_up_as' THEN g.entries END AS katakana_gloss,
-                   {KATAKANA_PICKS_SQL} AS katakana_picks,
+                   {KATAKANA_GLOSS_COLUMNS},
                    CASE WHEN t.phrase_start_position IS NOT NULL
-                       THEN jsonb_array_length(g.entries -> 'pieces') END AS group_piece_count
+                       THEN jsonb_array_length(gl.entries -> 'pieces') END AS group_piece_count
             FROM tokens t
             -- A token has at most one selected conflict, so neither join
             -- repeats it. A phrase's value has a reading too, so only reading
             -- kinds count as a selected reading.
             LEFT JOIN conflicts rc ON rc.token_id = t.id AND rc.selected AND rc.kind <> ALL(:non_reading_kinds)
             LEFT JOIN conflicts pc ON pc.token_id = t.id AND pc.selected AND pc.kind = 'phrase'
-            LEFT JOIN gloss_lookups g ON g.id = t.gloss_lookup_id AND g.source = 'composite'
+            LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id AND gl.source = 'composite'
             WHERE t.document_id = ANY(:document_ids)
                 AND (:token_id IS NULL OR t.id = :token_id OR t.phrase_start_position = (
                     SELECT s.phrase_start_position FROM tokens s
@@ -290,18 +289,14 @@ def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
     return CardTokens(*word, [head], correction="reading") if word else None
 
 
-def katakana_gloss(row) -> dict:
-    """The gloss of token `row` (see _token_rows), sung in katakana, with the
-    words the user picked for its pieces."""
-    return with_picked_words(row.katakana_gloss, row.katakana_picks)
-
-
 def katakana_lookups(conn, units: Iterable[list]) -> dict[GlossKey, tuple]:
     """The lookups the pieces of the katakana tokens in `units` (see _units)
     are glossed from, and those of the cards of the words picked for them,
     as unit_card_tokens takes them. One that isn't cached is looked up and
     cached first."""
-    glosses = [katakana_gloss(unit[0]) for unit in units if unit[0].katakana_gloss]
+    glosses = [
+        picked_katakana_gloss(unit[0]) for unit in units if unit[0].katakana_gloss
+    ]
     lookups = piece_lookups(conn, glosses)
     # A picked word's card key is spelled as its entry is, which only the
     # piece's own lookup says.
@@ -347,7 +342,7 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
     one the user picked for its piece, or else the one its gloss writes it
     as, so アイタイ's あう is 会う, which the gloss guesses from the sense it
     shows first."""
-    gloss = katakana_gloss(row)
+    gloss = picked_katakana_gloss(row)
     # Worked out here rather than stored, as on the page, so a change to how
     # a gloss ranks or spells its pieces reaches every card key.
     spellings = shown_spellings(gloss, lookups)

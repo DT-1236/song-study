@@ -41,12 +41,13 @@ from app.conflicts import (
 )
 from app.db import DOCUMENT_COLUMNS, engine, json_param, owned_document_row
 from app.glosses import (
-    KATAKANA_PICKS_SQL,
+    KATAKANA_GLOSS_COLUMNS,
     GlossKey,
     GlossPlan,
     gloss_key,
     is_glossable,
     is_probably_english,
+    picked_katakana_gloss,
     piece_lookups,
     plan_glosses,
     predicate_group_request,
@@ -54,7 +55,6 @@ from app.glosses import (
     search_jmdict,
     shown_pieces,
     store_glosses,
-    with_picked_words,
 )
 from app.grammar import find_predicate_groups
 from app.kanji import MAX_DECK_WORDS, CardKanji, KanjiEntry
@@ -796,7 +796,7 @@ def _read_tokens(
                    END AS group_kind,
                    gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source,
                    gl.lookup_form AS gloss_lookup_form,
-                   {KATAKANA_PICKS_SQL} AS katakana_picks
+                   {KATAKANA_GLOSS_COLUMNS}
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
             WHERE t.document_id = :document_id {token_filter}
@@ -829,7 +829,7 @@ def _read_tokens(
     # Each composite gloss as its token shows it: a katakana token's with the
     # words picked for its pieces.
     composites = {
-        row.id: with_picked_words(row.gloss_entries, row.katakana_picks)
+        row.id: picked_katakana_gloss(row) if row.katakana_gloss else row.gloss_entries
         for row in rows
         if row.gloss_source == "composite"
     }
@@ -848,6 +848,7 @@ def _read_tokens(
         gloss_lookup_form = data.pop("gloss_lookup_form")
         # Already applied to the gloss, in composites.
         data.pop("katakana_picks")
+        data.pop("katakana_gloss")
         conflicts = conflicts_by_token.get(row.id, [])
         if gloss_reading is None:
             data["gloss"] = None

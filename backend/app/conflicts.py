@@ -15,15 +15,18 @@ from sqlalchemy import text
 
 from app.db import json_param
 from app.glosses import (
-    KATAKANA_PICKS_SQL,
+    KATAKANA_GLOSS_COLUMNS,
+    KATAKANA_GLOSS_SQL,
     GlossKey,
     GroupGlossRequest,
     GroupPart,
     alternate_reading_options,
     attach_glosses,
     get_or_create_gloss_lookup,
+    gloss_entries,
     is_word_piece,
     own_gloss_key,
+    picked_katakana_gloss,
     piece_current_idseq,
     plan_glosses,
     predicate_group_request,
@@ -1114,10 +1117,6 @@ class WordNotOffered(Exception):
     pass
 
 
-# A gloss_lookups row (as gl) that's the gloss of a token sung in katakana.
-_KATAKANA_GLOSS_SQL = "gl.source = 'composite' AND gl.entries ? 'looked_up_as'"
-
-
 def pick_piece_word(
     conn, document_id: int, token_ids: list[int], piece: int, idseq: int
 ) -> None:
@@ -1165,10 +1164,9 @@ def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> lis
     row = conn.execute(
         text(
             f"""
-            SELECT gl.entries AS composite, {KATAKANA_PICKS_SQL} AS picks
+            SELECT {KATAKANA_GLOSS_COLUMNS}
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
-                AND {_KATAKANA_GLOSS_SQL}
             WHERE t.id = :token_id AND t.document_id = :document_id
             """
         ),
@@ -1176,13 +1174,23 @@ def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> lis
     ).one_or_none()
     if row is None:
         raise TokenNotFound()
-    if row.composite is None:
+    if row.katakana_gloss is None:
         raise WordNotOffered()
-    reading = _shared_reading([row.composite], piece)
-    current = piece_current_idseq(conn, row.composite, row.picks, piece)
+    reading = _shared_reading([row.katakana_gloss], piece)
+    # The piece's own lookup and its reading's are the same key for a piece
+    # that is picked, so one call fetches both.
+    shown = picked_katakana_gloss(row)["pieces"][piece]
+    reading_key = (reading, reading)
+    lookups = gloss_entries(
+        conn,
+        [(tuple(shown["key"]), shown["alt_lookup_form"]), (reading_key, None)],
+    )
+    current = piece_current_idseq(
+        conn, row.katakana_gloss, row.katakana_picks, piece, lookups
+    )
     return [
         {**option, "current": option["idseq"] == current}
-        for option in word_options(conn, reading)
+        for option in word_options(conn, reading, lookups[reading_key])
     ]
 
 
@@ -1198,7 +1206,7 @@ def _piece_reading(conn, token_ids: list[int], piece: int) -> str:
                 f"""
                 SELECT gl.entries FROM tokens t
                 JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
-                    AND {_KATAKANA_GLOSS_SQL}
+                    AND {KATAKANA_GLOSS_SQL}
                 WHERE t.id = ANY(:token_ids)
                 """
             ),
