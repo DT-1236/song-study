@@ -165,7 +165,7 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
             WHERE t.document_id = ANY(:document_ids)
                 AND (:token_id IS NULL OR t.id = :token_id OR t.phrase_start_position = (
                     SELECT s.phrase_start_position FROM tokens s
-                    WHERE s.id = :token_id AND s.document_id = t.document_id
+                    WHERE s.id = :token_id AND s.document_id = ANY(:document_ids)
                 ))
             ORDER BY t.document_id, t.position
             """

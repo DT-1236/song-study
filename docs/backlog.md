@@ -22,12 +22,6 @@ so it can be picked up without re-deriving the reasoning.
   schedule when it's the card's latest. Model: Opus 5, high effort — a migration plus FSRS state
   restored exactly, where a mistake corrupts scheduling silently.
 
-## `/simplify` on PR #75 (backlog sweep: low- and medium-effort items)
-
-- In `cards._token_rows`, tie the `token_id` group subquery to `ANY(:document_ids)` rather than
-  `t.document_id`, so Postgres runs it once rather than per grouped token. Model: Haiku 4.5, low
-  effort.
-
 ## `/code-review` on PR #75 (backlog sweep: low- and medium-effort items)
 
 - Count the song's new cards today after taking its lock in `study.song_queue`
