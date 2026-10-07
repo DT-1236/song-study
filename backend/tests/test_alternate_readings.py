@@ -22,8 +22,9 @@ def test_finds_a_reading_a_heteronym_flag_would_miss(committed_engine):
 
     options = get_alternate_readings(document_id, period_token.id)
 
-    assert {o["reading"] for o in options} == {"ご"}
-    assert options[0]["citation_reading"] == "ご"
+    # The default is offered too, so a hand-picked reading can be undone.
+    assert [o["reading"] for o in options] == ["き", "ご"]
+    assert options[1]["citation_reading"] == "ご"
 
 
 def test_404s_for_a_token_id_outside_the_document(committed_engine):

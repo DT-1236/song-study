@@ -1116,8 +1116,8 @@ def unmerge_phrase_tokens(
 def get_alternate_readings(
     document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[dict]:
-    """Every other reading JMDict has for token_id's dictionary form, plus the
-    token's own reading options, as options to apply through /tokens/reading."""
+    """The default reading of token_id's dictionary form and every other one
+    JMDict has for it, plus the token's own reading options, as options to apply through /tokens/reading."""
     with engine.connect() as conn:
         row = conn.execute(
             text(

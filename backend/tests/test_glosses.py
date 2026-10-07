@@ -205,11 +205,11 @@ class TestSearchReadings:
 
 
 class TestAlternateReadingOptions:
-    def test_excludes_the_occurrences_own_reading(self):
+    def test_lists_the_default_reading_once_before_the_others(self):
         options = alternate_reading_options("期", "キ", "期", "期")
-        assert [o["reading"] for o in options] == ["ご"]
-        assert options[0]["citation_reading"] == "ご"
-        assert options[0]["furigana_spans"] == [
+        assert [o["reading"] for o in options] == ["き", "ご"]
+        assert options[1]["citation_reading"] == "ご"
+        assert options[1]["furigana_spans"] == [
             {"start": 0, "end": 1, "text": "期", "reading": "ご"}
         ]
 
@@ -217,12 +217,13 @@ class TestAlternateReadingOptions:
         # 開い is read ひらい here; JMDict's other reading of 開く, あく, has
         # to come back as it reads on 開い: あい.
         options = alternate_reading_options("開い", "ヒライ", "開く", "開く")
-        assert {o["reading"] for o in options} == {"あい"}
+        assert {o["reading"] for o in options} == {"ひらい", "あい"}
         matched = next(o for o in options if o["reading"] == "あい")
         assert matched["citation_reading"] == "あく"
 
-    def test_empty_for_a_word_with_no_alternate_reading(self):
-        assert alternate_reading_options("受け", "ウケ", "受ける", "受ける") == []
+    def test_only_the_default_for_a_word_with_no_alternate_reading(self):
+        options = alternate_reading_options("受け", "ウケ", "受ける", "受ける")
+        assert [o["reading"] for o in options] == ["うけ"]
 
 
 class TestGetOrCreateGlossLookup:

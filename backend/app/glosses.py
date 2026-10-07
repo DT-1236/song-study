@@ -483,14 +483,17 @@ def alternate_reading_options(
     dictionary_form: str,
     normalized_form: str,
 ) -> list[dict]:
-    """Every other reading JMDict has for `dictionary_form`, as reading
-    options for an occurrence of it on `surface`, which can be inflected."""
+    """The default reading of `dictionary_form` followed by every other
+    reading JMDict has for it, as reading options for an occurrence of it on
+    `surface`, which can be inflected. The default is included so a reading
+    picked by hand can be undone."""
     dict_form_citation = citation_reading(dictionary_form)
     conjugation_type = conjugation_type_of(normalized_form)
+    default_citation = to_katakana(headword_reading(normalized_form, dictionary_form))
 
     options = []
-    for alt_citation in search_readings(dictionary_form):
-        if alt_citation == dict_form_citation:
+    for alt_citation in [default_citation, *search_readings(dictionary_form)]:
+        if to_hiragana(alt_citation) in (o["citation_reading"] for o in options):
             continue
         alt_surface_reading = project_citation_reading(
             alt_citation, reading_katakana, dict_form_citation, conjugation_type

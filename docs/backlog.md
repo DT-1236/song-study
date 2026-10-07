@@ -13,13 +13,6 @@ so it can be picked up without re-deriving the reasoning.
   let `PUT …/tokens/{tid}/card` name the grammar term, and render the control in each
   note-bearing piece of `GlossDetails`. Model: Sonnet 5, medium effort — the pattern exists for
   katakana pieces, but mapping a group's tokens to its gloss pieces needs working out.
-- Offer the default reading in a card's "Wrong reading" panel for tokens with no `conflicts` rows.
-  `get_alternate_readings` (`backend/app/main.py`) adds only a token's own `conflicts` options, which
-  exist just for heteronym- or kana-anchor-flagged tokens, so any other token whose reading was
-  picked by hand still can't be corrected back to the default. Also return the default option
-  (`citation_key`'s reading, projected onto the surface as `alternate_reading_options` does), deduped
-  by citation reading as the conflicts options are, and add a test against `song_study_test`.
-  Model: Sonnet 5, low effort — the projection helper already exists; only the dedupe needs care.
 
 ## `/simplify` on PR #74 (flashcards step 9)
 
