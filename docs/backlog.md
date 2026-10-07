@@ -12,7 +12,3 @@ so it can be picked up without re-deriving the reasoning.
   here (e.g. `lrclib.py`) returns dataclasses converted in `main.py`, so it
   would be a repo-wide convention change. Opus 5, low: the choice is the
   hard part.
-- `formatDuration` in `frontend/src/SongSearch.tsx` duplicates the m:ss logic
-  of `formatTimestamp` in `frontend/src/timing.ts`. Sharing it means splitting
-  that function and covering the whole-second case in `timing.test.ts`.
-  Haiku 4.5, low: one obvious answer.

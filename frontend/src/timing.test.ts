@@ -7,6 +7,7 @@ import {
   nudgedStart,
   overlapFor,
   timingsFromStarts,
+  formatDuration,
   formatTimestamp,
 } from './timing'
 
@@ -103,6 +104,15 @@ describe('timingsFromStarts', () => {
 
   it('gives a last line starting past the song end no length', () => {
     expect(timingsFromStarts([1, 30], 20)[1]).toEqual({ start: 30, end: 30 })
+  })
+})
+
+describe('formatDuration', () => {
+  it('writes m:ss with whole seconds', () => {
+    expect(formatDuration(0)).toBe('0:00')
+    expect(formatDuration(60)).toBe('1:00')
+    expect(formatDuration(65)).toBe('1:05')
+    expect(formatDuration(125.7)).toBe('2:05')
   })
 })
 
