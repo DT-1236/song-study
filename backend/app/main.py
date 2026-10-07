@@ -1203,6 +1203,8 @@ def set_tokens_ignored(
 
 
 class WordOption(BaseModel):
+    # Its JMDict entry, which picks it.
+    idseq: int
     spelling: str
     # The glosses of its first sense.
     gloss: list[str]
@@ -1226,7 +1228,8 @@ def get_piece_words(
 
 class PieceWordPick(TokenIds):
     piece: int = Field(ge=0)
-    spelling: str = Field(min_length=1)
+    # The word's JMDict entry, as a WordOption names it.
+    idseq: int
 
 
 @api.post("/documents/{document_id}/tokens/piece-word", response_model=list[Token])
@@ -1236,7 +1239,7 @@ def pick_piece_word_endpoint(
     """Pick a word for a piece of the tokens' gloss, as pick_piece_word
     does. Returns the tokens."""
     with engine.begin() as conn:
-        pick_piece_word(conn, document_id, body.token_ids, body.piece, body.spelling)
+        pick_piece_word(conn, document_id, body.token_ids, body.piece, body.idseq)
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
 
 
@@ -1410,7 +1413,8 @@ class CardWordCorrection(BaseModel):
     document_id: int
     token_id: int
     piece: int = Field(ge=0)
-    spelling: str = Field(min_length=1)
+    # The word's JMDict entry, as a WordOption names it.
+    idseq: int
 
 
 class CardCorrection(BaseModel):
@@ -1470,7 +1474,7 @@ def correct_card_word(
         body.token_id,
         body.piece,
         lambda conn: pick_piece_word(
-            conn, body.document_id, [body.token_id], body.piece, body.spelling
+            conn, body.document_id, [body.token_id], body.piece, body.idseq
         ),
     )
 

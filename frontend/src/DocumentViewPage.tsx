@@ -642,18 +642,20 @@ function PieceWordPicker({
           documentId,
           targets.map((t) => t.id),
           piece,
-          option.spelling,
+          option.idseq,
         )
       }
       onTokensUpdated={onTokensUpdated}
-      optionKey={(option) => option.spelling}
+      optionKey={(option) => String(option.idseq)}
       renderOption={(option) => (
         <>
           {option.spelling}
           {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
         </>
       )}
-      isSelected={(option) => option.spelling === shown.surface}
+      // The word shown is the entry its first sense comes from, which two
+      // words written alike tell apart.
+      isSelected={(option) => option.idseq === shown.senses[0]?.entry_idseq}
       // Re-picking the selected word only does anything when it also brings
       // the other targets in line.
       canRepick={targets.length > 1}
