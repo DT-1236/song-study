@@ -1055,6 +1055,14 @@ label.apply-to-all {
   margin-top: 0.4rem;
 }
 
+.study-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.4rem;
+}
+
 .phrase-suggestion {
   display: flex;
   flex-direction: column;
@@ -1575,4 +1583,8 @@ label.apply-to-all {
 .run-recall {
   font-size: 0.8em;
   opacity: 0.7;
+}
+
+.study-notice {
+  color: var(--text-muted);
 }

@@ -1,5 +1,5 @@
 import type { QueuedCard } from './api'
-import { codePointSlice, optionText } from './cardText'
+import { codePointSlice, optionText, wordLabel } from './cardText'
 import { SenseList } from './SenseList'
 
 // The card's line, dimmed except its target until the reveal brightens it.
@@ -105,8 +105,7 @@ export function StudyCardView({
           {card.kind === 'recognition' ? (
             <>
               <div className="study-word">
-                {card.lookup_form}
-                {card.reading && `（${card.reading}）`}
+                {wordLabel(card.lookup_form, card.reading)}
               </div>
               <SenseList senses={card.senses} />
             </>

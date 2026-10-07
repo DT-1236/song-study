@@ -8,6 +8,7 @@ FSRS's four ratings") and which cards a session is made of.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal
@@ -25,13 +26,17 @@ from app.card_content import (
 from app.cards import (
     CARD_COLUMNS,
     CARD_KEYS_JOIN_SQL,
+    CardKey,
     CardKind,
+    NotStudyable,
     SongWords,
+    add_card,
     card_keys_param,
     is_mature,
     song_card_keys,
     song_words,
     songs_words,
+    token_word,
     units_by_document,
 )
 from app.users import document_is_owned
@@ -111,8 +116,8 @@ def _locked_card(conn, user_id: int, card_id: int):
     row = conn.execute(
         text(
             """
-            SELECT c.id, c.kind, c.state, c.step, c.stability, c.difficulty, c.due,
-                   c.last_review, c.suspended, u.desired_retention
+            SELECT c.id, c.kind, c.lookup_form, c.reading, c.state, c.step, c.stability,
+                   c.difficulty, c.due, c.last_review, c.suspended, u.desired_retention
             FROM study_cards c
             JOIN users u ON u.id = c.user_id
             WHERE c.id = :card_id AND c.user_id = :user_id
@@ -252,6 +257,65 @@ def suspend_card(conn, user_id: int, card_id: int):
     if row is None:
         raise CardNotFound()
     return row
+
+
+class NotCorrectable(Exception):
+    pass
+
+
+def correct_card(
+    conn,
+    user_id: int,
+    card_id: int,
+    document_id: int,
+    token_id: int,
+    piece: int | None,
+    correct: Callable[[object], object],
+) -> tuple[object | None, bool]:
+    """Apply `correct(conn)`, a change to which word `token_id` of the
+    document is (or `piece` of it, for a token sung in katakana; see
+    cards.token_word), made while it was the line of the user's card
+    `card_id`. The token then belongs to the card for the word it is now,
+    which is created, or restored, if need be. The old card is deleted if it
+    has no reviews, since nothing was learned on it; with reviews, it stays.
+
+    Returns the token's card now (CARD_COLUMNS), None if its word has no
+    dictionary entry to study, and whether the old card was kept.
+
+    Raises CardNotFound if the card isn't the user's, DocumentNotFound if
+    the document isn't, NotCorrectable if the token's word doesn't take this
+    correction (see cards.CardTokens), and as cards.token_word does if the
+    token isn't part of a word."""
+    row = _locked_card(conn, user_id, card_id)
+    if not document_is_owned(conn, document_id, user_id):
+        raise DocumentNotFound()
+    old = CardKey(row.kind, row.lookup_form, row.reading)
+    before = token_word(conn, document_id, token_id, piece)
+    if before.correction != ("reading" if piece is None else "word"):
+        raise NotCorrectable()
+    correct(conn)
+    try:
+        word = token_word(conn, document_id, token_id, piece)
+        card = add_card(conn, user_id, document_id, word)
+    except NotStudyable:
+        word = card = None
+
+    # Only the card the token belonged to, in case another change got there
+    # first.
+    if before.key != old or (word is not None and word.key == old):
+        return card, True
+    deleted = conn.execute(
+        text(
+            """
+            DELETE FROM study_cards c
+            WHERE c.id = :card_id
+              AND NOT EXISTS (SELECT 1 FROM study_reviews r WHERE r.card_id = c.id)
+            RETURNING c.id
+            """
+        ),
+        {"card_id": card_id},
+    ).one_or_none()
+    return card, deleted is None
 
 
 def _due_cards(conn, user_id: int, keys=None) -> list:

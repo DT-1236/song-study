@@ -15,6 +15,7 @@ import re
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from typing import Literal
 
 from sqlalchemy import text
 
@@ -90,6 +91,11 @@ class Line:
     # For a word or grammar term sung in katakana, its dictionary form as its
     # gloss writes it (声 for コエ); None for one that isn't.
     written_as: str | None
+    # How the card's word can be corrected from here, if it can (see
+    # cards.CardTokens), and for a "word" correction, which piece of the
+    # token's gloss it is.
+    correction: Literal["reading", "word"] | None
+    piece: int | None
 
 
 @dataclass(frozen=True)
@@ -216,6 +222,8 @@ class _Occurrence:
             on_line(self.unit[0], self.unit[-1]),
             _audio(self.song, index),
             self.found.written_as,
+            self.found.correction,
+            self.found.piece if self.found.correction == "word" else None,
         )
 
 

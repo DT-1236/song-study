@@ -20,10 +20,12 @@ from app.glosses import (
     GroupPart,
     attach_glosses,
     get_or_create_gloss_lookup,
+    is_word_piece,
     own_gloss_key,
     plan_glosses,
     predicate_group_request,
     store_glosses,
+    word_options,
 )
 from app.tokenization import (
     TokenRecord,
@@ -1103,6 +1105,101 @@ def select_reading(
     )
     affected.update(_regloss_groups(conn, document_id, list(group_starts)))
     return list(affected)
+
+
+class WordNotOffered(Exception):
+    pass
+
+
+def pick_piece_word(
+    conn, document_id: int, token_ids: list[int], piece: int, spelling: str
+) -> None:
+    """Make `spelling` the word that piece `piece` of the gloss of each of
+    the document's tokens in `token_ids`, sung in katakana, is: one of the
+    words JMDict has with the piece's reading (see word_options), in place
+    of the one the gloss guessed (合う for the アイ of アイタイ, rather than
+    会う). The tokens must be ones lock_token_group accepts together.
+
+    Raises WordNotOffered if a token isn't sung in katakana, `piece` isn't
+    one of its words, or `spelling` isn't a word with the piece's reading."""
+    lock_token_group(conn, document_id, token_ids)
+    reading = _piece_reading(conn, token_ids, piece)
+    if spelling not in {option["spelling"] for option in word_options(conn, reading)}:
+        raise WordNotOffered()
+
+    conn.execute(
+        text(
+            """
+            INSERT INTO katakana_picks (token_id, piece, reading, spelling)
+            SELECT id, :piece, :reading, :spelling FROM unnest(CAST(:token_ids AS int[])) AS id
+            ON CONFLICT (token_id, piece)
+                DO UPDATE SET reading = EXCLUDED.reading, spelling = EXCLUDED.spelling
+            """
+        ),
+        {
+            "token_ids": token_ids,
+            "piece": piece,
+            "reading": reading,
+            "spelling": spelling,
+        },
+    )
+
+
+def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> list[dict]:
+    """The words piece `piece` of the gloss of the document's token
+    `token_id`, sung in katakana, could be, as pick_piece_word takes them:
+    every word JMDict has with the piece's reading (see word_options).
+
+    Raises TokenNotFound if the document has no token `token_id`, and
+    WordNotOffered if it isn't sung in katakana or `piece` isn't one of its
+    words."""
+    found = conn.execute(
+        text(
+            "SELECT 1 FROM tokens WHERE id = :token_id AND document_id = :document_id"
+        ),
+        {"token_id": token_id, "document_id": document_id},
+    ).one_or_none()
+    if found is None:
+        raise TokenNotFound()
+    return word_options(conn, _piece_reading(conn, [token_id], piece))
+
+
+def _piece_reading(conn, token_ids: list[int], piece: int) -> str:
+    """The reading, as JMDict keys it, of piece `piece` of the gloss of each
+    of `token_ids`, tokens sung in katakana (あう for the アイ of アイタイ).
+
+    Raises WordNotOffered if a token isn't sung in katakana, `piece` isn't
+    one of its words, or they don't all read it the same."""
+    glosses = (
+        conn.execute(
+            text(
+                """
+                SELECT gl.entries FROM tokens t
+                JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
+                    AND gl.source = 'composite' AND gl.entries ? 'looked_up_as'
+                WHERE t.id = ANY(:token_ids)
+                """
+            ),
+            {"token_ids": token_ids},
+        )
+        .scalars()
+        .all()
+    )
+    # One missing isn't sung in katakana.
+    if len(glosses) != len(token_ids):
+        raise WordNotOffered()
+    readings = set()
+    for gloss in glosses:
+        pieces = gloss["pieces"]
+        if piece >= len(pieces) or not is_word_piece(pieces[piece]):
+            raise WordNotOffered()
+        readings.add(pieces[piece]["key"][1])
+    # Tokens spelled the same are glossed the same, unless one was given
+    # another reading.
+    if len(readings) != 1:
+        raise WordNotOffered()
+    [reading] = readings
+    return reading
 
 
 def correct_reading(

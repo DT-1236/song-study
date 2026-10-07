@@ -625,10 +625,15 @@ def _kanji_spelling(entries, senses) -> str | None:
         if senses
         else None
     )
-    forms = entry["kanji_forms"] if entry else []
+    return _usual_kanji_form(entry) if entry else None
+
+
+def _usual_kanji_form(entry: dict) -> str | None:
+    """How a JMDict entry is usually written with kanji, if it is at all: a
+    form it marks common, or else the one it lists first."""
+    forms = entry["kanji_forms"]
     if not forms:
         return None
-    # A form JMDict marks common, or else the one it lists first.
     return next((form["text"] for form in forms if form["pri"]), forms[0]["text"])
 
 
@@ -714,10 +719,76 @@ def _ranked_senses(
 
 def _spelling(composite: dict, piece: dict, entries, senses) -> str:
     """How `piece` of `composite` is written when shown."""
+    # A word picked for the piece is written as it was picked.
+    if piece.get("picked"):
+        return piece["surface"]
     # A katakana word's gloss is written as the words usually are (心の声),
     # not as the katakana spells them out (こころのこえ).
     spelling = "looked_up_as" in composite and _kanji_spelling(entries, senses)
     return spelling or piece["surface"]
+
+
+# A word picked for a piece of a katakana token: (piece index, the piece's
+# reading when it was picked, the word's spelling).
+KatakanaPick = tuple[int, str, str]
+
+# The picks of token `t` as KatakanaPick arrays, as with_picked_words takes
+# them; NULL for a token with none.
+KATAKANA_PICKS_SQL = """
+    (
+        SELECT jsonb_agg(jsonb_build_array(kp.piece, kp.reading, kp.spelling))
+        FROM katakana_picks kp WHERE kp.token_id = t.id
+    )
+"""
+
+
+def is_word_piece(piece: dict) -> bool:
+    """Whether a piece of a katakana token's gloss is a word, rather than
+    grammar: the pieces a card can be for, and a word picked."""
+    return piece["key"] is not None and piece["normalized_form"] is None
+
+
+def with_picked_words(composite: dict, picks: Iterable[KatakanaPick] | None) -> dict:
+    """`composite`, a katakana token's gloss, with each piece the user picked
+    a word for glossed as that word: spelled as picked, and looked up under
+    it. A pick for a piece that no longer has the reading it was picked for,
+    as after the gloss was built again, is left out."""
+    if not picks:
+        return composite
+    pieces = list(composite["pieces"])
+    for index, reading, spelling in picks:
+        if not (
+            index < len(pieces)
+            and is_word_piece(pieces[index])
+            and pieces[index]["key"][1] == reading
+        ):
+            continue
+        pieces[index] = {
+            **pieces[index],
+            "surface": spelling,
+            "key": [spelling, reading],
+            "alt_lookup_form": None,
+            "picked": True,
+        }
+    return {**composite, "pieces": pieces}
+
+
+def word_options(conn, reading: str) -> list[dict]:
+    """The words JMDict has that are read `reading` (hiragana), common ones
+    first, each as its usual spelling with the glosses of its first sense:
+    what a piece of katakana read that way could be."""
+    key = (reading, reading)
+    entries, source = gloss_entries(conn, [(key, None)])[key]
+    if source != "jmdict":
+        return []
+    options: dict[str, list[str]] = {}
+    for entry in entries:
+        # As a katakana word's piece is spelled, or in kana for a word with
+        # no kanji.
+        spelling = _usual_kanji_form(entry) or reading
+        first = next((s["gloss"] for s in entry["senses"] if s["gloss"]), [])
+        options.setdefault(spelling, first)
+    return [{"spelling": s, "gloss": gloss} for s, gloss in options.items()]
 
 
 def shown_spellings(

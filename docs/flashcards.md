@@ -1237,6 +1237,35 @@ JMDict entries with the piece's reading (合う for アイ). The pick is stored 
 piece, like a selected conflict, and becomes the piece's card key and `Line.written_as`.
 How the katakana splits into words still has no correction flow.
 
+*As built* (`cards.document_words` / `token_word`, `conflicts.pick_piece_word`, `study.correct_card`,
+migration 0027, `CardCorrectionPanel.tsx`) — what later steps build on:
+- `GET /documents/{id}/words` is every word of the song the user could add (as a hand-add takes
+  them), with the tokens it covers and their card for it, removed or not. The page loads it after
+  the tokens and again whenever they change. The popup shows one control per word: add, remove
+  (which suspends), or restore. A katakana token shows one under each word piece, added with
+  `PUT …/tokens/{tid}/card?piece=N`.
+- A katakana pick lives in `katakana_picks (token_id, piece, reading, spelling)`, not in
+  `conflicts`, since a token has one selected conflict at most. The words offered for a piece are
+  every JMDict entry with its reading, each spelled as a piece is (its common kanji form, else
+  kana). `with_picked_words` applies the picks wherever a katakana gloss is read, so the piece is
+  spelled and looked up as picked: its senses, card key and `written_as` all follow. A pick whose
+  piece reads otherwise after the gloss is rebuilt is ignored. The popup's "apply to all" covers
+  picks as it does readings.
+- A card corrects its line's token alone (`POST /cards/{id}/reading` and `/word`), since a
+  heteronym's reading belongs to one occurrence. The token's word then gets its card, created or
+  restored. The old card is deleted if the token belonged to it and it has no reviews. Which
+  correction a word takes is `CardTokens.correction`: `reading`, `word` (with its piece), or none,
+  for a grammar term or an accepted phrase, which a reading pick would split. A queued card's
+  `Line` carries it, and `correct_card` refuses any other.
+- The reading only shows on the reveal, so a session holds each answer until the card is left
+  (Next, push-out, remove, or leaving the page, sent with `keepalive`), and a correction drops it
+  unrated. Reviewed and accuracy count only answers sent; the summary's readiness waits for them.
+  `w` opens the correction panel, whose `1`–`9` pick and Esc cancels.
+- The popup's edge-nudge also re-runs when the popup resizes, since a piece's word options load
+  into it after it opens.
+- Checked in a headless browser against the test database: add, remove and restore; a piece pick;
+  and both corrections from a session. Not checked: playback.
+
 **Later, in rough order of value:** Type C production cards (opt-in, default off), which also
 brings the queue-ordering rule that a word's recognition and production cards don't appear back to
 back (§7), and a third card kind outside `MULTIPLE_CHOICE_KINDS` so Easy becomes reachable · typed
@@ -1271,7 +1300,7 @@ that has already failed at its recommended level, or for debugging something tha
 | 6 — Study UI | Done | Sonnet 5 | medium | A new page is conventional React against a specified layout |
 | 7 — Gloss rendering extraction | Done | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
 | 8 — Progress | Done | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
-| 9 — Correction and deck management | Not started | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
+| 9 — Correction and deck management | Done | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
 
 For the later items: Type C and OAuth/deployment suit Sonnet 5 at medium; typed conjugation
 production wants Opus 5 at high, since the ている/てる variant-matching problem is where it gets

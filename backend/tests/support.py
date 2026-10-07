@@ -66,6 +66,7 @@ def _test_database_url() -> str:
 os.environ["DATABASE_URL"] = _test_database_url()
 
 from app import main
+from app.cards import CardKey
 from app.db import engine
 from app.users import current_user_id
 
@@ -283,6 +284,21 @@ def pick_reading(document_id: int, surface: str, reading: str) -> None:
     )
 
 
+def word_key(lookup_form: str, reading: str) -> CardKey:
+    """The key of the card for a word."""
+    return CardKey("recognition", lookup_form, reading)
+
+
+def user_cards(user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
+    """The user's card rows, removed or not, by key."""
+    with engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT * FROM study_cards WHERE user_id = :user_id"),
+            {"user_id": user_id},
+        ).all()
+    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
+
+
 def selected_reading(token) -> str:
     """The reading selected among a token's options."""
     return next(c for c in token.conflicts if c.selected).value["reading"]
@@ -364,7 +380,9 @@ def _via_client(endpoint):
                 path_args[name] = value
             elif isinstance(value, BaseModel):
                 body = value.model_dump(mode="json")
-            else:
+            # Left out, as a client leaves out a parameter it has no value
+            # for: sent, None would arrive as an empty string.
+            elif value is not None:
                 query[name] = value
 
         response = client.request(
@@ -414,3 +432,8 @@ get_study_settings = _via_client(main.get_study_settings)
 save_study_settings = _via_client(main.save_study_settings)
 get_song_study_settings = _via_client(main.get_song_study_settings)
 save_song_study_settings = _via_client(main.save_song_study_settings)
+get_piece_words = _via_client(main.get_piece_words)
+pick_piece_word_endpoint = _via_client(main.pick_piece_word_endpoint)
+get_document_words = _via_client(main.get_document_words)
+correct_card_reading = _via_client(main.correct_card_reading)
+correct_card_word = _via_client(main.correct_card_word)
