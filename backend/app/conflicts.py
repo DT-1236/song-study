@@ -18,6 +18,7 @@ from app.glosses import (
     GlossKey,
     GroupGlossRequest,
     GroupPart,
+    alternate_reading_options,
     attach_glosses,
     get_or_create_gloss_lookup,
     is_word_piece,
@@ -1210,3 +1211,50 @@ def correct_reading(
     nothing else offered a fix (no heteronym/split candidates existed, or
     the token is OOV) — as select_reading does."""
     select_reading(conn, document_id, [token_id], reading_hiragana)
+
+
+def token_reading_options(conn, document_id: int, token_id: int) -> list[dict]:
+    """Every reading the document's token `token_id` can be given, one per
+    reading, as select_reading takes them: its own options, or else the
+    reading it was tokenized with, then every other reading JMDict has for
+    its dictionary form. Each says what picking it does, since select_reading
+    picks a token's own option over any other with its reading.
+
+    Raises TokenNotFound if the document has no token `token_id`."""
+    row = conn.execute(
+        text(
+            """
+            SELECT t.surface, t.reading_katakana, t.furigana_spans, t.furigana_override,
+                   t.dictionary_form, t.normalized_form,
+                   (SELECT jsonb_agg(c.value ORDER BY c.id) FROM conflicts c
+                    WHERE c.token_id = t.id AND c.kind <> ALL(:non_reading_kinds)) AS own
+            FROM tokens t WHERE t.id = :token_id AND t.document_id = :document_id
+            """
+        ),
+        {
+            "token_id": token_id,
+            "document_id": document_id,
+            "non_reading_kinds": list(NON_READING_KINDS),
+        },
+    ).one_or_none()
+    if row is None:
+        raise TokenNotFound()
+    # A token's own options start with the reading it was tokenized with
+    # (create_conflicts, select_reading), so that's only built when it has
+    # none, the same way.
+    own = row.own or [
+        conflict_option_value(
+            to_hiragana(row.reading_katakana),
+            row.furigana_override or row.furigana_spans,
+            headword_reading(row.normalized_form, row.dictionary_form),
+        )
+    ]
+    options: dict[str, dict] = {}
+    for value in [
+        *own,
+        *alternate_reading_options(
+            row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
+        ),
+    ]:
+        options.setdefault(value["reading"], value)
+    return list(options.values())

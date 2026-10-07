@@ -36,6 +36,7 @@ from app.conflicts import (
     resolve_conflict,
     resolve_phrase_furigana,
     select_reading,
+    token_reading_options,
     unmerge_phrase,
 )
 from app.db import DOCUMENT_COLUMNS, engine, json_param, owned_document_row
@@ -43,7 +44,6 @@ from app.glosses import (
     KATAKANA_PICKS_SQL,
     GlossKey,
     GlossPlan,
-    alternate_reading_options,
     gloss_key,
     is_glossable,
     is_probably_english,
@@ -1116,21 +1116,10 @@ def unmerge_phrase_tokens(
 def get_alternate_readings(
     document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[dict]:
-    """Every other reading JMDict has for token_id's dictionary form, as
-    reading options to apply through /tokens/reading."""
+    """Every reading token_id can be given (see token_reading_options), as
+    options to apply through /tokens/reading."""
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                "SELECT surface, reading_katakana, dictionary_form, normalized_form "
-                "FROM tokens WHERE id = :token_id AND document_id = :document_id"
-            ),
-            {"token_id": token_id, "document_id": document_id},
-        ).one_or_none()
-        if row is None:
-            raise TokenNotFound()
-        return alternate_reading_options(
-            row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
-        )
+        return token_reading_options(conn, document_id, token_id)
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")
@@ -1300,10 +1289,15 @@ def _study_queue(queue: Queue) -> StudyQueue:
 class DocumentWord(BaseModel):
     # Every token of the word and what's glossed with it.
     token_ids: list[int]
-    # For a word of a token sung in katakana, which piece of its gloss.
+    # For a word or grammar term that's one piece of a gloss (a katakana
+    # token's or a group's), which one.
     piece: int | None
+    kind: CardKind
     lookup_form: str
-    reading: str
+    # None for a grammar term.
+    reading: str | None
+    # How it can be corrected, as on a card (see card_content.Line).
+    correction: Literal["reading", "word"] | None
     # The user's card for it, removed or not; None if they have none.
     card: StudyCard | None
 
@@ -1312,8 +1306,8 @@ class DocumentWord(BaseModel):
 def get_document_words(
     document_id: OwnedDocument, user_id: CurrentUser
 ) -> list[DocumentWord]:
-    """Every word of the document the user could add to their cards, where
-    it is, with their card for it if they have one."""
+    """Every word and grammar term of the document the user could add to
+    their cards, where it is, with their card for it if they have one."""
     # A transaction, since a gloss the cache has lost is looked up again and
     # stored.
     with engine.begin() as conn:
@@ -1322,8 +1316,10 @@ def get_document_words(
         DocumentWord(
             token_ids=word.token_ids,
             piece=word.piece,
+            kind=word.key.kind,
             lookup_form=word.key.lookup_form,
             reading=word.key.reading,
+            correction=word.correction,
             card=StudyCard(**word.card._mapping) if word.card else None,
         )
         for word in words
@@ -1338,8 +1334,9 @@ def add_token_card(
     piece: int | None = Query(default=None, ge=0),
 ) -> StudyCard:
     """Add the word `token_id` is part of to the user's cards, or restore it
-    if they removed it, as enroll_token does. `piece` names which of the
-    words of a token sung in katakana."""
+    if they removed it, as enroll_token does. `piece` names which word or
+    grammar term of a gloss's pieces, for a token sung in katakana or in a
+    group."""
     with engine.begin() as conn:
         row = enroll_token(conn, user_id, document_id, token_id, piece)
     return StudyCard(**row._mapping)

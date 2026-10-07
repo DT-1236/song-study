@@ -354,8 +354,9 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
   return response.json()
 }
 
-// Every other reading JMDict has for tokenId's dictionary form, as reading
-// options to apply with applyReading.
+// Every reading tokenId can be given, one per reading: its own options (or
+// the reading it was tokenized with), then every other reading JMDict has
+// for its dictionary form, as reading options to apply with applyReading.
 export async function fetchAlternateReadings(
   documentId: number,
   tokenId: number,
@@ -749,10 +750,15 @@ export async function suspendCard(cardId: number): Promise<StudyCard> {
 export type DocumentWord = {
   // Every token of the word and what's glossed with it.
   token_ids: number[]
-  // For a word of a token sung in katakana, which piece of its gloss.
+  // For a word or grammar term that's one piece of a gloss (a katakana
+  // token's or a group's), which one.
   piece: number | null
+  kind: CardKind
   lookup_form: string
-  reading: string
+  // Null for a grammar term.
+  reading: string | null
+  // How it can be corrected, as on a card (see CardLine).
+  correction: 'reading' | 'word' | null
   // The user's card for it, removed or not; null if they have none.
   card: StudyCard | null
 }
@@ -768,7 +774,8 @@ export async function fetchDocumentWords(
 }
 
 // Adds the word the token is part of to the user's cards, or restores it if
-// they removed it. `piece` names which word of a token sung in katakana.
+// they removed it. `piece` names which word or grammar term of the gloss's
+// pieces, for a token sung in katakana or in a group.
 export async function addTokenCard(
   documentId: number,
   tokenId: number,

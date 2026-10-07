@@ -4,22 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## Flashcards step 9 (correction and deck management)
-
-- Offer the study-list control for grammar cards too. A grammar card removed in a session (`-`) has
-  no way back: `cards.document_words` lists only `recognition` words, so the gloss popup's
-  `StudyListControl` never shows for a predicate group's grammar pieces. Include the `grammar`
-  keys `unit_card_tokens` finds (with the piece index of each in the group's composite gloss),
-  let `PUT …/tokens/{tid}/card` name the grammar term, and render the control in each
-  note-bearing piece of `GlossDetails`. Model: Sonnet 5, medium effort — the pattern exists for
-  katakana pieces, but mapping a group's tokens to its gloss pieces needs working out.
-- Offer Sudachi's own reading in a card's "Wrong reading" panel once another one has been picked.
-  `CardCorrectionPanel` lists `alternate_reading_options`, which always leaves out the dictionary
-  form's citation reading, so a card whose reading was picked by hand can't be corrected back to
-  the default from a session. Add the token's own reading options (its `conflicts` rows) to what
-  the panel offers, less the card's reading. Model: Sonnet 5, low effort — a small union, but it
-  has to dedupe options that differ only in furigana split.
-
 ## `/simplify` on PR #74 (flashcards step 9)
 
 - Store the picked JMDict entry, not just its spelling, in `katakana_picks`. A picked piece is
@@ -31,20 +15,6 @@ so it can be picked up without re-deriving the reasoning.
   entry's senses; `_spelling`'s `picked` special case then goes, since `_kanji_spelling` finds the
   right form. Model: Opus 5, high effort — touches the gloss cache's piece shape and the card
   key a pick produces, where a mistake is silent.
-- Reload a song's words (`GET /documents/{id}/words`) only after an edit that can change which
-  word a token is (a reading, a piece word, accepting or unmerging a phrase), not on every
-  `tokens` change: `DocumentViewPage.tsx`'s effect keys on `tokens`, so ignoring a gloss or
-  picking a phrase's furigana also recomputes every word of the song. Bump a counter from those
-  handlers instead. Model: Sonnet 5, medium effort — each token-editing handler needs sorting
-  into "changes a word" or not.
-- Read only the token's group in `cards.token_word`, which loads every unit of the document to
-  find one (twice per `study.correct_card`). Select the tokens sharing its
-  `phrase_start_position`, or the token alone, and share that reader with `enroll_token`. Model:
-  Sonnet 5, low effort — a scoped variant of `_token_rows`.
-- Merge `PieceWordPicker` and `AlternateReadingSearch` in `DocumentViewPage.tsx` into one
-  "options searched on demand" component taking the fetch, the apply, how to render an option
-  and which is selected: they share their state, two `useSave`s and layout. Model: Sonnet 5,
-  medium effort — the two differ in labels and selected-state rules.
 - Send each review as soon as it's answered and have a card correction undo it, instead of
   holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
   a closed tab). Needs `study_reviews` to keep the card's schedule from before each review, the
@@ -52,16 +22,50 @@ so it can be picked up without re-deriving the reasoning.
   schedule when it's the card's latest. Model: Opus 5, high effort — a migration plus FSRS state
   restored exactly, where a mistake corrupts scheduling silently.
 
-## Found while checking flashcards step 9 in a browser
+## `/simplify` on PR #75 (backlog sweep: low- and medium-effort items)
 
-- Make a song session include cards another session start enrolled moments before it.
-  `study._due_cards` filters on `c.due <= now()`, and `now()` is the transaction's start time,
-  while a new card's `due` defaults to its own transaction's `now()`. When two
-  `POST /documents/{id}/study` overlap (React's StrictMode sends two in dev; two tabs do in
-  production), the second can start its transaction first, wait on the first's document lock,
-  then leave out every card the first enrolled, since their `due` is later than its `now()`.
-  Seen once as a 3-card session of 10 due cards. Compare against `statement_timestamp()` in
-  `_due_cards`, and add a test that starts two sessions concurrently with `BackgroundCall` and
-  checks both return every card.
-  Model: Sonnet 5, medium effort — the fix is one function call, but the test has to force the
-  interleaving with `wait_for_lock_wait`.
+- Add a non-partial index on `conflicts (token_id)`: only `WHERE selected` is indexed, so reading
+  a token's conflicts (`get_alternate_readings`, `main.py`'s token reads) scans the table. New
+  migration. Model: Haiku 4.5, low effort.
+- In `cards._token_rows`, tie the `token_id` group subquery to `ANY(:document_ids)` rather than
+  `t.document_id`, so Postgres runs it once rather than per grouped token. Model: Haiku 4.5, low
+  effort.
+
+## `/code-review` on PR #75 (backlog sweep: low- and medium-effort items)
+
+- Count the song's new cards today after taking its lock in `study.song_queue`
+  (`study.py`, the `FOR NO KEY UPDATE OF d` statement). The count is a subquery in the locking
+  statement's select list, so under READ COMMITTED it's read from the statement's snapshot before
+  the lock wait: when two session starts overlap, the second still sees the full limit and
+  enrolls past it (20 new cards on a 10-a-day song). Take the lock in one statement, then count in
+  a second. Add a test that forces the overlap with `BackgroundCall` and `wait_for_lock_wait`, as
+  `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
+  within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
+  fix depends on Postgres's snapshot rules.
+- Skip gloss-cache work that grammar pieces don't need: `cards.token_word` calls
+  `katakana_lookups` for any unit given a `piece`, katakana or not, and `_studyable` calls
+  `gloss_sources` even when every key is grammar. Call `katakana_lookups` only when
+  `unit[0].katakana_gloss` is set, and return early from `_studyable` when no non-grammar keys
+  remain. Model: Haiku 4.5, low effort.
+- Project JMDict's other readings onto an inflected token by the other reading's own conjugation.
+  `glosses.alternate_reading_options` passes each through `project_citation_reading` with the
+  token's conjugation type, which only handles 一段 and 五段 verbs and returns the citation
+  reading unchanged otherwise: 来 of 来た (カ変) is offered きたる rather than きた, though 来る
+  read きたる is 五段. Take the conjugation class from JMDict's part of speech for that reading
+  (v5r for きたる), and leave out an alternate that still can't be projected rather than offering
+  its citation form on an inflected surface. Add cases to `TestAlternateReadingOptions` in
+  `test_glosses.py`. Model: Sonnet 5, medium effort — the projection exists for 一段 and 五段, but
+  the conjugation class per reading has to come from JMDict's entry.
+- Leave the token's own readings out of the document page's "Look for other readings" list as it
+  renders, not once when it's fetched. `AlternateReadingSearch` (`DocumentViewPage.tsx`) filters
+  the fetched list by the readings the targets offer at that moment, and `SearchedOptions` keeps
+  that list in state, so a reading picked from it stays listed below `ReadingOptions`, which now
+  shows it selected. Have `token_reading_options` say which options are the token's own (a flag,
+  or its own field in the response) so the page drops them by that instead of rebuilding the set
+  with `katakanaToHiragana`, and filter in `SearchedOptions`' render. Model: Sonnet 5, low effort.
+- Offer the word picker on every word piece of a katakana token, not only those whose word is
+  studyable. `GlossPopup` (`DocumentViewPage.tsx`) builds `wordPieces` from `words`, and
+  `cards.document_words` lists only keys `_studyable` accepts, so a piece whose shown word has a
+  compound or katakana fallback gloss gets no "pick another word", though it's the likeliest to be
+  wrong. Take the word pieces from the token's gloss (`is_word_piece` pieces) instead. Model:
+  Sonnet 5, low effort.

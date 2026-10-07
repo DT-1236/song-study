@@ -279,6 +279,10 @@ function renderFuriganaSpans(spans: FuriganaSpan[]) {
   )
 }
 
+// Takes the tokens an edit changed. `changesWords` is false for an edit that
+// can't make a token another word, which spares reloading the song's words.
+type TokensUpdated = (tokens: Token[], changesWords?: boolean) => void
+
 function ReadingCorrectionForm({
   targets,
   documentId,
@@ -286,7 +290,7 @@ function ReadingCorrectionForm({
 }: {
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const inputId = useId()
   const [value, setValue] = useState('')
@@ -333,18 +337,32 @@ function ReadingCorrectionForm({
   )
 }
 
-// Offers every other reading JMDict has for the targets' dictionary form,
-// searched for on demand, to apply to all of them.
-function AlternateReadingSearch({
-  targets,
-  documentId,
+// A button that fetches a list of options on demand, then shows them to
+// apply one. Nothing is offered once every option fetched is already selected.
+function SearchedOptions<T>({
+  searchLabel,
+  noneFound,
+  heading,
+  search,
+  apply,
   onTokensUpdated,
+  optionKey,
+  renderOption,
+  isSelected = () => false,
+  canRepick = false,
 }: {
-  targets: Token[]
-  documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  searchLabel: string
+  noneFound: string
+  heading?: string
+  search: () => Promise<T[]>
+  apply: (option: T) => Promise<Token[]>
+  onTokensUpdated: TokensUpdated
+  optionKey: (option: T) => string
+  renderOption: (option: T) => ReactNode
+  isSelected?: (option: T) => boolean
+  canRepick?: boolean
 }) {
-  const [options, setOptions] = useState<ConflictOptionValue[] | null>(null)
+  const [options, setOptions] = useState<T[] | null>(null)
   const { saving: searching, error: searchError, save: runSearch } = useSave()
   const { saving: applying, error: applyError, save: applyOption } = useSave()
 
@@ -357,56 +375,96 @@ function AlternateReadingSearch({
           disabled={searching}
           onClick={(e) => {
             e.stopPropagation()
-            runSearch(
-              () => fetchAlternateReadings(documentId, targets[0].id),
-              setOptions,
-            )
+            runSearch(search, setOptions)
           }}
         >
-          Look for other readings
+          {searchLabel}
         </button>
         {searchError && <div className="conflict-error">{searchError}</div>}
       </div>
     )
   }
 
-  if (options.length === 0) {
-    return (
-      <div className="conflict-note">
-        No other readings found for this word.
-      </div>
-    )
+  if (options.every(isSelected)) {
+    return <div className="conflict-note">{noneFound}</div>
   }
 
   return (
     <div className="phrase-suggestion">
+      {heading && <div className="conflict-note">{heading}</div>}
       {applyError && <div className="conflict-error">{applyError}</div>}
       <div className="conflict-options">
-        {options.map((option) => (
-          <button
-            key={option.reading}
-            type="button"
-            className="conflict-option"
-            disabled={applying}
-            onClick={(e) => {
-              e.stopPropagation()
-              applyOption(
-                () =>
-                  applyReading(
-                    documentId,
-                    targets.map((t) => t.id),
-                    option.reading,
-                    option.furigana_spans,
-                  ),
-                onTokensUpdated,
-              )
-            }}
-          >
-            {renderFuriganaSpans(option.furigana_spans)}
-          </button>
-        ))}
+        {options.map((option) => {
+          const selected = isSelected(option)
+          return (
+            <button
+              key={optionKey(option)}
+              type="button"
+              className={
+                selected ? 'conflict-option selected' : 'conflict-option'
+              }
+              disabled={applying || (selected && !canRepick)}
+              onClick={(e) => {
+                e.stopPropagation()
+                applyOption(() => apply(option), onTokensUpdated)
+              }}
+            >
+              {renderOption(option)}
+            </button>
+          )
+        })}
       </div>
     </div>
+  )
+}
+
+// `text` with its katakana as hiragana, as the server's to_hiragana does,
+// keeping ー.
+function katakanaToHiragana(text: string): string {
+  return text.replace(/[ァ-ヶ]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60),
+  )
+}
+
+// Offers every other reading JMDict has for the targets' dictionary form,
+// searched for on demand, to apply to all of them.
+function AlternateReadingSearch({
+  targets,
+  documentId,
+  onTokensUpdated,
+}: {
+  targets: Token[]
+  documentId: number
+  onTokensUpdated: TokensUpdated
+}) {
+  // The readings the targets already offer: the one they were tokenized
+  // with, and any options ReadingOptions shows above.
+  const source = targets.find(hasReadingOptions)
+  const offered = new Set([
+    katakanaToHiragana(targets[0].reading_katakana),
+    ...(source ? readingConflicts(source).map((c) => c.value.reading) : []),
+  ])
+  return (
+    <SearchedOptions<ConflictOptionValue>
+      searchLabel="Look for other readings"
+      noneFound="No other readings found for this word."
+      search={async () =>
+        (await fetchAlternateReadings(documentId, targets[0].id)).filter(
+          (option) => !offered.has(option.reading),
+        )
+      }
+      apply={(option) =>
+        applyReading(
+          documentId,
+          targets.map((t) => t.id),
+          option.reading,
+          option.furigana_spans,
+        )
+      }
+      onTokensUpdated={onTokensUpdated}
+      optionKey={(option) => option.reading}
+      renderOption={(option) => renderFuriganaSpans(option.furigana_spans)}
+    />
   )
 }
 
@@ -421,7 +479,7 @@ function ReadingOptions({
   token: Token
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const [applyingId, setApplyingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -481,7 +539,7 @@ function IgnoreGlossButton({
 }: {
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const { saving, error, save } = useSave()
   const ignored = targets.every((t) => t.gloss_ignored)
@@ -504,7 +562,7 @@ function IgnoreGlossButton({
                 targets.map((t) => t.id),
                 !ignored,
               ),
-            onTokensUpdated,
+            (updated) => onTokensUpdated(updated, false),
           )
         }}
       >
@@ -572,80 +630,38 @@ function PieceWordPicker({
   // Tokens sung in katakana, the first the one the popup is for.
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
-  const [options, setOptions] = useState<WordOption[] | null>(null)
-  const { saving: searching, error: searchError, save: runSearch } = useSave()
-  const { saving: applying, error: applyError, save: applyOption } = useSave()
   const shown = targets[0].gloss?.pieces[piece]
   if (!shown) return null
 
-  if (options === null) {
-    return (
-      <div className="phrase-suggestion">
-        <button
-          type="button"
-          className="conflict-option"
-          disabled={searching}
-          onClick={(e) => {
-            e.stopPropagation()
-            runSearch(
-              () => fetchPieceWords(documentId, targets[0].id, piece),
-              setOptions,
-            )
-          }}
-        >
-          Another word read {shown.reading}?
-        </button>
-        {searchError && <div className="conflict-error">{searchError}</div>}
-      </div>
-    )
-  }
-
-  if (options.every((option) => option.spelling === shown.surface)) {
-    return (
-      <div className="conflict-note">
-        No other word is read {shown.reading}.
-      </div>
-    )
-  }
-
   return (
-    <div className="phrase-suggestion">
-      <div className="conflict-note">Which word is {shown.reading}?</div>
-      {applyError && <div className="conflict-error">{applyError}</div>}
-      <div className="conflict-options">
-        {options.map((option) => {
-          const selected = option.spelling === shown.surface
-          return (
-            <button
-              key={option.spelling}
-              type="button"
-              className={
-                selected ? 'conflict-option selected' : 'conflict-option'
-              }
-              disabled={applying || (selected && targets.length === 1)}
-              onClick={(e) => {
-                e.stopPropagation()
-                applyOption(
-                  () =>
-                    pickPieceWord(
-                      documentId,
-                      targets.map((t) => t.id),
-                      piece,
-                      option.spelling,
-                    ),
-                  onTokensUpdated,
-                )
-              }}
-            >
-              {option.spelling}
-              {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    <SearchedOptions<WordOption>
+      searchLabel={`Another word read ${shown.reading}?`}
+      noneFound={`No other word is read ${shown.reading}.`}
+      heading={`Which word is ${shown.reading}?`}
+      search={() => fetchPieceWords(documentId, targets[0].id, piece)}
+      apply={(option) =>
+        pickPieceWord(
+          documentId,
+          targets.map((t) => t.id),
+          piece,
+          option.spelling,
+        )
+      }
+      onTokensUpdated={onTokensUpdated}
+      optionKey={(option) => option.spelling}
+      renderOption={(option) => (
+        <>
+          {option.spelling}
+          {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
+        </>
+      )}
+      isSelected={(option) => option.spelling === shown.surface}
+      // Re-picking the selected word only does anything when it also brings
+      // the other targets in line.
+      canRepick={targets.length > 1}
+    />
   )
 }
 
@@ -680,7 +696,7 @@ function PhraseSuggestionOption({
   suggestion: Conflict & { kind: 'phrase'; value: PhraseConflictValue }
   instances: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
   const { saving, error, save } = useSave()
@@ -734,7 +750,7 @@ function UnmergePhraseOption({
 }: {
   token: Token
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const { saving, error, save } = useSave()
 
@@ -771,7 +787,7 @@ function RegroupOption({
 }: {
   group: Conflict & { kind: 'predicate'; value: PredicateGroupValue }
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const { saving, error, save } = useSave()
 
@@ -805,7 +821,7 @@ function PhraseFuriganaOptions({
 }: {
   token: Token
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const options = phraseFuriganaOptions(token)
   const { saving: applying, error, save } = useSave()
@@ -828,7 +844,7 @@ function PhraseFuriganaOptions({
               e.stopPropagation()
               save(
                 () => resolvePhraseFurigana(documentId, option.id),
-                onTokensUpdated,
+                (updated) => onTokensUpdated(updated, false),
               )
             }}
           >
@@ -859,7 +875,7 @@ function TokenDecisions({
   // Whether to offer typing a reading even when every target has a gloss.
   offerCorrection: boolean
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   // A token in an accepted phrase is read as the phrase: split it first.
   // Filtered here too, so a selection including one can't sweep it in.
@@ -949,7 +965,7 @@ function ConflictResolver({
   // For a token sung in katakana, the pieces of its gloss that are words.
   wordPieces: number[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
   // `token` first, so its own options are the ones offered if it has any.
@@ -1173,11 +1189,12 @@ function GlossPopup({
 }: {
   token: Token
   instances: Token[]
-  // The words `token` is part of that the user can add to their cards: its
-  // own, or for a token sung in katakana, those of its gloss's pieces.
+  // The words and grammar `token` is part of that the user can add to their
+  // cards: its own, and for a token sung in katakana or in a group, those of
+  // its gloss's pieces.
   words: DocumentWord[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -1188,6 +1205,9 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
+  const wordPieces = words.flatMap((word) =>
+    word.piece !== null && word.correction === 'word' ? [word.piece] : [],
+  )
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same
@@ -1257,7 +1277,7 @@ function GlossPopup({
         <ConflictResolver
           token={token}
           instances={instances}
-          wordPieces={[...pieceWords.keys()]}
+          wordPieces={wordPieces}
           documentId={documentId}
           onTokensUpdated={onTokensUpdated}
         />
@@ -1313,7 +1333,7 @@ function SelectionPanel({
   instances: Token[]
   panelRef: React.Ref<HTMLDivElement>
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onClear: () => void
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
@@ -1437,7 +1457,7 @@ const TokenSpan = memo(function TokenSpan({
   // The words its popup offers to add to the user's cards.
   words: DocumentWord[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   onClick: (index: number, event: React.MouseEvent<HTMLElement>) => void
   onHoverEnter: (tokenId: number) => void
@@ -1492,7 +1512,7 @@ const TokenizedText = memo(function TokenizedText({
   // by token id.
   wordsByToken: Map<number, DocumentWord[]>
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   playingLine: number | null
   // Each line's timing (null for an untimed line), when lines can be played
@@ -2474,18 +2494,26 @@ export function DocumentViewPage() {
     }
   }, [docId, docTitle, docText, lyricsSaves, ensureProcessed])
 
-  const handleTokensUpdated = useCallback((updated: Token[]) => {
-    const byId = new Map(updated.map((t) => [t.id, t]))
-    setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
-  }, [])
+  // Counts the edits that can change which word a token is.
+  const [wordEdits, setWordEdits] = useState(0)
+  const handleTokensUpdated = useCallback<TokensUpdated>(
+    (updated, changesWords = true) => {
+      const byId = new Map(updated.map((t) => [t.id, t]))
+      setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
+      if (changesWords) setWordEdits((n) => n + 1)
+    },
+    [],
+  )
 
   // The words the user can add to their cards, loaded again whenever the
-  // tokens change, since a new reading or a word picked for katakana can
-  // make a token another word. The last ones loaded stay meanwhile; if they
-  // can't be loaded, the popups offer no study list.
+  // tokens are (re)processed or an edit can make a token another word (a new
+  // reading, a word picked for katakana, a phrase accepted or split). The
+  // last ones loaded stay meanwhile; if they can't be loaded, the popups
+  // offer no study list.
   const [words, setWords] = useState<DocumentWord[] | null>(null)
+  const hasTokens = tokens !== null
   useEffect(() => {
-    if (!tokens) return
+    if (!hasTokens) return
     let cancelled = false
     fetchDocumentWords(documentId)
       .then((result) => {
@@ -2497,7 +2525,7 @@ export function DocumentViewPage() {
     return () => {
       cancelled = true
     }
-  }, [documentId, tokens])
+  }, [documentId, hasTokens, wordEdits])
 
   const wordsByToken = useMemo(() => {
     const byToken = new Map<number, DocumentWord[]>()
@@ -2516,7 +2544,9 @@ export function DocumentViewPage() {
     setWords(
       (prev) =>
         prev?.map((word) =>
-          word.lookup_form === card.lookup_form && word.reading === card.reading
+          word.kind === card.kind &&
+          word.lookup_form === card.lookup_form &&
+          word.reading === card.reading
             ? { ...word, card }
             : word,
         ) ?? prev,
