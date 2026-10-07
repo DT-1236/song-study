@@ -94,14 +94,20 @@ def recreate_test_database() -> None:
     admin.dispose()
     # Pooled connections still point at the database that was just dropped.
     engine.dispose()
+    command.upgrade(alembic_config(), "head")
+    with engine.begin() as conn:
+        insert_test_user(conn)
+
+
+def alembic_config() -> Config:
+    """The Alembic config for migrating the test database."""
     config = Config(str(BACKEND_DIR / "alembic.ini"))
     # Config values go through configparser interpolation, so % is escaped.
     config.set_main_option(
-        "sqlalchemy.url", url.render_as_string(hide_password=False).replace("%", "%%")
+        "sqlalchemy.url",
+        engine.url.render_as_string(hide_password=False).replace("%", "%%"),
     )
-    command.upgrade(config, "head")
-    with engine.begin() as conn:
-        insert_test_user(conn)
+    return config
 
 
 def statements_sent(engine, fn) -> list[tuple[str, int]]:

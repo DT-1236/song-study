@@ -43,7 +43,7 @@ async function loadChoices(
           correctCardWord(card.id, {
             ...where,
             piece,
-            spelling: option.spelling,
+            idseq: option.idseq,
           }),
       }))
   }

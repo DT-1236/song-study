@@ -801,6 +801,8 @@ export async function addTokenCard(
 
 // A word a piece of katakana could be.
 export type WordOption = {
+  // Its JMDict entry, which picks it.
+  idseq: number
   spelling: string
   // The glosses of its first sense.
   gloss: string[]
@@ -822,20 +824,20 @@ export async function fetchPieceWords(
   return response.json()
 }
 
-// Makes `spelling` the word `piece` of each token's gloss is, for tokens
-// sung in katakana. Returns the tokens.
+// Makes the JMDict entry `idseq` the word `piece` of each token's gloss is,
+// for tokens sung in katakana. Returns the tokens.
 export async function pickPieceWord(
   documentId: number,
   tokenIds: number[],
   piece: number,
-  spelling: string,
+  idseq: number,
 ): Promise<Token[]> {
   const response = await fetch(
     `${API_URL}/documents/${documentId}/tokens/piece-word`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token_ids: tokenIds, piece, spelling }),
+      body: JSON.stringify({ token_ids: tokenIds, piece, idseq }),
     },
   )
 
@@ -888,7 +890,8 @@ export async function correctCardWord(
     documentId: number
     tokenId: number
     piece: number
-    spelling: string
+    // The word's JMDict entry, as a WordOption names it.
+    idseq: number
   },
 ): Promise<CardCorrection> {
   const response = await fetch(`${API_URL}/cards/${cardId}/word`, {
@@ -898,7 +901,7 @@ export async function correctCardWord(
       document_id: correction.documentId,
       token_id: correction.tokenId,
       piece: correction.piece,
-      spelling: correction.spelling,
+      idseq: correction.idseq,
     }),
   })
 

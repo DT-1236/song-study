@@ -1113,35 +1113,36 @@ class WordNotOffered(Exception):
 
 
 def pick_piece_word(
-    conn, document_id: int, token_ids: list[int], piece: int, spelling: str
+    conn, document_id: int, token_ids: list[int], piece: int, idseq: int
 ) -> None:
-    """Make `spelling` the word that piece `piece` of the gloss of each of
-    the document's tokens in `token_ids`, sung in katakana, is: one of the
-    words JMDict has with the piece's reading (see word_options), in place
-    of the one the gloss guessed (合う for the アイ of アイタイ, rather than
-    会う). The tokens must be ones lock_token_group accepts together.
+    """Make the JMDict entry `idseq` the word that piece `piece` of the gloss
+    of each of the document's tokens in `token_ids`, sung in katakana, is:
+    one of the words JMDict has with the piece's reading (see word_options),
+    in place of the one the gloss guessed (合う for the アイ of アイタイ,
+    rather than 会う). The tokens must be ones lock_token_group accepts
+    together.
 
     Raises WordNotOffered if a token isn't sung in katakana, `piece` isn't
-    one of its words, or `spelling` isn't a word with the piece's reading."""
+    one of its words, or `idseq` isn't a word with the piece's reading."""
     lock_token_group(conn, document_id, token_ids)
     reading = _piece_reading(conn, token_ids, piece)
-    if spelling not in {option["spelling"] for option in word_options(conn, reading)}:
+    if idseq not in {option["idseq"] for option in word_options(conn, reading)}:
         raise WordNotOffered()
 
     conn.execute(
         text(
             """
-            INSERT INTO katakana_picks (token_id, piece, reading, spelling)
-            SELECT id, :piece, :reading, :spelling FROM unnest(CAST(:token_ids AS int[])) AS id
+            INSERT INTO katakana_picks (token_id, piece, reading, idseq)
+            SELECT id, :piece, :reading, :idseq FROM unnest(CAST(:token_ids AS int[])) AS id
             ON CONFLICT (token_id, piece)
-                DO UPDATE SET reading = EXCLUDED.reading, spelling = EXCLUDED.spelling
+                DO UPDATE SET reading = EXCLUDED.reading, idseq = EXCLUDED.idseq
             """
         ),
         {
             "token_ids": token_ids,
             "piece": piece,
             "reading": reading,
-            "spelling": spelling,
+            "idseq": idseq,
         },
     )
 

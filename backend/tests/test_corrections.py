@@ -37,6 +37,14 @@ from tests.support import (
 KATAKANA_SONG = "ボクノアイタイ。"
 BOKU, NO, AU, TAI = range(4)
 
+# JMDict's entries for 僕 and 合う; for 元 read もと, as "origin" and as
+# "former"; and for the words read うん: two written in kana, "yes" and
+# "some", and 運.
+_I = 1521400
+_TO_FIT = 1284430
+_ORIGIN, _FORMER = 1260670, 2219590
+_YES, _SOME, _LUCK = 1001090, 2759530, 1172610
+
 
 def _words(document_id: int) -> dict[tuple[str, str], object]:
     return {(w.lookup_form, w.reading): w for w in get_document_words(document_id)}
@@ -172,10 +180,20 @@ def test_a_katakana_piece_offers_every_word_with_its_reading(committed_engine):
 
     options = get_piece_words(document_id, _katakana_token(document_id).id, AU)
 
-    spellings = [option.spelling for option in options]
-    assert {"会う", "合う"} <= set(spellings)
-    assert len(spellings) == len(set(spellings))
+    assert {"会う", "合う"} <= {option.spelling for option in options}
     assert all(option.gloss for option in options)
+
+
+def test_words_written_alike_are_each_offered(committed_engine):
+    # キミ/ノ/モト: 君, の, and もと, which is 元 for "origin" and for
+    # "former", two entries.
+    document_id = create_tokenized_document(text="キミノモト。")
+    [token] = document_tokens(document_id, "キミノモト")
+
+    options = get_piece_words(document_id, token.id, 2)
+
+    assert [o.idseq for o in options if o.spelling == "元"] == [_ORIGIN, _FORMER]
+    assert len({tuple(o.gloss) for o in options}) == len(options)
 
 
 def test_a_grammar_piece_offers_no_words(committed_engine):
@@ -187,10 +205,10 @@ def test_a_grammar_piece_offers_no_words(committed_engine):
     assert exc.value.status_code == 422
 
 
-def _pick(document_id: int, token_ids: list[int], spelling: str, piece: int = AU):
+def _pick(document_id: int, token_ids: list[int], idseq: int, piece: int = AU):
     return pick_piece_word_endpoint(
         document_id,
-        PieceWordPick(token_ids=token_ids, piece=piece, spelling=spelling),
+        PieceWordPick(token_ids=token_ids, piece=piece, idseq=idseq),
     )
 
 
@@ -198,12 +216,12 @@ def test_picking_another_word_for_a_piece_glosses_it_as_thatword_key(committed_e
     document_id = create_tokenized_document(text=KATAKANA_SONG)
     token = _katakana_token(document_id)
 
-    [updated] = _pick(document_id, [token.id], "合う")
+    [updated] = _pick(document_id, [token.id], _TO_FIT)
 
     piece = updated.gloss.pieces[AU]
     assert (piece.surface, piece.reading) == ("合う", "あう")
     # 合う's senses alone, no longer 会う's.
-    assert {sense.entry_idseq for sense in piece.senses} == {1284430}
+    assert {sense.entry_idseq for sense in piece.senses} == {_TO_FIT}
     # The rest are as they were.
     assert updated.gloss.pieces[BOKU].surface == "僕"
     assert get_document_tokens(document_id)[0].gloss.pieces[AU].surface == "合う"
@@ -212,7 +230,7 @@ def test_picking_another_word_for_a_piece_glosses_it_as_thatword_key(committed_e
 def test_a_picked_word_is_the_one_the_song_offers_and_studies(committed_engine):
     start_song_session(create_tokenized_document(text="会いたい。合いたい。"))
     document_id = create_tokenized_document(text=KATAKANA_SONG)
-    _pick(document_id, [_katakana_token(document_id).id], "合う")
+    _pick(document_id, [_katakana_token(document_id).id], _TO_FIT)
 
     assert ("合う", "あう") in _words(document_id)
     assert ("会う", "あう") not in _words(document_id)
@@ -224,11 +242,40 @@ def test_a_picked_word_is_the_one_the_song_offers_and_studies(committed_engine):
     assert line.written_as == "合う"
 
 
+@pytest.mark.parametrize("idseq", [_YES, _SOME])
+def test_a_word_picked_in_kana_is_glossed_as_its_own_entry(committed_engine, idseq):
+    # ボク/ノ/ウン: 僕, の, and うん, whose guess shows the senses of every
+    # word read うん, 運 among them.
+    document_id = create_tokenized_document(text="ボクノウン。")
+    [token] = document_tokens(document_id, "ボクノウン")
+    assert {_YES, _SOME, _LUCK} <= {s.entry_idseq for s in token.gloss.pieces[2].senses}
+
+    [updated] = _pick(document_id, [token.id], idseq, piece=2)
+
+    piece = updated.gloss.pieces[2]
+    assert piece.surface == "うん"
+    assert {sense.entry_idseq for sense in piece.senses} == {idseq}
+    assert ("うん", "うん") in _words(document_id)
+
+
+def test_a_word_picked_from_two_written_alike_is_glossed_as_that_one(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="キミノモト。")
+    [token] = document_tokens(document_id, "キミノモト")
+
+    [updated] = _pick(document_id, [token.id], _FORMER, piece=2)
+
+    piece = updated.gloss.pieces[2]
+    assert piece.surface == "元"
+    assert {sense.entry_idseq for sense in piece.senses} == {_FORMER}
+
+
 def test_a_pick_applies_to_every_token_given(committed_engine):
     document_id = create_tokenized_document(text="ボクノアイタイ。ボクノアイタイ。")
     tokens = document_tokens(document_id, "ボクノアイタイ")
 
-    _pick(document_id, [t.id for t in tokens], "合う")
+    _pick(document_id, [t.id for t in tokens], _TO_FIT)
 
     assert [
         t.gloss.pieces[AU].surface
@@ -237,20 +284,20 @@ def test_a_pick_applies_to_every_token_given(committed_engine):
 
 
 @pytest.mark.parametrize(
-    "piece, spelling",
+    "piece, idseq",
     [
         # Not a word read あう.
-        (AU, "僕"),
+        (AU, _I),
         # Grammar.
-        (TAI, "たい"),
+        (TAI, _TO_FIT),
     ],
 )
-def test_picking_a_word_a_piece_cant_be_is_refused(committed_engine, piece, spelling):
+def test_picking_a_word_a_piece_cant_be_is_refused(committed_engine, piece, idseq):
     document_id = create_tokenized_document(text=KATAKANA_SONG)
     token = _katakana_token(document_id)
 
     with pytest.raises(HTTPException) as exc:
-        _pick(document_id, [token.id], spelling, piece=piece)
+        _pick(document_id, [token.id], idseq, piece=piece)
 
     assert exc.value.status_code == 422
     assert get_document_tokens(document_id)[0].gloss.pieces[AU].surface == "会う"
@@ -278,7 +325,7 @@ def test_a_pick_is_left_out_once_its_piece_reads_otherwise():
     picked = with_picked_words(
         composite,
         # The gloss was built again and split the katakana otherwise.
-        [(0, "あい", "愛"), (1, "たい", "鯛"), (5, "あう", "合う")],
+        [(0, "あい", _TO_FIT), (1, "たい", _TO_FIT), (5, "あう", _TO_FIT)],
     )
 
     assert picked == composite
@@ -395,7 +442,7 @@ def test_correcting_a_katakana_cards_word_moves_the_song_to_the_pickedword_key(
     correction = correct_card_word(
         old.id,
         CardWordCorrection(
-            document_id=document_id, token_id=token.id, piece=AU, spelling="合う"
+            document_id=document_id, token_id=token.id, piece=AU, idseq=_TO_FIT
         ),
     )
 
