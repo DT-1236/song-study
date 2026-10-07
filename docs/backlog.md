@@ -33,11 +33,6 @@ so it can be picked up without re-deriving the reasoning.
   `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
   within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
   fix depends on Postgres's snapshot rules.
-- Skip gloss-cache work that grammar pieces don't need: `cards.token_word` calls
-  `katakana_lookups` for any unit given a `piece`, katakana or not, and `_studyable` calls
-  `gloss_sources` even when every key is grammar. Call `katakana_lookups` only when
-  `unit[0].katakana_gloss` is set, and return early from `_studyable` when no non-grammar keys
-  remain. Model: Haiku 4.5, low effort.
 - Project JMDict's other readings onto an inflected token by the other reading's own conjugation.
   `glosses.alternate_reading_options` passes each through `project_citation_reading` with the
   token's conjugation type, which only handles 一段 and 五段 verbs and returns the citation

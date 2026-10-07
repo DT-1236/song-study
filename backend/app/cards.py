@@ -376,14 +376,14 @@ def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
     an explanation of its own, and the words glossed from a JMDict headword.
     An English word, or a compound or katakana fallback, has a gloss that
     explains it rather than defines it."""
-    sources = gloss_sources(
-        conn,
-        [
-            ((key.lookup_form, key.reading), alt)
-            for key, alt in words
-            if key.kind != "grammar"
-        ],
-    )
+    non_grammar_keys = [
+        ((key.lookup_form, key.reading), alt)
+        for key, alt in words
+        if key.kind != "grammar"
+    ]
+    if not non_grammar_keys:
+        return {key for key, _ in words if key.kind == "grammar"}
+    sources = gloss_sources(conn, non_grammar_keys)
     return {
         key
         for key, _ in words
@@ -600,7 +600,12 @@ def token_word(
             else _unit_word(unit, explicit=True)
         )
     else:
-        found = unit_card_tokens(unit, katakana=katakana_lookups(conn, [unit]))
+        katakana = (
+            katakana_lookups(conn, [unit])
+            if unit[0].katakana_gloss is not None
+            else None
+        )
+        found = unit_card_tokens(unit, katakana=katakana)
         word = next((w for w in found if w.piece == piece), None)
     if word is None:
         raise NotStudyable()
