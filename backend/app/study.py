@@ -116,7 +116,7 @@ def _locked_card(conn, user_id: int, card_id: int):
     row = conn.execute(
         text(
             """
-            SELECT c.id, c.kind, c.lookup_form, c.reading, c.state, c.step, c.stability,
+            SELECT c.id, c.kind, c.lookup_form, c.reading, c.idseq, c.state, c.step, c.stability,
                    c.difficulty, c.due, c.last_review, c.suspended, u.desired_retention
             FROM study_cards c
             JOIN users u ON u.id = c.user_id
@@ -289,7 +289,7 @@ def correct_card(
     row = _locked_card(conn, user_id, card_id)
     if not document_is_owned(conn, document_id, user_id):
         raise DocumentNotFound()
-    old = CardKey(row.kind, row.lookup_form, row.reading)
+    old = CardKey.of(row)
     before = token_word(conn, document_id, token_id, piece)
     if before.correction != ("reading" if piece is None else "word"):
         raise NotCorrectable()

@@ -12,6 +12,8 @@ import { useSave } from './useSave'
 
 // Another word the token of a card's line could be.
 type Choice = {
+  // Tells apart two words labeled alike.
+  key: string
   // The word, as the card's reveal names one: 辛い（からい）.
   label: string
   // What it means, for words told apart by meaning rather than reading.
@@ -34,9 +36,13 @@ async function loadChoices(
       line.token_id,
       piece,
     )
+    // The card's own entry: the one it's keyed by, or else the one its first
+    // sense comes from, as the token's gloss guesses it.
+    const own = card.idseq ?? card.senses[0]?.entry_idseq
     return options
-      .filter((option) => option.spelling !== card.lookup_form)
+      .filter((option) => option.idseq !== own)
       .map((option) => ({
+        key: String(option.idseq),
         label: wordLabel(option.spelling, card.reading),
         detail: option.gloss.slice(0, 3).join(', ') || null,
         apply: () =>
@@ -53,6 +59,7 @@ async function loadChoices(
       (option) => (option.citation_reading ?? option.reading) !== card.reading,
     )
     .map((option) => ({
+      key: option.reading,
       label: wordLabel(
         card.lookup_form,
         option.citation_reading ?? option.reading,
@@ -149,7 +156,7 @@ export function CardCorrectionPanel({
       {loading && <span>Loading…</span>}
       {choices?.map((choice, i) => (
         <button
-          key={choice.label}
+          key={choice.key}
           type="button"
           disabled={applying}
           onClick={() => pick(choice)}

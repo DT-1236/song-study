@@ -758,9 +758,16 @@ def _ranked_senses(
     if source not in ("jmdict", "english_stub"):
         entries = []
     # A word picked for the piece is one of its lookup's entries.
-    if "idseq" in piece:
-        entries = [entry for entry in entries if entry["idseq"] == piece["idseq"]]
+    entries = picked_entries(entries, piece.get("idseq"))
     return entries, rank_senses(entries, piece_pos_major(piece))
+
+
+def picked_entries(entries: list, idseq: int | None) -> list:
+    """`entries`, a lookup's, as a word picked as entry `idseq` is glossed:
+    that entry alone, or all of them when `idseq` is None."""
+    if idseq is None:
+        return entries
+    return [entry for entry in entries if entry["idseq"] == idseq]
 
 
 def _spelling(composite: dict, piece: dict, entries, senses) -> str:

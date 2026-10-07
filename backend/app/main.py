@@ -1249,6 +1249,9 @@ class StudyCard(BaseModel):
     lookup_form: str
     # None for a grammar term.
     reading: str | None
+    # The JMDict entry of a word picked for a piece of katakana, which tells
+    # apart two read and written alike; None for any other.
+    idseq: int | None
     # Removed from study, keeping its history.
     suspended: bool
     due: datetime
@@ -1301,6 +1304,8 @@ class DocumentWord(BaseModel):
     lookup_form: str
     # None for a grammar term.
     reading: str | None
+    # As on a card (see StudyCard).
+    idseq: int | None
     # How it can be corrected, as on a card (see card_content.Line).
     correction: Literal["reading", "word"] | None
     # The user's card for it, removed or not; None if they have none.
@@ -1324,6 +1329,7 @@ def get_document_words(
             kind=word.key.kind,
             lookup_form=word.key.lookup_form,
             reading=word.key.reading,
+            idseq=word.key.idseq,
             correction=word.correction,
             card=StudyCard(**word.card._mapping) if word.card else None,
         )

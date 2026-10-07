@@ -12,10 +12,15 @@ from app.glosses import with_picked_words
 from app.main import (
     CardReadingCorrection,
     CardWordCorrection,
-    PieceWordPick,
     ReviewAnswer,
 )
 from tests.support import (
+    FORMER,
+    LUCK,
+    ORIGIN,
+    SOME,
+    TO_FIT,
+    YES,
     add_token_card,
     as_user,
     correct_card_reading,
@@ -25,7 +30,7 @@ from tests.support import (
     get_document_tokens,
     get_document_words,
     get_piece_words,
-    pick_piece_word_endpoint,
+    pick_piece_word,
     review_card,
     start_song_session,
     suspend_card,
@@ -37,13 +42,8 @@ from tests.support import (
 KATAKANA_SONG = "ボクノアイタイ。"
 BOKU, NO, AU, TAI = range(4)
 
-# JMDict's entries for 僕 and 合う; for 元 read もと, as "origin" and as
-# "former"; and for the words read うん: two written in kana, "yes" and
-# "some", and 運.
+# JMDict's entry for 僕.
 _I = 1521400
-_TO_FIT = 1284430
-_ORIGIN, _FORMER = 1260670, 2219590
-_YES, _SOME, _LUCK = 1001090, 2759530, 1172610
 
 
 def _words(document_id: int) -> dict[tuple[str, str], object]:
@@ -192,7 +192,7 @@ def test_words_written_alike_are_each_offered(committed_engine):
 
     options = get_piece_words(document_id, token.id, 2)
 
-    assert [o.idseq for o in options if o.spelling == "元"] == [_ORIGIN, _FORMER]
+    assert [o.idseq for o in options if o.spelling == "元"] == [ORIGIN, FORMER]
     assert len({tuple(o.gloss) for o in options}) == len(options)
 
 
@@ -206,22 +206,19 @@ def test_a_grammar_piece_offers_no_words(committed_engine):
 
 
 def _pick(document_id: int, token_ids: list[int], idseq: int, piece: int = AU):
-    return pick_piece_word_endpoint(
-        document_id,
-        PieceWordPick(token_ids=token_ids, piece=piece, idseq=idseq),
-    )
+    return pick_piece_word(document_id, token_ids, piece, idseq)
 
 
 def test_picking_another_word_for_a_piece_glosses_it_as_thatword_key(committed_engine):
     document_id = create_tokenized_document(text=KATAKANA_SONG)
     token = _katakana_token(document_id)
 
-    [updated] = _pick(document_id, [token.id], _TO_FIT)
+    [updated] = _pick(document_id, [token.id], TO_FIT)
 
     piece = updated.gloss.pieces[AU]
     assert (piece.surface, piece.reading) == ("合う", "あう")
     # 合う's senses alone, no longer 会う's.
-    assert {sense.entry_idseq for sense in piece.senses} == {_TO_FIT}
+    assert {sense.entry_idseq for sense in piece.senses} == {TO_FIT}
     # The rest are as they were.
     assert updated.gloss.pieces[BOKU].surface == "僕"
     assert get_document_tokens(document_id)[0].gloss.pieces[AU].surface == "合う"
@@ -230,7 +227,7 @@ def test_picking_another_word_for_a_piece_glosses_it_as_thatword_key(committed_e
 def test_a_picked_word_is_the_one_the_song_offers_and_studies(committed_engine):
     start_song_session(create_tokenized_document(text="会いたい。合いたい。"))
     document_id = create_tokenized_document(text=KATAKANA_SONG)
-    _pick(document_id, [_katakana_token(document_id).id], _TO_FIT)
+    _pick(document_id, [_katakana_token(document_id).id], TO_FIT)
 
     assert ("合う", "あう") in _words(document_id)
     assert ("会う", "あう") not in _words(document_id)
@@ -242,13 +239,13 @@ def test_a_picked_word_is_the_one_the_song_offers_and_studies(committed_engine):
     assert line.written_as == "合う"
 
 
-@pytest.mark.parametrize("idseq", [_YES, _SOME])
+@pytest.mark.parametrize("idseq", [YES, SOME])
 def test_a_word_picked_in_kana_is_glossed_as_its_own_entry(committed_engine, idseq):
     # ボク/ノ/ウン: 僕, の, and うん, whose guess shows the senses of every
     # word read うん, 運 among them.
     document_id = create_tokenized_document(text="ボクノウン。")
     [token] = document_tokens(document_id, "ボクノウン")
-    assert {_YES, _SOME, _LUCK} <= {s.entry_idseq for s in token.gloss.pieces[2].senses}
+    assert {YES, SOME, LUCK} <= {s.entry_idseq for s in token.gloss.pieces[2].senses}
 
     [updated] = _pick(document_id, [token.id], idseq, piece=2)
 
@@ -264,18 +261,50 @@ def test_a_word_picked_from_two_written_alike_is_glossed_as_that_one(
     document_id = create_tokenized_document(text="キミノモト。")
     [token] = document_tokens(document_id, "キミノモト")
 
-    [updated] = _pick(document_id, [token.id], _FORMER, piece=2)
+    [updated] = _pick(document_id, [token.id], FORMER, piece=2)
 
     piece = updated.gloss.pieces[2]
     assert piece.surface == "元"
-    assert {sense.entry_idseq for sense in piece.senses} == {_FORMER}
+    assert {sense.entry_idseq for sense in piece.senses} == {FORMER}
+
+
+def test_words_picked_from_two_written_alike_are_two_cards(committed_engine):
+    origin_song = create_tokenized_document(text="キミノモト。")
+    former_song = create_tokenized_document(text="キミノモト。")
+    [origin_token] = document_tokens(origin_song, "キミノモト")
+    [former_token] = document_tokens(former_song, "キミノモト")
+    _pick(origin_song, [origin_token.id], ORIGIN, piece=2)
+    _pick(former_song, [former_token.id], FORMER, piece=2)
+
+    origin = add_token_card(origin_song, origin_token.id, piece=2)
+    former = add_token_card(former_song, former_token.id, piece=2)
+
+    assert set(user_cards()) == {
+        word_key("元", "もと", ORIGIN),
+        word_key("元", "もと", FORMER),
+    }
+    assert _words(former_song)[("元", "もと")].card.id == former.id
+    assert _words(origin_song)[("元", "もと")].card.id == origin.id
+
+
+@pytest.mark.parametrize("idseq", [YES, SOME])
+def test_a_picked_words_card_answers_with_its_entry_alone(committed_engine, idseq):
+    document_id = create_tokenized_document(text="ボクノウン。")
+    [token] = document_tokens(document_id, "ボクノウン")
+    _pick(document_id, [token.id], idseq, piece=2)
+    add_token_card(document_id, token.id, piece=2)
+
+    [card] = start_song_session(document_id).cards
+
+    assert card.idseq == idseq
+    assert {sense.entry_idseq for sense in card.senses} == {idseq}
 
 
 def test_a_pick_applies_to_every_token_given(committed_engine):
     document_id = create_tokenized_document(text="ボクノアイタイ。ボクノアイタイ。")
     tokens = document_tokens(document_id, "ボクノアイタイ")
 
-    _pick(document_id, [t.id for t in tokens], _TO_FIT)
+    _pick(document_id, [t.id for t in tokens], TO_FIT)
 
     assert [
         t.gloss.pieces[AU].surface
@@ -289,7 +318,7 @@ def test_a_pick_applies_to_every_token_given(committed_engine):
         # Not a word read あう.
         (AU, _I),
         # Grammar.
-        (TAI, _TO_FIT),
+        (TAI, TO_FIT),
     ],
 )
 def test_picking_a_word_a_piece_cant_be_is_refused(committed_engine, piece, idseq):
@@ -325,7 +354,7 @@ def test_a_pick_is_left_out_once_its_piece_reads_otherwise():
     picked = with_picked_words(
         composite,
         # The gloss was built again and split the katakana otherwise.
-        [(0, "あい", _TO_FIT), (1, "たい", _TO_FIT), (5, "あう", _TO_FIT)],
+        [(0, "あい", TO_FIT), (1, "たい", TO_FIT), (5, "あう", TO_FIT)],
     )
 
     assert picked == composite
@@ -442,13 +471,35 @@ def test_correcting_a_katakana_cards_word_moves_the_song_to_the_pickedword_key(
     correction = correct_card_word(
         old.id,
         CardWordCorrection(
-            document_id=document_id, token_id=token.id, piece=AU, idseq=_TO_FIT
+            document_id=document_id, token_id=token.id, piece=AU, idseq=TO_FIT
         ),
     )
 
     assert (correction.card.lookup_form, correction.card.reading) == ("合う", "あう")
     assert not correction.kept
+    # No other word is 合う read あう, so it's the card of the word written in
+    # kanji too.
     assert set(user_cards()) == {word_key("合う", "あう")}
+
+
+def test_correcting_a_katakana_cards_word_to_one_written_alike_moves_it(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="キミノモト。")
+    [token] = document_tokens(document_id, "キミノモト")
+    _pick(document_id, [token.id], ORIGIN, piece=2)
+    old = add_token_card(document_id, token.id, piece=2)
+
+    correction = correct_card_word(
+        old.id,
+        CardWordCorrection(
+            document_id=document_id, token_id=token.id, piece=2, idseq=FORMER
+        ),
+    )
+
+    assert not correction.kept
+    assert set(user_cards()) == {word_key("元", "もと", FORMER)}
+    assert correction.card.idseq == FORMER
 
 
 def test_correcting_another_users_card_is_refused(committed_engine, other_user):

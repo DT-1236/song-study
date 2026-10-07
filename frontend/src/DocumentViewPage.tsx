@@ -2547,7 +2547,8 @@ export function DocumentViewPage() {
         prev?.map((word) =>
           word.kind === card.kind &&
           word.lookup_form === card.lookup_form &&
-          word.reading === card.reading
+          word.reading === card.reading &&
+          word.idseq === card.idseq
             ? { ...word, card }
             : word,
         ) ?? prev,

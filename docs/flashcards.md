@@ -1238,19 +1238,24 @@ piece, like a selected conflict, and becomes the piece's card key and `Line.writ
 How the katakana splits into words still has no correction flow.
 
 *As built* (`cards.document_words` / `token_word`, `conflicts.pick_piece_word`, `study.correct_card`,
-migration 0027, `CardCorrectionPanel.tsx`) — what later steps build on:
+migrations 0027, 0029 and 0030, `CardCorrectionPanel.tsx`) — what later steps build on:
 - `GET /documents/{id}/words` is every word of the song the user could add (as a hand-add takes
   them), with the tokens it covers and their card for it, removed or not. The page loads it after
   the tokens and again whenever they change. The popup shows one control per word: add, remove
   (which suspends), or restore. A katakana token shows one under each word piece, added with
   `PUT …/tokens/{tid}/card?piece=N`.
-- A katakana pick lives in `katakana_picks (token_id, piece, reading, spelling)`, not in
+- A katakana pick lives in `katakana_picks (token_id, piece, reading, idseq)`, not in
   `conflicts`, since a token has one selected conflict at most. The words offered for a piece are
   every JMDict entry with its reading, each spelled as a piece is (its common kanji form, else
-  kana). `with_picked_words` applies the picks wherever a katakana gloss is read, so the piece is
-  spelled and looked up as picked: its senses, card key and `written_as` all follow. A pick whose
-  piece reads otherwise after the gloss is rebuilt is ignored. The popup's "apply to all" covers
-  picks as it does readings.
+  kana), so two can be spelled alike (元 read もと, "origin" and "former"). `with_picked_words`
+  applies the picks wherever a katakana gloss is read, so the piece is glossed as the picked entry
+  alone: its senses, spelling, card key and `written_as` all follow. A pick whose piece reads
+  otherwise after the gloss is rebuilt is ignored. The popup's "apply to all" covers picks as it
+  does readings.
+- A picked word's card key carries its entry too (`study_cards.idseq`) when another entry is read
+  and written alike, so two such picks are two cards, each answered from its own entry's senses.
+  A pick its spelling and reading already pin down (合う read あう) keeps the key the word written
+  in kanji has, and so shares its card.
 - A card corrects its line's token alone (`POST /cards/{id}/reading` and `/word`), since a
   heteronym's reading belongs to one occurrence. The token's word then gets its card, created or
   restored. The old card is deleted if the token belonged to it and it has no reviews. Which
