@@ -350,6 +350,7 @@ function SearchedOptions<T>({
   renderOption,
   isSelected = () => false,
   canRepick = false,
+  refetchAfterApply = false,
 }: {
   searchLabel: string
   noneFound: string
@@ -361,6 +362,7 @@ function SearchedOptions<T>({
   renderOption: (option: T) => ReactNode
   isSelected?: (option: T) => boolean
   canRepick?: boolean
+  refetchAfterApply?: boolean
 }) {
   const [options, setOptions] = useState<T[] | null>(null)
   const { saving: searching, error: searchError, save: runSearch } = useSave()
@@ -406,7 +408,15 @@ function SearchedOptions<T>({
               disabled={applying || (selected && !canRepick)}
               onClick={(e) => {
                 e.stopPropagation()
-                applyOption(() => apply(option), onTokensUpdated)
+                applyOption(
+                  () => apply(option),
+                  (tokens) => {
+                    onTokensUpdated(tokens)
+                    // Separate from the save, so a failed search can't hide
+                    // that it worked.
+                    if (refetchAfterApply) runSearch(search, setOptions)
+                  },
+                )
               }}
             >
               {renderOption(option)}
@@ -447,6 +457,7 @@ function AlternateReadingSearch({
         )
       }
       onTokensUpdated={onTokensUpdated}
+      refetchAfterApply
       optionKey={(option) => option.reading}
       renderOption={(option) => renderFuriganaSpans(option.furigana_spans)}
     />

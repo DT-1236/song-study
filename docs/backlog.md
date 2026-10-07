@@ -33,10 +33,3 @@ so it can be picked up without re-deriving the reasoning.
   `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
   within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
   fix depends on Postgres's snapshot rules.
-- Drop a reading picked from the document page's "Look for other readings" list from that list.
-  `AlternateReadingSearch` (`DocumentViewPage.tsx`) filters out `own` options once, when it
-  fetches, and `SearchedOptions` keeps the result in state. Picking one makes it a correction of
-  the token's own (`select_reading`), so `ReadingOptions` shows it selected, but it stays listed
-  below. Have `SearchedOptions` run `search` again after a successful `apply`, so the server
-  recomputes `own`, for `AlternateReadingSearch` only: `PieceWordPicker` shows its pick selected
-  through `isSelected` and must keep it listed. Model: Sonnet 5, low effort.
