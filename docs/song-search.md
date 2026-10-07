@@ -143,8 +143,12 @@ when it's within tolerance and synced.
 
 **`frontend/src/App.css`:** add styles for `.song-search`, `.song-results`
 and `.lrclib-matches`, reusing the existing tokens (`--border`,
-`--bg-elevated`, `--accent`). `.new-document-form` no longer has a bare
-`button` rule, so the new buttons need no workaround.
+`--bg-elevated`, `--accent`). `.new-document-form button` (`App.css`) gives
+every button in the form `margin-top: 1rem` and `padding: 0.6rem 1.2rem`.
+Qualify the new button rules so they outrank it, as the other rules
+commented "Qualified to outrank .new-document-form button" do (e.g.
+`.new-document-form .song-result`). Don't narrow the shared rule as part of
+this work.
 
 ### Tests (`backend/tests/`, no network, no lyrics in fixtures)
 - `test_lrclib.py`: extend `FakeLrclib` to route `/api/search` URLs by their
