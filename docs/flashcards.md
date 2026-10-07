@@ -1262,10 +1262,13 @@ migrations 0027, 0029 and 0030, `CardCorrectionPanel.tsx`) — what later steps 
   correction a word takes is `CardTokens.correction`: `reading`, `word` (with its piece), or none,
   for a grammar term or an accepted phrase, which a reading pick would split. A queued card's
   `Line` carries it, and `correct_card` refuses any other.
-- The reading only shows on the reveal, so a session holds each answer until the card is left
-  (Next, push-out, remove, or leaving the page, sent with `keepalive`), and a correction drops it
-  unrated. Reviewed and accuracy count only answers sent; the summary's readiness waits for them.
-  `w` opens the correction panel, whose `1`–`9` pick and Esc cancels.
+- A session sends each answer as it's given. The reading only shows on the reveal, so a correction
+  made there undoes the card's review from that line (`review_id`, which `/review` returns): the
+  review is deleted and the card's schedule from before it, kept on the review
+  (`study_reviews.prev_*`), restored. A review the schedule has moved on from (a later review, or a
+  push-out) stands. Reviewed and accuracy count the answers to cards left uncorrected; the summary's
+  readiness waits for every answer to be saved. `w` opens the correction panel, whose `1`–`9` pick
+  and Esc cancels.
 - The popup's edge-nudge also re-runs when the popup resizes, since a piece's word options load
   into it after it opens.
 - Checked in a headless browser against the test database: add, remove and restore; a piece pick;

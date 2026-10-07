@@ -12,6 +12,7 @@ from app.glosses import with_picked_words
 from app.main import (
     CardReadingCorrection,
     CardWordCorrection,
+    PushOut,
     ReviewAnswer,
 )
 from tests.support import (
@@ -31,6 +32,7 @@ from tests.support import (
     get_document_words,
     get_piece_words,
     pick_piece_word,
+    push_out_card,
     review_card,
     start_song_session,
     suspend_card,
@@ -369,13 +371,20 @@ def _card_for(document_id: int, surface: str, piece: int | None = None):
     )
 
 
-def _correct_reading(card_id: int, document_id: int, surface: str, reading: str):
+def _correct_reading(
+    card_id: int,
+    document_id: int,
+    surface: str,
+    reading: str,
+    review_id: int | None = None,
+):
     return correct_card_reading(
         card_id,
         CardReadingCorrection(
             document_id=document_id,
             token_id=document_tokens(document_id, surface)[0].id,
             reading=reading,
+            review_id=review_id,
         ),
     )
 
@@ -397,23 +406,109 @@ def test_correcting_a_cards_reading_moves_the_song_to_another_card(committed_eng
     ]
 
 
+def _answer(card_id: int, correct: bool = True):
+    return review_card(card_id, ReviewAnswer(correct=correct, duration_ms=2000))
+
+
+def _reviews(engine) -> list[int]:
+    with engine.connect() as conn:
+        return (
+            conn.execute(text("SELECT id FROM study_reviews ORDER BY id"))
+            .scalars()
+            .all()
+        )
+
+
+def _tsurai():
+    return user_cards()[word_key("辛い", "つらい")]
+
+
 def test_a_corrected_card_with_reviews_keeps_them(committed_engine):
     document_id = create_tokenized_document(text="辛い")
     old = _card_for(document_id, "辛い")
-    review_card(old.id, ReviewAnswer(correct=True, duration_ms=2000))
+    review = _answer(old.id)
 
     correction = _correct_reading(old.id, document_id, "辛い", "からい")
 
     assert correction.kept
-    cards = user_cards()
-    assert set(cards) == {word_key("辛い", "つらい"), word_key("辛い", "からい")}
-    assert cards[word_key("辛い", "つらい")].last_review is not None
-    with committed_engine.connect() as conn:
-        reviewed = (
-            conn.execute(text("SELECT card_id FROM study_reviews")).scalars().all()
-        )
+    assert set(user_cards()) == {word_key("辛い", "つらい"), word_key("辛い", "からい")}
+    assert _tsurai().last_review is not None
     # The correction itself is no review.
-    assert reviewed == [old.id]
+    assert _reviews(committed_engine) == [review.review_id]
+
+
+def test_correcting_a_card_just_answered_undoes_its_review(committed_engine):
+    document_id = create_tokenized_document(text="辛い")
+    old = _card_for(document_id, "辛い")
+    review = _answer(old.id)
+
+    correction = _correct_reading(
+        old.id, document_id, "辛い", "からい", review.review_id
+    )
+
+    # With its one review undone, nothing was learned on it.
+    assert not correction.kept
+    assert set(user_cards()) == {word_key("辛い", "からい")}
+    assert _reviews(committed_engine) == []
+
+
+def test_undoing_a_review_restores_the_schedule_from_before_it(committed_engine):
+    document_id = create_tokenized_document(text="辛い")
+    old = _card_for(document_id, "辛い")
+    first = _answer(old.id)
+    after_first = _tsurai()
+    second = _answer(old.id, correct=False)
+
+    correction = _correct_reading(
+        old.id, document_id, "辛い", "からい", second.review_id
+    )
+
+    assert correction.kept
+    assert _tsurai() == after_first
+    assert _reviews(committed_engine) == [first.review_id]
+
+
+def test_a_review_the_schedule_has_moved_on_from_stands(committed_engine):
+    document_id = create_tokenized_document(text="辛い")
+    old = _card_for(document_id, "辛い")
+    first = _answer(old.id)
+    # Answered again elsewhere while this card was on screen.
+    second = _answer(old.id)
+    after_second = _tsurai()
+
+    correction = _correct_reading(
+        old.id, document_id, "辛い", "からい", first.review_id
+    )
+
+    assert correction.kept
+    assert _tsurai() == after_second
+    assert _reviews(committed_engine) == [first.review_id, second.review_id]
+
+
+def test_a_review_pushed_out_since_stands(committed_engine):
+    document_id = create_tokenized_document(text="辛い")
+    old = _card_for(document_id, "辛い")
+    review = _answer(old.id)
+    push_out_card(old.id, PushOut(months=1))
+    pushed = _tsurai()
+
+    _correct_reading(old.id, document_id, "辛い", "からい", review.review_id)
+
+    assert _tsurai() == pushed
+    assert _reviews(committed_engine) == [review.review_id]
+
+
+def test_undoing_another_cards_review_is_refused(committed_engine):
+    document_id = create_tokenized_document(text="辛い 君")
+    old = _card_for(document_id, "辛い")
+    review = _answer(_card_for(document_id, "君").id)
+
+    with pytest.raises(HTTPException) as caught:
+        _correct_reading(old.id, document_id, "辛い", "からい", review.review_id)
+
+    assert caught.value.status_code == 404
+    assert set(user_cards()) == {word_key("辛い", "つらい"), word_key("君", "きみ")}
+    assert _reviews(committed_engine) == [review.review_id]
 
 
 def test_a_correction_to_a_word_already_carded_restores_that_card(committed_engine):

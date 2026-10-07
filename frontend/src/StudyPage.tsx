@@ -9,13 +9,12 @@ import {
   startSongSession,
   suspendCard,
 } from './api'
-import type { PushOutMonths, StudyQueue } from './api'
+import type { PushOutMonths, ReviewResult, StudyQueue } from './api'
 import { CardCorrectionPanel } from './CardCorrectionPanel'
 import { KanjiSidebar } from './KanjiSidebar'
 import { ReadinessMeter } from './ReadinessMeter'
 import { StudyCardView } from './StudyCardView'
 import { useApiResource } from './useApiResource'
-import { useLatest } from './useLatest'
 import { useLineEndPolling } from './useLineEndPolling'
 import { usePersistentState } from './usePersistentState'
 import { YouTubePlayer } from './YouTubePlayer'
@@ -43,13 +42,11 @@ const EMPTY_TALLY: Tally = {
   nextDue: null,
 }
 
-// An answer to the card on screen, sent once the card is left (see
-// commitAnswer).
+// An answer to the card on screen, sent as it's given.
 type Answer = {
-  cardId: number
   correct: boolean
-  durationMs: number
-  documentId: number | null
+  // Its review, once saved; null if it failed to save.
+  saved: Promise<ReviewResult | null>
 }
 
 // The song's readiness, fetched once the session that changed it is over
@@ -139,10 +136,10 @@ function StudySession({
   const [tally, setTally] = useState(EMPTY_TALLY)
   const [error, setError] = useState<string | null>(null)
   const shownAt = useRef(performance.now())
-  // The answer to the card on screen, sent only once the card is left: the
+  // The answer to the card on screen, counted once the card is left: the
   // reveal is where a wrong reading first shows, and correcting it there
-  // abandons the review rather than logging one against the wrong word.
-  const pendingAnswer = useRef<Answer | null>(null)
+  // undoes the review rather than leaving one against the wrong word.
+  const answer = useRef<Answer | null>(null)
   // Settles once every answer sent so far is saved or has failed.
   const answersSent = useRef<Promise<unknown>>(Promise.resolve())
 
@@ -183,46 +180,28 @@ function StudySession({
     playerRef.current?.pause(),
   )
 
-  // Sends the answer held for the card on screen, if any. `keepalive` for
-  // a page that's going away.
-  function commitAnswer(keepalive = false) {
-    const answer = pendingAnswer.current
-    if (!answer) return
-    pendingAnswer.current = null
+  // Counts the answer to the card on screen, if any, into the tally.
+  function countAnswer() {
+    const given = answer.current
+    if (!given) return
+    answer.current = null
     setTally((t) => ({
       ...t,
       answered: t.answered + 1,
-      correct: t.correct + (answer.correct ? 1 : 0),
+      correct: t.correct + (given.correct ? 1 : 0),
     }))
-    const sent = reviewCard(answer.cardId, answer, keepalive)
-      .then(({ card: scheduled }) =>
-        setTally((t) => ({
-          ...t,
-          nextDue:
-            t.nextDue === null || scheduled.due < t.nextDue
-              ? scheduled.due
-              : t.nextDue,
-        })),
-      )
-      .catch((err) =>
-        setError(errorMessage(err, 'Failed to save your answer.')),
-      )
-    answersSent.current = Promise.all([answersSent.current, sent])
+    given.saved.then((result) => {
+      if (!result) return
+      const due = result.card.due
+      setTally((t) => ({
+        ...t,
+        nextDue: t.nextDue === null || due < t.nextDue ? due : t.nextDue,
+      }))
+    })
   }
 
-  // An answer still held when the session is left is sent all the same.
-  const commitAnswerRef = useLatest(commitAnswer)
-  useEffect(() => {
-    const flush = () => commitAnswerRef.current(true)
-    window.addEventListener('pagehide', flush)
-    return () => {
-      window.removeEventListener('pagehide', flush)
-      flush()
-    }
-  }, [commitAnswerRef])
-
   function advance() {
-    commitAnswer()
+    countAnswer()
     setIndex((i) => i + 1)
     setPicked(null)
     setPanel(null)
@@ -234,12 +213,20 @@ function StudySession({
   function pick(option: number) {
     if (!card || picked !== null) return
     setPicked(option)
-    pendingAnswer.current = {
-      cardId: card.id,
-      correct: option === card.answer,
+    const correct = option === card.answer
+    const saved = reviewCard(card.id, {
+      correct,
       durationMs: Math.round(performance.now() - shownAt.current),
       documentId: card.line?.document_id ?? null,
-    }
+    }).catch((err) => {
+      setError(errorMessage(err, 'Failed to save your answer.'))
+      return null
+    })
+    answer.current = { correct, saved }
+    // Settling to nothing, so the chain doesn't hold every review returned.
+    answersSent.current = Promise.all([answersSent.current, saved]).then(
+      () => {},
+    )
   }
 
   // Takes the card out of today's queue without rating it, then moves on.
@@ -249,7 +236,6 @@ function StudySession({
     failure: string,
   ) {
     // An answer already given is saved first, so that this lands after it.
-    commitAnswer()
     answersSent.current
       .then(request)
       .then(() => {
@@ -274,9 +260,10 @@ function StudySession({
   }
 
   // The card asked about the wrong word, which is now corrected: its
-  // answer, if any, is dropped unrated, and the session moves on.
+  // answer, if any, was undone with it and goes uncounted, and the session
+  // moves on.
   function handleCorrected(message: string) {
-    pendingAnswer.current = null
+    answer.current = null
     setTally((t) => ({ ...t, corrected: t.corrected + 1 }))
     advance()
     setNotice(message)
@@ -388,6 +375,9 @@ function StudySession({
         <CardCorrectionPanel
           card={card}
           line={card.line}
+          reviewId={async () =>
+            (await answer.current?.saved)?.review_id ?? null
+          }
           onCorrected={handleCorrected}
           onCancel={() => setPanel(null)}
         />
