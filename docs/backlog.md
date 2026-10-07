@@ -31,12 +31,6 @@ so it can be picked up without re-deriving the reasoning.
   entry's senses; `_spelling`'s `picked` special case then goes, since `_kanji_spelling` finds the
   right form. Model: Opus 5, high effort — touches the gloss cache's piece shape and the card
   key a pick produces, where a mistake is silent.
-- Reload a song's words (`GET /documents/{id}/words`) only after an edit that can change which
-  word a token is (a reading, a piece word, accepting or unmerging a phrase), not on every
-  `tokens` change: `DocumentViewPage.tsx`'s effect keys on `tokens`, so ignoring a gloss or
-  picking a phrase's furigana also recomputes every word of the song. Bump a counter from those
-  handlers instead. Model: Sonnet 5, medium effort — each token-editing handler needs sorting
-  into "changes a word" or not.
 - Send each review as soon as it's answered and have a card correction undo it, instead of
   holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
   a closed tab). Needs `study_reviews` to keep the card's schedule from before each review, the

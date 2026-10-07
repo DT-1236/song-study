@@ -279,6 +279,10 @@ function renderFuriganaSpans(spans: FuriganaSpan[]) {
   )
 }
 
+// Takes the tokens an edit changed. `changesWords` is false for an edit that
+// can't make a token another word, which spares reloading the song's words.
+type TokensUpdated = (tokens: Token[], changesWords?: boolean) => void
+
 function ReadingCorrectionForm({
   targets,
   documentId,
@@ -286,7 +290,7 @@ function ReadingCorrectionForm({
 }: {
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const inputId = useId()
   const [value, setValue] = useState('')
@@ -352,7 +356,7 @@ function SearchedOptions<T>({
   heading?: string
   search: () => Promise<T[]>
   apply: (option: T) => Promise<Token[]>
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   optionKey: (option: T) => string
   renderOption: (option: T) => ReactNode
   isSelected?: (option: T) => boolean
@@ -423,7 +427,7 @@ function AlternateReadingSearch({
 }: {
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   return (
     <SearchedOptions<ConflictOptionValue>
@@ -456,7 +460,7 @@ function ReadingOptions({
   token: Token
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const [applyingId, setApplyingId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -516,7 +520,7 @@ function IgnoreGlossButton({
 }: {
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const { saving, error, save } = useSave()
   const ignored = targets.every((t) => t.gloss_ignored)
@@ -539,7 +543,7 @@ function IgnoreGlossButton({
                 targets.map((t) => t.id),
                 !ignored,
               ),
-            onTokensUpdated,
+            (updated) => onTokensUpdated(updated, false),
           )
         }}
       >
@@ -607,7 +611,7 @@ function PieceWordPicker({
   // Tokens sung in katakana, the first the one the popup is for.
   targets: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const shown = targets[0].gloss?.pieces[piece]
   if (!shown) return null
@@ -673,7 +677,7 @@ function PhraseSuggestionOption({
   suggestion: Conflict & { kind: 'phrase'; value: PhraseConflictValue }
   instances: Token[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
   const { saving, error, save } = useSave()
@@ -727,7 +731,7 @@ function UnmergePhraseOption({
 }: {
   token: Token
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const { saving, error, save } = useSave()
 
@@ -764,7 +768,7 @@ function RegroupOption({
 }: {
   group: Conflict & { kind: 'predicate'; value: PredicateGroupValue }
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const { saving, error, save } = useSave()
 
@@ -798,7 +802,7 @@ function PhraseFuriganaOptions({
 }: {
   token: Token
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const options = phraseFuriganaOptions(token)
   const { saving: applying, error, save } = useSave()
@@ -821,7 +825,7 @@ function PhraseFuriganaOptions({
               e.stopPropagation()
               save(
                 () => resolvePhraseFurigana(documentId, option.id),
-                onTokensUpdated,
+                (updated) => onTokensUpdated(updated, false),
               )
             }}
           >
@@ -852,7 +856,7 @@ function TokenDecisions({
   // Whether to offer typing a reading even when every target has a gloss.
   offerCorrection: boolean
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   // A token in an accepted phrase is read as the phrase: split it first.
   // Filtered here too, so a selection including one can't sweep it in.
@@ -942,7 +946,7 @@ function ConflictResolver({
   // For a token sung in katakana, the pieces of its gloss that are words.
   wordPieces: number[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
   // `token` first, so its own options are the ones offered if it has any.
@@ -1170,7 +1174,7 @@ function GlossPopup({
   // own, or for a token sung in katakana, those of its gloss's pieces.
   words: DocumentWord[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
@@ -1306,7 +1310,7 @@ function SelectionPanel({
   instances: Token[]
   panelRef: React.Ref<HTMLDivElement>
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onClear: () => void
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
@@ -1430,7 +1434,7 @@ const TokenSpan = memo(function TokenSpan({
   // The words its popup offers to add to the user's cards.
   words: DocumentWord[]
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   onClick: (index: number, event: React.MouseEvent<HTMLElement>) => void
   onHoverEnter: (tokenId: number) => void
@@ -1485,7 +1489,7 @@ const TokenizedText = memo(function TokenizedText({
   // by token id.
   wordsByToken: Map<number, DocumentWord[]>
   documentId: number
-  onTokensUpdated: (tokens: Token[]) => void
+  onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   playingLine: number | null
   // Each line's timing (null for an untimed line), when lines can be played
@@ -2467,18 +2471,26 @@ export function DocumentViewPage() {
     }
   }, [docId, docTitle, docText, lyricsSaves, ensureProcessed])
 
-  const handleTokensUpdated = useCallback((updated: Token[]) => {
-    const byId = new Map(updated.map((t) => [t.id, t]))
-    setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
-  }, [])
+  // Counts the edits that can change which word a token is.
+  const [wordEdits, setWordEdits] = useState(0)
+  const handleTokensUpdated = useCallback<TokensUpdated>(
+    (updated, changesWords = true) => {
+      const byId = new Map(updated.map((t) => [t.id, t]))
+      setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
+      if (changesWords) setWordEdits((n) => n + 1)
+    },
+    [],
+  )
 
   // The words the user can add to their cards, loaded again whenever the
-  // tokens change, since a new reading or a word picked for katakana can
-  // make a token another word. The last ones loaded stay meanwhile; if they
-  // can't be loaded, the popups offer no study list.
+  // tokens are (re)processed or an edit can make a token another word (a new
+  // reading, a word picked for katakana, a phrase accepted or split). The
+  // last ones loaded stay meanwhile; if they can't be loaded, the popups
+  // offer no study list.
   const [words, setWords] = useState<DocumentWord[] | null>(null)
+  const hasTokens = tokens !== null
   useEffect(() => {
-    if (!tokens) return
+    if (!hasTokens) return
     let cancelled = false
     fetchDocumentWords(documentId)
       .then((result) => {
@@ -2490,7 +2502,7 @@ export function DocumentViewPage() {
     return () => {
       cancelled = true
     }
-  }, [documentId, tokens])
+  }, [documentId, hasTokens, wordEdits])
 
   const wordsByToken = useMemo(() => {
     const byToken = new Map<number, DocumentWord[]>()
