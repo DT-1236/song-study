@@ -51,3 +51,17 @@ so it can be picked up without re-deriving the reasoning.
   review's id returned by `/review`, and `correct_card` to delete that review and restore the
   schedule when it's the card's latest. Model: Opus 5, high effort — a migration plus FSRS state
   restored exactly, where a mistake corrupts scheduling silently.
+
+## Found while checking flashcards step 9 in a browser
+
+- Make a song session include cards another session start enrolled moments before it.
+  `study._due_cards` filters on `c.due <= now()`, and `now()` is the transaction's start time,
+  while a new card's `due` defaults to its own transaction's `now()`. When two
+  `POST /documents/{id}/study` overlap (React's StrictMode sends two in dev; two tabs do in
+  production), the second can start its transaction first, wait on the first's document lock,
+  then leave out every card the first enrolled, since their `due` is later than its `now()`.
+  Seen once as a 3-card session of 10 due cards. Compare against `statement_timestamp()` in
+  `_due_cards` (and in `song_readiness`'s due count if it's read the same way), and add a test that
+  starts two sessions concurrently with `BackgroundCall` and checks both return every card.
+  Model: Sonnet 5, medium effort — the fix is one function call, but the test has to force the
+  interleaving with `wait_for_lock_wait`.
