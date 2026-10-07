@@ -36,6 +36,7 @@ from app.tokenization import (
     a_split_decomposition,
     citation_reading,
     conflict_option_value,
+    conjugation_family,
     conjugation_type_of,
     furigana_spans_for_reading,
     headword_reading,
@@ -426,18 +427,22 @@ def is_headword(text: str) -> bool:
     return phrase_prefix_state(text)[0]
 
 
-def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
+def _scored_headword_kana(text: str) -> list[tuple[bool, int, str, str]]:
     """Every kana form JMDict lists for the entries with `text` as a headword,
-    as (not common, entry order, kana form), so sorting puts common readings
+    as (not common, entry order, kana form, its entry's conjugation type as
+    _jmdict_conjugation_class gives it), so sorting puts common readings
     first."""
     jam = get_jamdict()
     result = jam.lookup(text, lookup_chars=False, lookup_ne=False)
-    scored: list[tuple[bool, int, str]] = []
+    scored: list[tuple[bool, int, str, str]] = []
     for order, e in enumerate(result.entries):
         matches_kanji = any(k.text == text for k in e.kanji_forms)
         matches_kana = any(k.text == text for k in e.kana_forms)
         if not matches_kanji and not matches_kana:
             continue
+        conjugation = _jmdict_conjugation_class(
+            [pos for sense in e.senses for pos in sense.pos]
+        )
         if matches_kana and not matches_kanji:
             candidates = [k for k in e.kana_forms if k.text == text]
         else:
@@ -448,7 +453,7 @@ def _scored_headword_kana(text: str) -> list[tuple[bool, int, str]]:
             has_priority = bool(k.pri) or any(
                 kj.pri for kj in e.kanji_forms if kj.text == text
             )
-            scored.append((not has_priority, order, k.text))
+            scored.append((not has_priority, order, k.text, conjugation))
     return scored
 
 
@@ -459,21 +464,20 @@ def resolve_phrase_reading(surface: str) -> str | None:
     scored = _scored_headword_kana(surface)
     if not scored:
         return None
-    _, _, kana_text = min(scored, key=lambda row: row[:2])
+    _, _, kana_text, _ = min(scored, key=lambda row: row[:2])
     return to_hiragana(kana_text)
 
 
-def search_readings(dictionary_form: str) -> list[str]:
+def search_readings(dictionary_form: str) -> dict[str, str]:
     """Every distinct katakana reading JMDict lists for `dictionary_form` as
-    a headword, in any part of speech, common ones first. Broader than
-    heteronym_readings, which keeps to the token's part of speech and so
-    misses 期 read ご."""
+    a headword, in any part of speech, common ones first, each with the
+    conjugation type of the entry it's listed under (see
+    _jmdict_conjugation_class). Broader than heteronym_readings, which keeps
+    to the token's part of speech and so misses 期 read ご."""
     scored = sorted(_scored_headword_kana(dictionary_form), key=lambda row: row[:2])
-    readings: list[str] = []
-    for _, _, kana_text in scored:
-        reading = to_katakana(kana_text)
-        if reading not in readings:
-            readings.append(reading)
+    readings: dict[str, str] = {}
+    for _, _, kana_text, conjugation in scored:
+        readings.setdefault(to_katakana(kana_text), conjugation)
     return readings
 
 
@@ -482,37 +486,12 @@ def _jmdict_conjugation_class(part_of_speech: list[str]) -> str:
     glosses for a verb: '五段' for godan, '下一段' for ichidan, '' for anything
     else (including the irregular verbs)."""
     for pos in part_of_speech:
+        # jamdict spells out JMDict's v5* and v1 codes, each starting so.
         if pos.startswith("Godan verb"):
             return "五段"
         if pos.startswith("Ichidan verb"):
             return "下一段"
     return ""
-
-
-def _same_projectable_class(a: str, b: str) -> bool:
-    """Whether the conjugation types `a` and `b` are both godan or both
-    ichidan, the two classes project_citation_reading can project."""
-    return (
-        a.startswith("五段")
-        and b.startswith("五段")
-        or (a.startswith(("上一段", "下一段")) and b.startswith(("上一段", "下一段")))
-    )
-
-
-def _headword_conjugation_classes(text: str) -> dict[str, str]:
-    """The conjugation class of each katakana reading JMDict lists for `text`
-    as a headword, by that reading's own entry."""
-    jam = get_jamdict()
-    classes: dict[str, str] = {}
-    for e in jam.lookup(text, lookup_chars=False, lookup_ne=False).entries:
-        if not any(k.text == text for k in (*e.kanji_forms, *e.kana_forms)):
-            continue
-        conjugation = _jmdict_conjugation_class(
-            [pos for sense in e.senses for pos in sense.pos]
-        )
-        for k in e.kana_forms:
-            classes.setdefault(to_katakana(k.text), conjugation)
-    return classes
 
 
 def alternate_reading_options(
@@ -536,10 +515,10 @@ def alternate_reading_options(
     needs_projection = (
         surface != dictionary_form and reading_katakana != dict_form_citation
     )
-    alt_classes = _headword_conjugation_classes(dictionary_form)
+    family = conjugation_family(conjugation_type)
 
     options = []
-    for alt_citation in search_readings(dictionary_form):
+    for alt_citation, alt_conjugation in search_readings(dictionary_form).items():
         if alt_citation == own_citation:
             continue
         # The token's conjugation type is its own reading's; another reading
@@ -549,12 +528,11 @@ def alternate_reading_options(
         # If a missing alternate here becomes a real problem (きたる on 来た,
         # an inflected い-adjective), the fix is to generate the alternate's
         # reading from its own paradigm: a table keyed by its JMDict class
-        # (alt_classes) and the token's Sudachi inflection form
+        # (alt_conjugation) and the token's Sudachi inflection form
         # (part_of_speech[5]), replacing project_citation_reading, which
         # conflicts._project_onto_member also uses.
-        alt_conjugation = alt_classes.get(alt_citation, conjugation_type)
-        if needs_projection and not _same_projectable_class(
-            alt_conjugation, conjugation_type
+        if needs_projection and (
+            family is None or conjugation_family(alt_conjugation) != family
         ):
             continue
         alt_surface_reading = project_citation_reading(

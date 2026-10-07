@@ -106,9 +106,7 @@ def test_offers_a_corrected_tokens_own_options_first(committed_engine):
 
     # Its original reading, き, then the correction, then JMDict's others (きたる
     # doesn't project onto 来た).
-    assert [
-        {k: v for k, v in o.items() if k != "own"} for o in options[: len(own)]
-    ] == own
+    assert options[: len(own)] == [{**o, "own": True} for o in own]
     assert [(o["reading"], o["own"]) for o in options] == [
         ("き", True),
         ("こ", True),

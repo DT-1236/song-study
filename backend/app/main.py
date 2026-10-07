@@ -679,7 +679,7 @@ class GlossPiece(BaseModel):
     senses: list[GlossSense]
     ambiguous_readings: list[str]
     # Whether this is a word, rather than grammar (see app.glosses.is_word_piece).
-    is_word: bool = False
+    is_word: bool
     # What a grammar word or helper verb adds to the word before it, for a
     # piece of a group's gloss (see app.grammar.grammar_note).
     note: str | None = None

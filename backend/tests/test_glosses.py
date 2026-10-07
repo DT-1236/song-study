@@ -198,10 +198,10 @@ class TestSearchReadings:
 
     def test_common_reading_ranks_first(self):
         # き is JMDict-priority-tagged (news2/nf27), ご isn't.
-        assert search_readings("期")[0] == "キ"
+        assert next(iter(search_readings("期"))) == "キ"
 
     def test_a_word_with_one_reading_has_only_that_one(self):
-        assert search_readings("受ける") == ["ウケル"]
+        assert search_readings("受ける") == {"ウケル": "下一段"}
 
 
 class TestAlternateReadingOptions:
