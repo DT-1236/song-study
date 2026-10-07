@@ -241,12 +241,13 @@ def _audio(song: Song, index: int) -> Audio | None:
 
 
 def _occurrences(
-    conn, songs: Iterable[Song]
-) -> tuple[dict[CardKey, list[_Occurrence]], dict[GlossKey, tuple]]:
+    conn, songs: Iterable[Song], glosses: _Glosses
+) -> dict[CardKey, list[_Occurrence]]:
     """Everywhere `songs` have each word and grammar term a card can be for,
-    by key, and the katakana lookups used to find them."""
+    by key. The katakana lookups it finds them by are kept in `glosses`."""
     songs = list(songs)
     katakana = katakana_lookups(conn, (unit for song in songs for unit in song.units))
+    glosses.add(katakana)
     found: dict[CardKey, list[_Occurrence]] = {}
     for song in songs:
         for unit in song.units:
@@ -254,7 +255,7 @@ def _occurrences(
                 found.setdefault(card_tokens.key, []).append(
                     _Occurrence(song, unit, card_tokens)
                 )
-    return found, katakana
+    return found
 
 
 def _choose_occurrence(
@@ -478,9 +479,9 @@ class _Glosses:
     """Words' glosses, looked up as needed and kept for the rest of the
     queue."""
 
-    def __init__(self, conn, found: dict[GlossKey, tuple[object, str]] | None = None):
+    def __init__(self, conn):
         self._conn = conn
-        self._found: dict[GlossKey, tuple[object, str]] = found or {}
+        self._found: dict[GlossKey, tuple[object, str]] = {}
         # Ranked once per word, though a word is drawn for many cards.
         self._senses: dict[_Word, WordSenses] = {}
 
@@ -493,6 +494,11 @@ class _Glosses:
         }
         if missing:
             self._found |= gloss_entries(self._conn, missing.items())
+
+    def add(self, found: dict[GlossKey, tuple]) -> None:
+        """Keep `found`, (entries, source) by gloss key, as already looked
+        up."""
+        self._found |= found
 
     def senses(self, word: _Word) -> WordSenses:
         """`word` as an option shows it, once fetched: no senses unless it's
@@ -523,11 +529,12 @@ class _Library:
         self,
         conn,
         user_id: int,
+        glosses: _Glosses,
         occurrences: dict[CardKey, list[_Occurrence]] | None = None,
     ):
         """`occurrences` in every one of the user's songs, if already
-        found."""
-        self._conn, self._user_id = conn, user_id
+        found, and the queue's `glosses`."""
+        self._conn, self._user_id, self._glosses = conn, user_id, glosses
         self._occurrences = occurrences
         self._song_words: dict[int, list[_Word]] = {}
         self._deck: list[_Word] | None = None
@@ -561,7 +568,9 @@ class _Library:
             }
             if self._occurrences is None:
                 songs = load_songs(self._conn, self._user_id)
-                self._occurrences, _ = _occurrences(self._conn, songs.values())
+                self._occurrences = _occurrences(
+                    self._conn, songs.values(), self._glosses
+                )
             self._deck = [
                 _Word.of(occurrences[0].found)
                 for key, occurrences in self._occurrences.items()
@@ -570,7 +579,7 @@ class _Library:
         return self._deck
 
     def candidates(
-        self, target: _Word, song: Song | None, glosses: _Glosses, rng: random.Random
+        self, target: _Word, song: Song | None, rng: random.Random
     ) -> Iterator[WordSenses]:
         """Words to draw `target`'s wrong options from, best first: those of
         its part of speech from `song`, the line's, then from the user's
@@ -608,9 +617,9 @@ class _Library:
             yield [w for w in others if not same(w)][:_DECK_SAMPLE_SIZE]
 
         for batch in batches():
-            glosses.fetch(batch)
+            self._glosses.fetch(batch)
             for word in batch:
-                yield glosses.senses(word)
+                yield self._glosses.senses(word)
 
 
 def _writes_its_kanji(occurrence: _Occurrence | None) -> bool:
@@ -668,9 +677,9 @@ def queue_contents(
     if it has the card's word, else any of them, all the user's songs; and
     the sidebar entries of their kanji. `rng` draws the lines and options."""
     rng = rng or random.Random()
-    occurrences, katakana_found = _occurrences(conn, songs.values())
-    library = _Library(conn, user_id, occurrences if studied is None else None)
-    glosses = _Glosses(conn, katakana_found)
+    glosses = _Glosses(conn)
+    occurrences = _occurrences(conn, songs.values(), glosses)
+    library = _Library(conn, user_id, glosses, occurrences if studied is None else None)
 
     keys = [CardKey.of(card) for card in cards]
     chosen = [
@@ -712,7 +721,7 @@ def queue_contents(
             song = occurrence.song if occurrence else None
             content = word_content(
                 glosses.senses(target),
-                library.candidates(target, song, glosses, rng),
+                library.candidates(target, song, rng),
                 line,
                 rng,
             )
@@ -754,14 +763,14 @@ def run_through_lines(
     key, to the card's id and retrievability) that it has, the weakest
     first."""
     # Nothing to find the lines of when no word is fading.
-    occurrences, katakana_found = _occurrences(conn, [song]) if weak else ({}, {})
+    glosses = _Glosses(conn)
+    occurrences = _occurrences(conn, [song], glosses) if weak else {}
     present = {key: occurrences[key] for key in weak if key in occurrences}
     words = {
         key: _Word.of(os[0].found)
         for key, os in present.items()
         if key.kind == "recognition"
     }
-    glosses = _Glosses(conn, katakana_found)
     glosses.fetch(words.values())
     notes = grammar_notes()
 
