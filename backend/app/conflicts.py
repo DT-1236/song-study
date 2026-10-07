@@ -1218,7 +1218,8 @@ def token_reading_options(conn, document_id: int, token_id: int) -> list[dict]:
     reading, as select_reading takes them: its own options, or else the
     reading it was tokenized with, then every other reading JMDict has for
     its dictionary form. Each says what picking it does, since select_reading
-    picks a token's own option over any other with its reading.
+    picks a token's own option over any other with its reading, and whether
+    it is one of the token's own (`own`).
 
     Raises TokenNotFound if the document has no token `token_id`."""
     row = conn.execute(
@@ -1250,11 +1251,10 @@ def token_reading_options(conn, document_id: int, token_id: int) -> list[dict]:
         )
     ]
     options: dict[str, dict] = {}
-    for value in [
-        *own,
-        *alternate_reading_options(
-            row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
-        ),
-    ]:
-        options.setdefault(value["reading"], value)
+    for value in own:
+        options.setdefault(value["reading"], {**value, "own": True})
+    for value in alternate_reading_options(
+        row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
+    ):
+        options.setdefault(value["reading"], {**value, "own": False})
     return list(options.values())

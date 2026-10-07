@@ -33,13 +33,6 @@ so it can be picked up without re-deriving the reasoning.
   `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
   within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
   fix depends on Postgres's snapshot rules.
-- Leave the token's own readings out of the document page's "Look for other readings" list as it
-  renders, not once when it's fetched. `AlternateReadingSearch` (`DocumentViewPage.tsx`) filters
-  the fetched list by the readings the targets offer at that moment, and `SearchedOptions` keeps
-  that list in state, so a reading picked from it stays listed below `ReadingOptions`, which now
-  shows it selected. Have `token_reading_options` say which options are the token's own (a flag,
-  or its own field in the response) so the page drops them by that instead of rebuilding the set
-  with `katakanaToHiragana`, and filter in `SearchedOptions`' render. Model: Sonnet 5, low effort.
 - Offer the word picker on every word piece of a katakana token, not only those whose word is
   studyable. `GlossPopup` (`DocumentViewPage.tsx`) builds `wordPieces` from `words`, and
   `cards.document_words` lists only keys `_studyable` accepts, so a piece whose shown word has a

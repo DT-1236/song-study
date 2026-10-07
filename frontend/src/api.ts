@@ -260,6 +260,10 @@ export type ConflictOptionValue = {
   citation_reading?: string
 }
 
+// A reading option from fetchAlternateReadings, which also says whether the
+// token already offers it itself.
+export type AlternateReadingOption = ConflictOptionValue & { own: boolean }
+
 // A suggested multi-token JMDict headword starting at this token (see
 // backend/app/phrase_merge.py): the headword and its reading, the on-page
 // text it covers with any grammar attached after it (真に受け + てみて),
@@ -360,7 +364,7 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
 export async function fetchAlternateReadings(
   documentId: number,
   tokenId: number,
-): Promise<ConflictOptionValue[]> {
+): Promise<AlternateReadingOption[]> {
   const response = await fetch(
     `${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`,
   )

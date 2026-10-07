@@ -104,6 +104,12 @@ def test_offers_a_corrected_tokens_own_options_first(committed_engine):
 
     options = get_alternate_readings(document_id, token.id)
 
-    # Its original reading, き, then the correction, then JMDict's others.
-    assert options[: len(own)] == own
-    assert [o["reading"] for o in options] == ["き", "こ", "きたる"]
+    # Its original reading, き, then the correction, then JMDict's others (きたる
+    # doesn't project onto 来た).
+    assert [
+        {k: v for k, v in o.items() if k != "own"} for o in options[: len(own)]
+    ] == own
+    assert [(o["reading"], o["own"]) for o in options] == [
+        ("き", True),
+        ("こ", True),
+    ]
