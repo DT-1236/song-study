@@ -1,5 +1,4 @@
 import {
-  Children,
   Fragment,
   type ReactNode,
   memo,
@@ -664,8 +663,6 @@ function StudyListControl({
 // Controls kept out of the way until asked for: everything on a token that no
 // underline calls for.
 function MoreOptions({ children }: { children: ReactNode }) {
-  if (Children.toArray(children).length === 0) return null
-
   return (
     <details className="more-options">
       <summary>More options</summary>
@@ -923,27 +920,26 @@ function PhraseFuriganaOptions({
 // one. The first target with options supplies them — a word's options are
 // the same wherever it has any, but not every instance is flagged.
 //
-// Only the decisions an underline calls for are shown; the rest, and the
-// caller's `more`, wait under "More options".
-function TokenDecisions({
+// Split into the decisions an underline calls for, under their title, and
+// the rest, for the caller to keep under "More options". Null if every
+// target is in an accepted phrase.
+function tokenDecisions({
   targets: allTargets,
   offerCorrection,
-  scope,
-  more = [],
   documentId,
   onTokensUpdated,
 }: {
   targets: Token[]
   // Whether to offer typing a reading even when every target has a gloss.
   offerCorrection: boolean
-  // What sets which instances the decisions apply to: shown with the
-  // decisions an underline calls for, or with the others if none does.
-  scope?: ReactNode
-  // Keyed options of the caller's, always under "More options".
-  more?: ReactNode[]
   documentId: number
   onTokensUpdated: TokensUpdated
-}) {
+}): {
+  // Null if no underline calls for a decision.
+  urgent: { title: ReactNode; decisions: ReactNode } | null
+  // Null if there are none.
+  other: ReactNode
+} | null {
   // A token in an accepted phrase is read as the phrase: split it first.
   // Filtered here too, so a selection including one can't sweep it in.
   const targets = allTargets.filter((t) => !isInAcceptedPhrase(t))
@@ -967,7 +963,6 @@ function TokenDecisions({
 
   const readingOptions = source && (
     <ReadingOptions
-      key="reading-options"
       token={source}
       targets={targets}
       documentId={documentId}
@@ -977,7 +972,6 @@ function TokenDecisions({
   const correction = isOov ? (
     (offerCorrection || missingGloss.length > 0) && (
       <ReadingCorrectionForm
-        key="correction"
         targets={targets}
         documentId={documentId}
         onTokensUpdated={onTokensUpdated}
@@ -985,52 +979,56 @@ function TokenDecisions({
     )
   ) : (
     <AlternateReadingSearch
-      key="correction"
       targets={targets}
       documentId={documentId}
       onTokensUpdated={onTokensUpdated}
     />
   )
+  // Never offered without a correction, since a missing gloss makes even an
+  // OOV token offer one: it goes wherever the correction does.
   const ignoreGloss = missingGloss.length > 0 && (
     <IgnoreGlossButton
-      key="ignore-gloss"
       targets={missingGloss}
       documentId={documentId}
       onTokensUpdated={onTokensUpdated}
     />
   )
-  const hasUrgent = readingUrgent || correctionUrgent
+  const otherReading = !readingUrgent && !!readingOptions
+  const otherCorrection = !correctionUrgent && !!correction
 
-  return (
-    <>
-      {hasUrgent && (
+  return {
+    urgent:
+      readingUrgent || correctionUrgent
+        ? {
+            title: readingUrgent && (
+              <div className="conflict-title">
+                {REVIEW_REASON_LABELS[focus.review_reason ?? ''] ??
+                  'Needs review'}
+              </div>
+            ),
+            decisions: (
+              <>
+                {readingUrgent && readingOptions}
+                {correctionUrgent && correction}
+                {correctionUrgent && ignoreGloss}
+              </>
+            ),
+          }
+        : null,
+    other:
+      otherReading || otherCorrection ? (
         <>
-          {readingUrgent && (
-            <div className="conflict-title">
-              {REVIEW_REASON_LABELS[focus.review_reason ?? ''] ??
-                'Needs review'}
+          {otherReading && (
+            <div className="phrase-suggestion">
+              <div className="conflict-note">Readings:</div>
+              {readingOptions}
             </div>
           )}
-          {scope}
-          {readingUrgent && readingOptions}
-          {correctionUrgent && correction}
-          {correctionUrgent && ignoreGloss}
+          {otherCorrection && correction}
+          {otherCorrection && ignoreGloss}
         </>
-      )}
-      <MoreOptions>
-        {!hasUrgent && scope}
-        {more}
-        {!readingUrgent && readingOptions && (
-          <div key="other-readings" className="phrase-suggestion">
-            <div className="conflict-note">Readings:</div>
-            {readingOptions}
-          </div>
-        )}
-        {!correctionUrgent && correction}
-        {!correctionUrgent && ignoreGloss}
-      </MoreOptions>
-    </>
-  )
+      ) : null,
+  }
 }
 
 function ApplyToAllOption({
@@ -1082,6 +1080,23 @@ function ConflictResolver({
   const isOov = token.review_reason === 'oov'
   const suggestion = phraseSuggestion(token)
   const regroup = splitPredicateGroup(token)
+  // A token in an accepted phrase is decided on as the phrase instead.
+  const decisions = isInAcceptedPhrase(token)
+    ? null
+    : tokenDecisions({
+        targets,
+        offerCorrection: false,
+        documentId,
+        onTokensUpdated,
+      })
+  const scope = instances.length > 1 && (
+    <ApplyToAllOption
+      count={instances.length}
+      surface={token.surface}
+      checked={applyToAll}
+      onChange={setApplyToAll}
+    />
+  )
 
   // No early return: the reading search is offered for every non-OOV token,
   // flagged or not (期 read ご never is).
@@ -1097,7 +1112,7 @@ function ConflictResolver({
           onTokensUpdated={onTokensUpdated}
         />
       )}
-      {isInAcceptedPhrase(token) ? (
+      {!decisions ? (
         <MoreOptions>
           <PhraseFuriganaOptions
             token={token}
@@ -1120,49 +1135,48 @@ function ConflictResolver({
               </div>
             </>
           )}
-          <TokenDecisions
-            targets={targets}
-            offerCorrection={false}
-            scope={
-              instances.length > 1 && (
-                <ApplyToAllOption
-                  count={instances.length}
-                  surface={token.surface}
-                  checked={applyToAll}
-                  onChange={setApplyToAll}
-                />
-              )
-            }
-            more={[
-              isMerged(token) && (
+          {decisions.urgent && (
+            <>
+              {decisions.urgent.title}
+              {scope}
+              {decisions.urgent.decisions}
+            </>
+          )}
+          {/* "Apply to all" goes with the urgent decisions if there are any,
+              and under "More options" otherwise. */}
+          {((!decisions.urgent && scope) ||
+            isMerged(token) ||
+            regroup ||
+            wordPieces.length > 0 ||
+            decisions.other) && (
+            <MoreOptions>
+              {!decisions.urgent && scope}
+              {isMerged(token) && (
                 <UnmergePhraseOption
-                  key="unmerge"
                   token={token}
                   documentId={documentId}
                   onTokensUpdated={onTokensUpdated}
                 />
-              ),
-              regroup && (
+              )}
+              {regroup && (
                 <RegroupOption
-                  key="regroup"
                   group={regroup}
                   documentId={documentId}
                   onTokensUpdated={onTokensUpdated}
                 />
-              ),
-              ...wordPieces.map((piece) => (
+              )}
+              {wordPieces.map((piece) => (
                 <PieceWordPicker
-                  key={`piece-${piece}`}
+                  key={piece}
                   piece={piece}
                   targets={targets}
                   documentId={documentId}
                   onTokensUpdated={onTokensUpdated}
                 />
-              )),
-            ]}
-            documentId={documentId}
-            onTokensUpdated={onTokensUpdated}
-          />
+              ))}
+              {decisions.other}
+            </MoreOptions>
+          )}
         </>
       )}
     </div>
@@ -1460,6 +1474,23 @@ function SelectionPanel({
   const targets = applyToAll
     ? [...selected, ...instances.filter((t) => !selected.includes(t))]
     : selected
+  const decisions =
+    kind === 'group'
+      ? tokenDecisions({
+          targets,
+          offerCorrection: true,
+          documentId,
+          onTokensUpdated,
+        })
+      : null
+  const scope = instances.length > selected.length && (
+    <ApplyToAllOption
+      count={instances.length}
+      surface={selected[0].surface}
+      checked={applyToAll}
+      onChange={setApplyToAll}
+    />
+  )
 
   // Pinned to the top of the screen, and no taller than the page content
   // above the lyrics (see .selection-anchor). Clicks inside stop here, since
@@ -1488,22 +1519,21 @@ function SelectionPanel({
               anywhere else to finish.
             </div>
           )}
-          <TokenDecisions
-            targets={targets}
-            offerCorrection
-            scope={
-              instances.length > selected.length && (
-                <ApplyToAllOption
-                  count={instances.length}
-                  surface={selected[0].surface}
-                  checked={applyToAll}
-                  onChange={setApplyToAll}
-                />
-              )
-            }
-            documentId={documentId}
-            onTokensUpdated={onTokensUpdated}
-          />
+          {decisions?.urgent && (
+            <>
+              {decisions.urgent.title}
+              {scope}
+              {decisions.urgent.decisions}
+            </>
+          )}
+          {/* As in ConflictResolver, "Apply to all" goes with the urgent
+              decisions if there are any. */}
+          {decisions && ((!decisions.urgent && scope) || decisions.other) && (
+            <MoreOptions>
+              {!decisions.urgent && scope}
+              {decisions.other}
+            </MoreOptions>
+          )}
         </>
       ) : (
         <div className="conflict-note">
