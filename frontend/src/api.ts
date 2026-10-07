@@ -756,6 +756,8 @@ export type DocumentWord = {
   lookup_form: string
   // Null for a grammar term.
   reading: string | null
+  // How it can be corrected, as on a card (see CardLine).
+  correction: 'reading' | 'word' | null
   // The user's card for it, removed or not; null if they have none.
   card: StudyCard | null
 }

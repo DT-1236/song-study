@@ -21,6 +21,7 @@ from app.card_content import Line, Option, Queue, RunLine
 from app.cards import CardKind, NotStudyable, document_words, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
+    NON_READING_KINDS,
     ConflictNotFound,
     TokenNotFound,
     TokensNotGroupable,
@@ -1117,38 +1118,35 @@ def get_alternate_readings(
     document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[dict]:
     """The default reading of token_id's dictionary form and every other one
-    JMDict has for it, plus the token's own reading options, as options to apply through /tokens/reading."""
+    JMDict has for it, plus the token's own reading options, as options to
+    apply through /tokens/reading."""
     with engine.connect() as conn:
         row = conn.execute(
             text(
-                "SELECT surface, reading_katakana, dictionary_form, normalized_form "
-                "FROM tokens WHERE id = :token_id AND document_id = :document_id"
+                """
+                SELECT t.surface, t.reading_katakana, t.dictionary_form, t.normalized_form,
+                       (SELECT COALESCE(jsonb_agg(c.value ORDER BY c.id), '[]') FROM conflicts c
+                        WHERE c.token_id = t.id AND c.kind <> ALL(:non_reading_kinds)) AS own
+                FROM tokens t WHERE t.id = :token_id AND t.document_id = :document_id
+                """
             ),
-            {"token_id": token_id, "document_id": document_id},
+            {
+                "token_id": token_id,
+                "document_id": document_id,
+                "non_reading_kinds": list(NON_READING_KINDS),
+            },
         ).one_or_none()
         if row is None:
             raise TokenNotFound()
-        own = [
-            c.value
-            for c in conn.execute(
-                text(
-                    "SELECT value FROM conflicts WHERE token_id = :token_id ORDER BY id"
-                ),
-                {"token_id": token_id},
-            )
-        ]
         options = alternate_reading_options(
             row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
         )
-        # The token's own options can differ from the others only in furigana
-        # split, so they're told apart by citation reading, as the panel does.
-        seen = {o.get("citation_reading") or o["reading"] for o in options}
-        for value in own:
-            key = value.get("citation_reading") or value["reading"]
-            if key not in seen:
-                seen.add(key)
-                options.append(value)
-        return options
+        # The token's own options can differ from these only in furigana
+        # split, so they're told apart by citation reading.
+        merged: dict[str, dict] = {}
+        for value in [*options, *row.own]:
+            merged.setdefault(value.get("citation_reading", value["reading"]), value)
+        return list(merged.values())
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")
@@ -1325,6 +1323,8 @@ class DocumentWord(BaseModel):
     lookup_form: str
     # None for a grammar term.
     reading: str | None
+    # How it can be corrected, as on a card (see card_content.Line).
+    correction: Literal["reading", "word"] | None
     # The user's card for it, removed or not; None if they have none.
     card: StudyCard | None
 
@@ -1346,6 +1346,7 @@ def get_document_words(
             kind=word.key.kind,
             lookup_form=word.key.lookup_form,
             reading=word.key.reading,
+            correction=word.correction,
             card=StudyCard(**word.card._mapping) if word.card else None,
         )
         for word in words

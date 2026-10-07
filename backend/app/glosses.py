@@ -492,9 +492,10 @@ def alternate_reading_options(
     default_citation = to_katakana(headword_reading(normalized_form, dictionary_form))
 
     options = []
-    for alt_citation in [default_citation, *search_readings(dictionary_form)]:
-        if to_hiragana(alt_citation) in (o["citation_reading"] for o in options):
-            continue
+    # Both are katakana, so the default dedupes against JMDict's readings.
+    for alt_citation in dict.fromkeys(
+        [default_citation, *search_readings(dictionary_form)]
+    ):
         alt_surface_reading = project_citation_reading(
             alt_citation, reading_katakana, dict_form_citation, conjugation_type
         )

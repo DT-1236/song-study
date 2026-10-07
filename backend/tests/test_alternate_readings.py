@@ -37,3 +37,22 @@ def test_404s_for_a_token_id_outside_the_document(committed_engine):
     with pytest.raises(HTTPException) as exc_info:
         get_alternate_readings(document_id, other_token.id)
     assert exc_info.value.status_code == 404
+
+
+@pytest.mark.parametrize(
+    ("text", "surface"),
+    [
+        # A predicate group's head, and a phrase's first token: their own
+        # conflicts include ones that aren't readings.
+        ("聞こえてるんだって", "聞こえ"),
+        ("この期に及んで", "この"),
+    ],
+)
+def test_offers_only_reading_options_of_the_tokens_own(committed_engine, text, surface):
+    document_id = create_document(DocumentCreate(title="t", text=text)).id
+    token = next(t for t in get_document_tokens(document_id) if t.surface == surface)
+
+    options = get_alternate_readings(document_id, token.id)
+
+    assert all("phrase_token_count" not in o for o in options)
+    assert all("furigana_spans" in o for o in options)

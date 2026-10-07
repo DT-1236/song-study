@@ -1170,8 +1170,9 @@ function GlossPopup({
 }: {
   token: Token
   instances: Token[]
-  // The words `token` is part of that the user can add to their cards: its
-  // own, or for a token sung in katakana, those of its gloss's pieces.
+  // The words and grammar `token` is part of that the user can add to their
+  // cards: its own, and for a token sung in katakana or in a group, those of
+  // its gloss's pieces.
   words: DocumentWord[]
   documentId: number
   onTokensUpdated: TokensUpdated
@@ -1185,10 +1186,9 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
-  // Grammar has no other word to pick for its piece.
-  const wordPieces = [...pieceWords]
-    .filter(([, word]) => word.kind === 'recognition')
-    .map(([piece]) => piece)
+  const wordPieces = words.flatMap((word) =>
+    word.piece !== null && word.correction === 'word' ? [word.piece] : [],
+  )
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same

@@ -119,11 +119,12 @@ class CardTokens:
     # piece. Never a grammar term, nor an accepted phrase, which picking a
     # reading of one of its tokens would split.
     correction: Literal["reading", "word"] | None = None
-    # Set only for one of the words of a token sung in katakana: which piece
-    # of its gloss it is, where in the token it is, as [begin, end) offsets,
-    # how its gloss writes it (声 for コエ), and the part of speech its senses
-    # are ranked for.
+    # For a word or grammar term that's one piece of a composite gloss (a
+    # katakana token's or a group's), which piece it is.
     piece: int | None = None
+    # Set only for one of the words of a token sung in katakana: where in the
+    # token it is, as [begin, end) offsets, how its gloss writes it (声 for
+    # コエ), and the part of speech its senses are ranked for.
     span: tuple[int, int] | None = None
     written_as: str | None = None
     pos_major: str | None = None
@@ -148,27 +149,23 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase,
-                   kg.entries AS katakana_gloss, {KATAKANA_PICKS_SQL} AS katakana_picks,
-                   (SELECT jsonb_array_length(g.entries -> 'pieces') FROM gloss_lookups g
-                    WHERE g.id = t.gloss_lookup_id AND g.source = 'composite'
-                      AND t.phrase_start_position IS NOT NULL) AS group_piece_count
+                   -- A group's members share the group's gloss, which is never
+                   -- a katakana one, so only a token on its own has one.
+                   CASE WHEN g.entries ? 'looked_up_as' THEN g.entries END AS katakana_gloss,
+                   {KATAKANA_PICKS_SQL} AS katakana_picks,
+                   CASE WHEN t.phrase_start_position IS NOT NULL
+                       THEN jsonb_array_length(g.entries -> 'pieces') END AS group_piece_count
             FROM tokens t
             -- A token has at most one selected conflict, so neither join
             -- repeats it. A phrase's value has a reading too, so only reading
             -- kinds count as a selected reading.
             LEFT JOIN conflicts rc ON rc.token_id = t.id AND rc.selected AND rc.kind <> ALL(:non_reading_kinds)
             LEFT JOIN conflicts pc ON pc.token_id = t.id AND pc.selected AND pc.kind = 'phrase'
-            -- A group's members share the group's gloss, which is never one
-            -- of these, so only a token on its own has one.
-            LEFT JOIN gloss_lookups kg ON kg.id = t.gloss_lookup_id
-                AND kg.source = 'composite' AND kg.entries ? 'looked_up_as'
+            LEFT JOIN gloss_lookups g ON g.id = t.gloss_lookup_id AND g.source = 'composite'
             WHERE t.document_id = ANY(:document_ids)
-                AND (:token_id IS NULL OR t.id = :token_id OR (
-                    t.phrase_start_position IS NOT NULL
-                    AND t.phrase_start_position = (
-                        SELECT s.phrase_start_position FROM tokens s
-                        WHERE s.id = :token_id AND s.document_id = t.document_id
-                    )
+                AND (:token_id IS NULL OR t.id = :token_id OR t.phrase_start_position = (
+                    SELECT s.phrase_start_position FROM tokens s
+                    WHERE s.id = :token_id AND s.document_id = t.document_id
                 ))
             ORDER BY t.document_id, t.position
             """
@@ -243,24 +240,21 @@ def _word_token_count(unit: list) -> int:
     return phrase.get("phrase_token_count", len(unit))
 
 
-def _attached_grammar(unit: list) -> list[tuple[int, object]]:
+def _attached_grammar(unit: list) -> list[tuple[int | None, object]]:
     """The tokens of `unit` that are grammar attached to its word, and have
-    an explanation of their own, each with its index in `unit`."""
+    an explanation of their own, each with which piece of the unit's gloss
+    it is, or None if that gloss isn't a composite."""
     # The particles inside a phrase (この期に及んで's に) are part of the
     # headword, not grammar attached to it.
-    return [
-        (index, row)
-        for index, row in enumerate(unit)
-        if index >= _word_token_count(unit) and has_grammar_note(row.normalized_form)
-    ]
-
-
-def _group_piece(unit: list, index: int) -> int | None:
-    """Which piece of the group gloss `unit` shares is its token `index`, or
-    None if its gloss isn't a composite."""
+    start = _word_token_count(unit)
     count = unit[0].group_piece_count
-    # A group's gloss ends with one piece per token after its word.
-    return None if count is None else count - (len(unit) - index)
+    return [
+        # A group's gloss ends with one piece per token after its word (see
+        # glosses._group_pieces).
+        (None if count is None else count - (len(unit) - index), row)
+        for index, row in enumerate(unit[start:], start)
+        if has_grammar_note(row.normalized_form)
+    ]
 
 
 def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
@@ -359,12 +353,9 @@ def unit_card_tokens(
     word = _unit_word(unit, explicit)
     return ([word] if word else []) + [
         CardTokens(
-            CardKey("grammar", row.normalized_form, None),
-            None,
-            [row],
-            piece=_group_piece(unit, index),
+            CardKey("grammar", row.normalized_form, None), None, [row], piece=piece
         )
-        for index, row in _attached_grammar(unit)
+        for piece, row in _attached_grammar(unit)
     ]
 
 
@@ -381,14 +372,22 @@ def gloss_sources(
 
 
 def _studyable(conn, words: list[tuple[CardKey, str | None]]) -> set[CardKey]:
-    """Those of `words` glossed from a JMDict headword. An English word, or a
-    compound or katakana fallback, has a gloss that explains it rather than
-    defines it, so there's nothing to test."""
+    """Those of `words` with something to test: every grammar term, which has
+    an explanation of its own, and the words glossed from a JMDict headword.
+    An English word, or a compound or katakana fallback, has a gloss that
+    explains it rather than defines it."""
     sources = gloss_sources(
-        conn, [((key.lookup_form, key.reading), alt) for key, alt in words]
+        conn,
+        [
+            ((key.lookup_form, key.reading), alt)
+            for key, alt in words
+            if key.kind != "grammar"
+        ],
     )
     return {
-        key for key, _ in words if sources[(key.lookup_form, key.reading)] == "jmdict"
+        key
+        for key, _ in words
+        if key.kind == "grammar" or sources[(key.lookup_form, key.reading)] == "jmdict"
     }
 
 
@@ -472,13 +471,7 @@ def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
     # with the first one's alternate spelling, as it would be if each song
     # were planned in turn, the later ones finding it cached by the first.
     studyable = _studyable(
-        conn,
-        [
-            (w.key, w.alt_lookup_form)
-            for song in wanted
-            for w in song
-            if w.key.kind != "grammar"
-        ],
+        conn, [(w.key, w.alt_lookup_form) for song in wanted for w in song]
     )
     return [
         SongWords(
@@ -487,7 +480,7 @@ def songs_words(conn, songs: list[list[list]], user_id: int) -> list[SongWords]:
                 for word in words.values()
                 if word.key in rows and not rows[word.key].suspended
             ],
-            [w for w in song if w.key.kind == "grammar" or w.key in studyable],
+            [w for w in song if w.key in studyable],
         )
         for words, song in zip(found, wanted, strict=True)
     ]
@@ -618,10 +611,10 @@ def add_card(conn, user_id: int, document_id: int, word: CardTokens):
     """The user's card row for `word`, a word of `document_id`, created if
     they have none, or restored with its history if they removed it.
 
-    Raises NotStudyable unless the word is glossed from a JMDict headword;
-    a grammar term has its own explanation instead."""
+    Raises NotStudyable unless the word has something to test (see
+    _studyable)."""
     key, alt = word.key, word.alt_lookup_form
-    if key.kind != "grammar" and not _studyable(conn, [(key, alt)]):
+    if not _studyable(conn, [(key, alt)]):
         raise NotStudyable()
     return conn.execute(
         text(
@@ -667,6 +660,8 @@ class TokenWord:
     # token's or a group's), which one.
     piece: int | None
     key: CardKey
+    # How it can be corrected (see CardTokens).
+    correction: Literal["reading", "word"] | None
     # The user's card for it (CARD_COLUMNS), removed or not; None if they
     # have none.
     card: object | None
@@ -683,13 +678,16 @@ def document_words(conn, user_id: int, document_id: int) -> list[TokenWord]:
         for unit in units
         for word in unit_card_tokens(unit, katakana=katakana)
     ]
-    studyable = _studyable(
-        conn,
-        [(w.key, w.alt_lookup_form) for _, w in found if w.key.kind != "grammar"],
-    ) | {w.key for _, w in found if w.key.kind == "grammar"}
+    studyable = _studyable(conn, [(w.key, w.alt_lookup_form) for _, w in found])
     cards = _user_cards(conn, user_id, studyable)
     return [
-        TokenWord([row.id for row in unit], word.piece, word.key, cards.get(word.key))
+        TokenWord(
+            [row.id for row in unit],
+            word.piece,
+            word.key,
+            word.correction,
+            cards.get(word.key),
+        )
         for unit, word in found
         if word.key in studyable
     ]
