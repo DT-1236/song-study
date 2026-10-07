@@ -11,8 +11,9 @@ so it can be picked up without re-deriving the reasoning.
   under that key, so a card for a word picked in kana (ウン as うん, "yes") or for one of two
   entries written alike (元 read もと, "former") still shows other entries' senses as its answer.
   Needs an `idseq` on `study_cards` (nullable, set only for a picked piece) carried through
-  `CardKey`, `CARD_KEYS_JOIN_SQL` and enrolment, and `_Glosses.senses` filtering to it as
-  `glosses._ranked_senses` does. Model: Opus 5, high effort — changes card identity, where a
+  `CardKey`, `CARD_KEYS_JOIN_SQL` and enrolment, `_Glosses.senses` filtering to it as
+  `glosses._ranked_senses` does, and `loadChoices` in `CardCorrectionPanel.tsx` leaving out the
+  card's own entry rather than every option spelled as the card is. Model: Opus 5, high effort — changes card identity, where a
   mistake silently splits or merges a user's cards.
 - Send each review as soon as it's answered and have a card correction undo it, instead of
   holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
