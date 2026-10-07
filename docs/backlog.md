@@ -24,9 +24,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on PR #75 (backlog sweep: low- and medium-effort items)
 
-- Add a non-partial index on `conflicts (token_id)`: only `WHERE selected` is indexed, so reading
-  a token's conflicts (`get_alternate_readings`, `main.py`'s token reads) scans the table. New
-  migration. Model: Haiku 4.5, low effort.
 - In `cards._token_rows`, tie the `token_id` group subquery to `ANY(:document_ids)` rather than
   `t.document_id`, so Postgres runs it once rather than per grouped token. Model: Haiku 4.5, low
   effort.
