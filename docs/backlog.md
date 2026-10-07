@@ -17,15 +17,3 @@ so it can be picked up without re-deriving the reasoning.
   `test_request_failures` and `FakeLrclib.__call__`'s unknown-record branch to
   match. Linking a missing track must still be a 422. *Sonnet 5, medium*:
   the target shape is decided, and the existing 404/422 tests catch a slip.
-- **Map upstream outages to 502 once.** `backend/app/main.py` repeats
-  `except …Unavailable: raise HTTPException(502, str(exc))` in `songs_search`,
-  `lrclib_search` and `_fetch_lrclib_for_link`. Register
-  `app.exception_handler(LrclibUnavailable)` and
-  `app.exception_handler(YouTubeMusicUnavailable)`, each returning a 502
-  `JSONResponse({"detail": str(exc)})`, and drop those try blocks.
-  `_fetch_lrclib_for_link` keeps its 422 for `LrclibError`. Since
-  `LrclibUnavailable` subclasses it, that `except` has to let outages through
-  (`except LrclibUnavailable: raise` ahead of it, or an `isinstance` check), or
-  they turn into 422s. The existing 502 tests in `test_lrclib.py` and
-  `test_youtube_music.py` cover it. *Sonnet 5, low*: mostly mechanical, but
-  the subclass catch is an easy silent slip.
