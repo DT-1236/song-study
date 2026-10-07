@@ -3,6 +3,7 @@ removing it, the queues, and the settings."""
 
 from __future__ import annotations
 
+import threading
 from datetime import UTC, datetime
 
 import pytest
@@ -11,6 +12,7 @@ from fsrs import Rating
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from app import study
 from app.main import (
     PushOut,
     ReviewAnswer,
@@ -19,6 +21,8 @@ from app.main import (
 )
 from app.study import rating_for
 from tests.support import (
+    TEST_USER_ID,
+    BackgroundCall,
     add_token_card,
     as_user,
     create_tokenized_document,
@@ -32,6 +36,7 @@ from tests.support import (
     save_study_settings,
     start_song_session,
     suspend_card,
+    wait_for_lock_wait,
 )
 
 SONG = "君を呼ぶ。聞こえてる。聞こえた。"
@@ -579,3 +584,51 @@ def test_changing_retention_leaves_due_dates_alone(committed_engine):
     save_study_settings(StudySettings(desired_retention=0.75))
 
     assert _row(committed_engine, card_id).due == due
+
+
+def test_overlapping_session_starts_both_get_every_card(committed_engine, monkeypatch):
+    document_id = create_tokenized_document("君を呼ぶ。")
+    second_began = threading.Event()
+    first_enrolled = threading.Event()
+    release_first = threading.Event()
+    second_may_start = threading.Event()
+    enroll = study.song_card_keys
+    sessions = []
+
+    def enroll_then_hold(*args):
+        keys = enroll(*args)
+        if not sessions:
+            sessions.append("first")
+            first_enrolled.set()
+            release_first.wait(timeout=30)
+        return keys
+
+    monkeypatch.setattr("app.study.song_card_keys", enroll_then_hold)
+
+    def first_session():
+        with committed_engine.begin() as conn:
+            return study.song_queue(conn, TEST_USER_ID, document_id)
+
+    def second_session():
+        with committed_engine.begin() as conn:
+            # Fixes this transaction's now() before the first one starts.
+            conn.execute(text("SELECT 1"))
+            second_began.set()
+            second_may_start.wait(timeout=30)
+            return study.song_queue(conn, TEST_USER_ID, document_id)
+
+    try:
+        second = BackgroundCall(second_session)
+        assert second_began.wait(timeout=30)
+        first = BackgroundCall(first_session)
+        assert first_enrolled.wait(timeout=30)
+        second_may_start.set()
+        wait_for_lock_wait()
+    finally:
+        release_first.set()
+        second_may_start.set()
+
+    first_cards = [row.id for row, _ in first.outcome().cards]
+    second_cards = [row.id for row, _ in second.outcome().cards]
+    assert first_cards
+    assert second_cards == first_cards

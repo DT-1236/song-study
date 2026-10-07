@@ -326,7 +326,10 @@ def _due_cards(conn, user_id: int, keys=None) -> list:
         text(
             f"""
             SELECT {CARD_COLUMNS}, c.alt_lookup_form FROM study_cards c {words}
-            WHERE c.user_id = :user_id AND NOT c.suspended AND c.due <= now()
+            -- Not now(), the transaction's start: a card another session
+            -- enrolled while this one waited on a lock has a later due.
+            WHERE c.user_id = :user_id AND NOT c.suspended
+              AND c.due <= statement_timestamp()
             ORDER BY c.due, c.id
             """
         ),
