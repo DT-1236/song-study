@@ -1,16 +1,29 @@
 import { useState } from 'react'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
+import type { SongResult } from './api'
+import { SongSearch } from './SongSearch'
 
 export function NewDocumentForm() {
   const [title, setTitle] = useState('')
   const [lyrics, setLyrics] = useState('')
   const [lrclibUri, setLrclibUri] = useState('')
   const [youtubeVideoId, setYoutubeVideoId] = useState('')
+  // Whether the title is one a song pick filled in, so a later pick may
+  // replace it but a typed title never is.
+  const [titleAutoFilled, setTitleAutoFilled] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
 
   const usingLrclib = lrclibUri.trim() !== ''
+
+  function handlePick(song: SongResult) {
+    setYoutubeVideoId(song.video_id)
+    if (title === '' || titleAutoFilled) {
+      setTitle(song.title)
+      setTitleAutoFilled(true)
+    }
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -29,6 +42,7 @@ export function NewDocumentForm() {
       })
       setSavedTitle(document.title)
       setTitle('')
+      setTitleAutoFilled(false)
       setLyrics('')
       setLrclibUri('')
       setYoutubeVideoId('')
@@ -43,12 +57,17 @@ export function NewDocumentForm() {
     <form className="new-document-form" onSubmit={handleSubmit}>
       <h1>New document</h1>
 
+      <SongSearch onPick={handlePick} />
+
       <label htmlFor="title">Title</label>
       <input
         id="title"
         type="text"
         value={title}
-        onChange={(e) => setTitle(e.target.value)}
+        onChange={(e) => {
+          setTitle(e.target.value)
+          setTitleAutoFilled(false)
+        }}
         required
       />
 

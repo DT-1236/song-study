@@ -1,0 +1,96 @@
+import { useState } from 'react'
+import { errorMessage, searchSongs } from './api'
+import type { SongResult } from './api'
+
+function formatDuration(seconds: number): string {
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
+}
+
+// Searches YouTube Music's songs and reports the one picked. It runs on Enter
+// or a click rather than per keystroke, since each search hits an unofficial
+// YouTube endpoint. A div rather than a form, as it sits inside one.
+export function SongSearch({ onPick }: { onPick: (song: SongResult) => void }) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<SongResult[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function search() {
+    const trimmed = query.trim()
+    if (!trimmed) return
+    setLoading(true)
+    setError(null)
+    try {
+      setResults(await searchSongs(trimmed))
+    } catch (err) {
+      setResults(null)
+      setError(errorMessage(err, 'Search failed.'))
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="song-search">
+      <label htmlFor="song-search-query">Search for a song</label>
+      <div className="song-search-row">
+        <input
+          id="song-search-query"
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            // Enter would otherwise submit the surrounding form.
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              void search()
+            }
+          }}
+          placeholder="e.g. 夜に駆ける YOASOBI"
+        />
+        <button
+          type="button"
+          className="song-search-button"
+          onClick={() => void search()}
+          disabled={loading || query.trim() === ''}
+        >
+          {loading ? 'Searching…' : 'Search'}
+        </button>
+      </div>
+
+      {error && <p className="form-error">{error}</p>}
+      {results && results.length === 0 && <p>No songs found.</p>}
+      {results && results.length > 0 && (
+        <ul className="song-results">
+          {results.map((song) => (
+            <li key={song.video_id}>
+              <button
+                type="button"
+                className="song-result"
+                onClick={() => {
+                  onPick(song)
+                  setResults(null)
+                }}
+              >
+                {song.thumbnail_url && (
+                  <img src={song.thumbnail_url} alt="" width={40} height={40} />
+                )}
+                <span className="song-result-text">
+                  <span className="song-result-title">{song.title}</span>
+                  <span className="song-result-meta">
+                    {[song.artists, song.album].filter(Boolean).join(' · ')}
+                  </span>
+                </span>
+                {song.duration_seconds !== null && (
+                  <span className="song-result-duration">
+                    {formatDuration(song.duration_seconds)}
+                  </span>
+                )}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
