@@ -477,6 +477,44 @@ def search_readings(dictionary_form: str) -> list[str]:
     return readings
 
 
+def _jmdict_conjugation_class(part_of_speech: list[str]) -> str:
+    """The conjugation tag, in Sudachi's naming, that JMDict's `part_of_speech`
+    glosses for a verb: '五段' for godan, '下一段' for ichidan, '' for anything
+    else (including the irregular verbs)."""
+    for pos in part_of_speech:
+        if pos.startswith("Godan verb"):
+            return "五段"
+        if pos.startswith("Ichidan verb"):
+            return "下一段"
+    return ""
+
+
+def _same_projectable_class(a: str, b: str) -> bool:
+    """Whether the conjugation types `a` and `b` are both godan or both
+    ichidan, the two classes project_citation_reading can project."""
+    return (
+        a.startswith("五段")
+        and b.startswith("五段")
+        or (a.startswith(("上一段", "下一段")) and b.startswith(("上一段", "下一段")))
+    )
+
+
+def _headword_conjugation_classes(text: str) -> dict[str, str]:
+    """The conjugation class of each katakana reading JMDict lists for `text`
+    as a headword, by that reading's own entry."""
+    jam = get_jamdict()
+    classes: dict[str, str] = {}
+    for e in jam.lookup(text, lookup_chars=False, lookup_ne=False).entries:
+        if not any(k.text == text for k in (*e.kanji_forms, *e.kana_forms)):
+            continue
+        conjugation = _jmdict_conjugation_class(
+            [pos for sense in e.senses for pos in sense.pos]
+        )
+        for k in e.kana_forms:
+            classes.setdefault(to_katakana(k.text), conjugation)
+    return classes
+
+
 def alternate_reading_options(
     surface: str,
     reading_katakana: str,
@@ -495,12 +533,32 @@ def alternate_reading_options(
         reading_katakana if surface == dictionary_form else dict_form_citation
     )
 
+    needs_projection = (
+        surface != dictionary_form and reading_katakana != dict_form_citation
+    )
+    alt_classes = _headword_conjugation_classes(dictionary_form)
+
     options = []
     for alt_citation in search_readings(dictionary_form):
         if alt_citation == own_citation:
             continue
+        # The token's conjugation type is its own reading's; another reading
+        # of the headword can be a different verb class (来る as きたる). Its
+        # inflected ending can only be carried over from a token of the same
+        # class, so any other is left out rather than offered unprojected.
+        # If a missing alternate here becomes a real problem (きたる on 来た,
+        # an inflected い-adjective), the fix is to generate the alternate's
+        # reading from its own paradigm: a table keyed by its JMDict class
+        # (alt_classes) and the token's Sudachi inflection form
+        # (part_of_speech[5]), replacing project_citation_reading, which
+        # conflicts._project_onto_member also uses.
+        alt_conjugation = alt_classes.get(alt_citation, conjugation_type)
+        if needs_projection and not _same_projectable_class(
+            alt_conjugation, conjugation_type
+        ):
+            continue
         alt_surface_reading = project_citation_reading(
-            alt_citation, reading_katakana, dict_form_citation, conjugation_type
+            alt_citation, reading_katakana, dict_form_citation, alt_conjugation
         )
         alt_spans = furigana_spans_for_reading(surface, alt_surface_reading)
         options.append(

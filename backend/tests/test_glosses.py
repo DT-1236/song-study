@@ -221,6 +221,20 @@ class TestAlternateReadingOptions:
         matched = next(o for o in options if o["reading"] == "あい")
         assert matched["citation_reading"] == "あく"
 
+    def test_leaves_out_a_reading_of_another_conjugation_class_on_an_inflected_surface(
+        self,
+    ):
+        # 来る (カ変) is also read きたる, a godan verb: its ending can't be
+        # carried over from 来た, so it isn't offered as きたた.
+        assert alternate_reading_options("来た", "キタ", "来る", "来る") == []
+
+    def test_still_offers_it_on_the_dictionary_form(self):
+        readings = [
+            o["reading"]
+            for o in alternate_reading_options("来る", "クル", "来る", "来る")
+        ]
+        assert readings == ["きたる"]
+
     def test_offers_the_dictionary_forms_reading_when_read_another_way(self):
         # 方 read かた here: its standalone reading, ほう, is another one.
         readings = [

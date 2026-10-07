@@ -33,15 +33,6 @@ so it can be picked up without re-deriving the reasoning.
   `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
   within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
   fix depends on Postgres's snapshot rules.
-- Project JMDict's other readings onto an inflected token by the other reading's own conjugation.
-  `glosses.alternate_reading_options` passes each through `project_citation_reading` with the
-  token's conjugation type, which only handles 一段 and 五段 verbs and returns the citation
-  reading unchanged otherwise: 来 of 来た (カ変) is offered きたる rather than きた, though 来る
-  read きたる is 五段. Take the conjugation class from JMDict's part of speech for that reading
-  (v5r for きたる), and leave out an alternate that still can't be projected rather than offering
-  its citation form on an inflected surface. Add cases to `TestAlternateReadingOptions` in
-  `test_glosses.py`. Model: Sonnet 5, medium effort — the projection exists for 一段 and 五段, but
-  the conjugation class per reading has to come from JMDict's entry.
 - Leave the token's own readings out of the document page's "Look for other readings" list as it
   renders, not once when it's fetched. `AlternateReadingSearch` (`DocumentViewPage.tsx`) filters
   the fetched list by the readings the targets offer at that moment, and `SearchedOptions` keeps
