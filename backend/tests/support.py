@@ -441,6 +441,7 @@ resolve_phrase_furigana_endpoint = _via_client(main.resolve_phrase_furigana_endp
 unmerge_phrase_tokens = _via_client(main.unmerge_phrase_tokens)
 get_alternate_readings = _via_client(main.get_alternate_readings)
 jmdict_search = _via_client(main.jmdict_search)
+songs_search = _via_client(main.songs_search)
 correct_token_reading = _via_client(main.correct_token_reading)
 apply_tokens_reading = _via_client(main.apply_tokens_reading)
 set_tokens_ignored = _via_client(main.set_tokens_ignored)

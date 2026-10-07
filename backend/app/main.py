@@ -75,6 +75,7 @@ from app.tokenization import (
     tokenize_document,
 )
 from app.users import CurrentUser, OwnedDocument
+from app.youtube_music import YouTubeMusicUnavailable, search_songs
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
@@ -673,6 +674,24 @@ def jmdict_search(
         JmdictEntry(**entry)
         for entry in search_jmdict(q, max_results_per_tier=max_results_per_tier)
     ]
+
+
+class SongResult(BaseModel):
+    video_id: str
+    title: str
+    artists: str
+    album: str | None
+    duration_seconds: int | None
+    thumbnail_url: str | None
+
+
+@api.get("/songs/search", response_model=list[SongResult])
+def songs_search(user_id: CurrentUser, q: str = Query(min_length=1)):
+    try:
+        songs = search_songs(q)
+    except YouTubeMusicUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return [SongResult(**dataclasses.asdict(song)) for song in songs]
 
 
 class GlossSense(JmdictSense):

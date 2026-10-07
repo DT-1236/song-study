@@ -516,6 +516,26 @@ export async function searchJmdict(
   return response.json()
 }
 
+export interface SongResult {
+  video_id: string
+  title: string
+  artists: string
+  album: string | null
+  duration_seconds: number | null
+  thumbnail_url: string | null
+}
+
+export async function searchSongs(q: string): Promise<SongResult[]> {
+  const url = new URL(`${API_URL}/songs/search`, window.location.origin)
+  url.searchParams.set('q', q)
+
+  const response = await fetch(url)
+
+  await assertOk(response)
+
+  return response.json()
+}
+
 export async function fetchDocuments(params: {
   page: number
   pageSize: number

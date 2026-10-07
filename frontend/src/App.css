@@ -475,6 +475,66 @@ li.grammar-legend-item {
   cursor: pointer;
 }
 
+.song-search-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.song-search-row input {
+  flex: 1;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.new-document-form .song-search-button {
+  margin-top: 0;
+}
+
+.song-results {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.new-document-form .song-result {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  margin-top: 0;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  background: none;
+  color: inherit;
+  text-align: left;
+}
+
+.new-document-form .song-result:hover {
+  background-color: var(--border);
+}
+
+.song-result img {
+  object-fit: cover;
+  border-radius: 4px;
+}
+
+.song-result-text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.song-result-meta,
+.song-result-duration {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
 .new-document-form button:disabled {
   cursor: default;
   opacity: 0.6;
