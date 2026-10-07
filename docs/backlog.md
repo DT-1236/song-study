@@ -61,7 +61,7 @@ so it can be picked up without re-deriving the reasoning.
   production), the second can start its transaction first, wait on the first's document lock,
   then leave out every card the first enrolled, since their `due` is later than its `now()`.
   Seen once as a 3-card session of 10 due cards. Compare against `statement_timestamp()` in
-  `_due_cards` (and in `song_readiness`'s due count if it's read the same way), and add a test that
-  starts two sessions concurrently with `BackgroundCall` and checks both return every card.
+  `_due_cards`, and add a test that starts two sessions concurrently with `BackgroundCall` and
+  checks both return every card.
   Model: Sonnet 5, medium effort — the fix is one function call, but the test has to force the
   interleaving with `wait_for_lock_wait`.
