@@ -1114,6 +1114,10 @@ class WordNotOffered(Exception):
     pass
 
 
+# A gloss_lookups row (as gl) that's the gloss of a token sung in katakana.
+_KATAKANA_GLOSS_SQL = "gl.source = 'composite' AND gl.entries ? 'looked_up_as'"
+
+
 def pick_piece_word(
     conn, document_id: int, token_ids: list[int], piece: int, idseq: int
 ) -> None:
@@ -1158,25 +1162,23 @@ def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> lis
     Raises TokenNotFound if the document has no token `token_id`, and
     WordNotOffered if it isn't sung in katakana or `piece` isn't one of its
     words."""
-    found = conn.execute(
-        text(
-            "SELECT 1 FROM tokens WHERE id = :token_id AND document_id = :document_id"
-        ),
-        {"token_id": token_id, "document_id": document_id},
-    ).one_or_none()
-    if found is None:
-        raise TokenNotFound()
-    reading = _piece_reading(conn, [token_id], piece)
     row = conn.execute(
         text(
             f"""
             SELECT gl.entries AS composite, {KATAKANA_PICKS_SQL} AS picks
-            FROM tokens t JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
-            WHERE t.id = :token_id
+            FROM tokens t
+            LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
+                AND {_KATAKANA_GLOSS_SQL}
+            WHERE t.id = :token_id AND t.document_id = :document_id
             """
         ),
-        {"token_id": token_id},
-    ).one()
+        {"token_id": token_id, "document_id": document_id},
+    ).one_or_none()
+    if row is None:
+        raise TokenNotFound()
+    if row.composite is None:
+        raise WordNotOffered()
+    reading = _shared_reading([row.composite], piece)
     current = piece_current_idseq(conn, row.composite, row.picks, piece)
     return [
         {**option, "current": option["idseq"] == current}
@@ -1193,10 +1195,10 @@ def _piece_reading(conn, token_ids: list[int], piece: int) -> str:
     glosses = (
         conn.execute(
             text(
-                """
+                f"""
                 SELECT gl.entries FROM tokens t
                 JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
-                    AND gl.source = 'composite' AND gl.entries ? 'looked_up_as'
+                    AND {_KATAKANA_GLOSS_SQL}
                 WHERE t.id = ANY(:token_ids)
                 """
             ),
@@ -1208,6 +1210,15 @@ def _piece_reading(conn, token_ids: list[int], piece: int) -> str:
     # One missing isn't sung in katakana.
     if len(glosses) != len(token_ids):
         raise WordNotOffered()
+    return _shared_reading(glosses, piece)
+
+
+def _shared_reading(glosses: list[dict], piece: int) -> str:
+    """The reading, as JMDict keys it, of piece `piece` of each of `glosses`,
+    katakana tokens' glosses.
+
+    Raises WordNotOffered if `piece` isn't one of a gloss's words, or they
+    don't all read it the same."""
     readings = set()
     for gloss in glosses:
         pieces = gloss["pieces"]
