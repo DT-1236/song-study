@@ -198,6 +198,19 @@ def test_words_written_alike_are_each_offered(committed_engine):
     assert len({tuple(o.gloss) for o in options}) == len(options)
 
 
+def test_the_current_word_is_the_one_marked_and_follows_a_pick(committed_engine):
+    document_id = create_tokenized_document(text=KATAKANA_SONG)
+    token = _katakana_token(document_id)
+
+    before = get_piece_words(document_id, token.id, AU)
+    [guessed] = [o for o in before if o.current]
+    other = next(o for o in before if o.idseq != guessed.idseq)
+    pick_piece_word(document_id, [token.id], AU, other.idseq)
+    after = get_piece_words(document_id, token.id, AU)
+
+    assert [o.idseq for o in after if o.current] == [other.idseq]
+
+
 def test_a_grammar_piece_offers_no_words(committed_engine):
     document_id = create_tokenized_document(text=KATAKANA_SONG)
 
@@ -495,6 +508,25 @@ def test_a_review_pushed_out_since_stands(committed_engine):
     _correct_reading(old.id, document_id, "辛い", "からい", review.review_id)
 
     assert _tsurai() == pushed
+    assert _reviews(committed_engine) == [review.review_id]
+
+
+def test_a_review_whose_schedule_changed_without_a_new_last_review_stands(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="辛い")
+    old = _card_for(document_id, "辛い")
+    review = _answer(old.id)
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE study_cards SET due = due + interval '1 day' WHERE id = :id"),
+            {"id": old.id},
+        )
+    moved = _tsurai()
+
+    _correct_reading(old.id, document_id, "辛い", "からい", review.review_id)
+
+    assert _tsurai() == moved
     assert _reviews(committed_engine) == [review.review_id]
 
 

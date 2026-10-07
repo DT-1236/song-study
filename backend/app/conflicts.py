@@ -15,6 +15,7 @@ from sqlalchemy import text
 
 from app.db import json_param
 from app.glosses import (
+    KATAKANA_PICKS_SQL,
     GlossKey,
     GroupGlossRequest,
     GroupPart,
@@ -23,6 +24,7 @@ from app.glosses import (
     get_or_create_gloss_lookup,
     is_word_piece,
     own_gloss_key,
+    piece_current_idseq,
     plan_glosses,
     predicate_group_request,
     store_glosses,
@@ -1150,7 +1152,8 @@ def pick_piece_word(
 def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> list[dict]:
     """The words piece `piece` of the gloss of the document's token
     `token_id`, sung in katakana, could be, as pick_piece_word takes them:
-    every word JMDict has with the piece's reading (see word_options).
+    every word JMDict has with the piece's reading (see word_options), the
+    one the piece is now marked `current`.
 
     Raises TokenNotFound if the document has no token `token_id`, and
     WordNotOffered if it isn't sung in katakana or `piece` isn't one of its
@@ -1163,7 +1166,22 @@ def piece_word_options(conn, document_id: int, token_id: int, piece: int) -> lis
     ).one_or_none()
     if found is None:
         raise TokenNotFound()
-    return word_options(conn, _piece_reading(conn, [token_id], piece))
+    reading = _piece_reading(conn, [token_id], piece)
+    row = conn.execute(
+        text(
+            f"""
+            SELECT gl.entries AS composite, {KATAKANA_PICKS_SQL} AS picks
+            FROM tokens t JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
+            WHERE t.id = :token_id
+            """
+        ),
+        {"token_id": token_id},
+    ).one()
+    current = piece_current_idseq(conn, row.composite, row.picks, piece)
+    return [
+        {**option, "current": option["idseq"] == current}
+        for option in word_options(conn, reading)
+    ]
 
 
 def _piece_reading(conn, token_ids: list[int], piece: int) -> str:

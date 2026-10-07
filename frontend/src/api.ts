@@ -816,6 +816,9 @@ export type WordOption = {
   spelling: string
   // The glosses of its first sense.
   gloss: string[]
+  // Whether the piece is this word now: the one picked for it, or else the
+  // one its gloss guesses.
+  current: boolean
 }
 
 // Every word JMDict has with the reading of `piece` of the token's gloss,

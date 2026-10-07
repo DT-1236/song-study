@@ -826,6 +826,20 @@ def with_picked_words(composite: dict, picks: Iterable[KatakanaPick] | None) -> 
     return {**composite, "pieces": pieces}
 
 
+def piece_current_idseq(
+    conn, composite: dict, picks: Iterable[KatakanaPick] | None, piece: int
+) -> int | None:
+    """The JMDict entry piece `piece` of `composite`, a katakana token's
+    gloss, is shown as given the token's `picks`: the one picked for it, or
+    else the one its first sense comes from. None if it has no senses."""
+    picked = with_picked_words(composite, picks)
+    ranked = _ranked_senses(picked["pieces"][piece], piece_lookups(conn, [picked]))
+    # piece_lookups looks up what it's missing, so the lookup is there.
+    assert ranked is not None
+    _, senses = ranked
+    return senses[0]["entry_idseq"] if senses else None
+
+
 def word_options(conn, reading: str) -> list[dict]:
     """The words JMDict has that are read `reading` (hiragana), common ones
     first: what a piece of katakana read that way could be. Each is its
