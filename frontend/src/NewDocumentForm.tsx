@@ -8,9 +8,9 @@ export function NewDocumentForm() {
   const [lyrics, setLyrics] = useState('')
   const [lrclibUri, setLrclibUri] = useState('')
   const [youtubeVideoId, setYoutubeVideoId] = useState('')
-  // Whether the title is one a song pick filled in, so a later pick may
-  // replace it but a typed title never is.
-  const [titleAutoFilled, setTitleAutoFilled] = useState(false)
+  // The title a song pick last filled in. While the title still equals it, a
+  // later pick may replace it; once it's edited, it never is.
+  const [pickedTitle, setPickedTitle] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
@@ -19,9 +19,9 @@ export function NewDocumentForm() {
 
   function handlePick(song: SongResult) {
     setYoutubeVideoId(song.video_id)
-    if (title === '' || titleAutoFilled) {
+    if (title === '' || title === pickedTitle) {
       setTitle(song.title)
-      setTitleAutoFilled(true)
+      setPickedTitle(song.title)
     }
   }
 
@@ -42,7 +42,6 @@ export function NewDocumentForm() {
       })
       setSavedTitle(document.title)
       setTitle('')
-      setTitleAutoFilled(false)
       setLyrics('')
       setLrclibUri('')
       setYoutubeVideoId('')
@@ -64,10 +63,7 @@ export function NewDocumentForm() {
         id="title"
         type="text"
         value={title}
-        onChange={(e) => {
-          setTitle(e.target.value)
-          setTitleAutoFilled(false)
-        }}
+        onChange={(e) => setTitle(e.target.value)}
         required
       />
 

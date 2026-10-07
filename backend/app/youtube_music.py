@@ -41,11 +41,11 @@ def search_songs(query: str) -> list[Song]:
         # client API, so it can break whenever YouTube changes that; any
         # failure from it is reported as the service being unavailable.
         results = _ytmusic().search(query, filter="songs", limit=10)
-        return [_song(result) for result in results if result.get("videoId")]
     except Exception as exc:
         raise YouTubeMusicUnavailable(
             "Couldn't search YouTube Music right now. Try again later."
         ) from exc
+    return [_song(result) for result in results if result.get("videoId")]
 
 
 def _song(result: dict) -> Song:

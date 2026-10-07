@@ -17,7 +17,7 @@ export function SongSearch({ onPick }: { onPick: (song: SongResult) => void }) {
 
   async function search() {
     const trimmed = query.trim()
-    if (!trimmed) return
+    if (!trimmed || loading) return
     setLoading(true)
     setError(null)
     try {
@@ -40,8 +40,9 @@ export function SongSearch({ onPick }: { onPick: (song: SongResult) => void }) {
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => {
-            // Enter would otherwise submit the surrounding form.
-            if (e.key === 'Enter') {
+            // Enter would otherwise submit the surrounding form. Enter that
+            // confirms an IME conversion isn't a search.
+            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
               e.preventDefault()
               void search()
             }

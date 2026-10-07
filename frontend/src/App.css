@@ -475,11 +475,6 @@ li.grammar-legend-item {
   cursor: pointer;
 }
 
-.song-search {
-  display: flex;
-  flex-direction: column;
-}
-
 .song-search-row {
   display: flex;
   gap: 0.5rem;
