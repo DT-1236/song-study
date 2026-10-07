@@ -37,11 +37,8 @@ async function loadChoices(
       line.token_id,
       piece,
     )
-    // The card's own entry: the one it's keyed by, or else the one its first
-    // sense comes from, as the token's gloss guesses it.
-    const own = card.idseq ?? card.senses[0]?.entry_idseq
     return options
-      .filter((option) => option.idseq !== own)
+      .filter((option) => !option.current)
       .map((option) => ({
         key: String(option.idseq),
         label: wordLabel(option.spelling, card.reading),

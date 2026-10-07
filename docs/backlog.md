@@ -12,15 +12,3 @@ so it can be picked up without re-deriving the reasoning.
   produced on `study_reviews` too (a migration adding the six columns `prev_*` mirrors), and undo
   only while the card's schedule still equals it. Model: Opus 5, medium effort — the design is
   set, but a slip there silently overwrites a schedule.
-
-## `/simplify` on keying picked katakana cards by entry (migration 0030)
-
-- Have `piece_word_options` (`conflicts.py`) mark which option is the piece's word now (its pick,
-  or the entry its gloss guesses from the piece's own ranked senses), and use that mark both in
-  `loadChoices` in `CardCorrectionPanel.tsx` and in `PieceWordPicker`'s `isSelected` in
-  `DocumentViewPage.tsx`. Today both work it out in the browser. The panel uses
-  `card.idseq ?? card.senses[0]?.entry_idseq`, but an unpicked card's senses are ranked from its
-  own `(spelling, reading)` lookup, not the piece's kana lookup. For 元 read もと, that can hide the
-  wrong entry, or offer the word the token already is. Needs a `current` field on `WordOption`
-  (API and `api.ts`). Model: Sonnet 5, medium effort — the rule exists in `_ranked_senses`, and it
-  needs threading through one endpoint and two callers.

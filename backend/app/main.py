@@ -1214,6 +1214,9 @@ class WordOption(BaseModel):
     spelling: str
     # The glosses of its first sense.
     gloss: list[str]
+    # Whether the piece is this word now: the one picked for it, or else the
+    # one its gloss guesses.
+    current: bool
 
 
 @api.get(

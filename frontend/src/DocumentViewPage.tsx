@@ -653,9 +653,7 @@ function PieceWordPicker({
           {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
         </>
       )}
-      // The word shown is the entry its first sense comes from, which two
-      // words written alike tell apart.
-      isSelected={(option) => option.idseq === shown.senses[0]?.entry_idseq}
+      isSelected={(option) => option.current}
       // Re-picking the selected word only does anything when it also brings
       // the other targets in line.
       canRepick={targets.length > 1}
