@@ -133,11 +133,12 @@ class NotStudyable(Exception):
     pass
 
 
-def _token_rows(conn, document_ids: list[int]) -> list:
-    """The documents' tokens, each document's in order, each with its
-    selected reading, for the first token of an accepted phrase, the phrase,
-    and for a token sung in katakana, its gloss as the hiragana's words (see
-    app.katakana) and the words the user picked for its pieces."""
+def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> list:
+    """The documents' tokens (with `token_id`, only its unit's), each
+    document's in order, each with its selected reading, for the first token
+    of an accepted phrase, the phrase, and for a token sung in katakana, its
+    gloss as the hiragana's words (see app.katakana) and the words the user
+    picked for its pieces."""
     return conn.execute(
         text(
             f"""
@@ -158,10 +159,21 @@ def _token_rows(conn, document_ids: list[int]) -> list:
             LEFT JOIN gloss_lookups kg ON kg.id = t.gloss_lookup_id
                 AND kg.source = 'composite' AND kg.entries ? 'looked_up_as'
             WHERE t.document_id = ANY(:document_ids)
+                AND (:token_id IS NULL OR t.id = :token_id OR (
+                    t.phrase_start_position IS NOT NULL
+                    AND t.phrase_start_position = (
+                        SELECT s.phrase_start_position FROM tokens s
+                        WHERE s.id = :token_id AND s.document_id = t.document_id
+                    )
+                ))
             ORDER BY t.document_id, t.position
             """
         ),
-        {"document_ids": document_ids, "non_reading_kinds": list(NON_READING_KINDS)},
+        {
+            "document_ids": document_ids,
+            "token_id": token_id,
+            "non_reading_kinds": list(NON_READING_KINDS),
+        },
     ).all()
 
 
@@ -566,16 +578,10 @@ def token_word(
     Raises TokenNotFound if the document has no token `token_id`, and
     NotStudyable if the token isn't part of a word, or `piece` doesn't name
     one of a katakana token's words, or is given for any other token."""
-    unit = next(
-        (
-            unit
-            for unit in document_units(conn, document_id)
-            if any(row.id == token_id for row in unit)
-        ),
-        None,
-    )
-    if unit is None:
+    units = _units(_token_rows(conn, [document_id], token_id))
+    if not units:
         raise TokenNotFound()
+    unit = units[0]
     if unit[0].katakana_gloss is None:
         word = _unit_word(unit, explicit=True) if piece is None else None
     else:

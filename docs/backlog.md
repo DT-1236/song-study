@@ -37,10 +37,6 @@ so it can be picked up without re-deriving the reasoning.
   picking a phrase's furigana also recomputes every word of the song. Bump a counter from those
   handlers instead. Model: Sonnet 5, medium effort — each token-editing handler needs sorting
   into "changes a word" or not.
-- Read only the token's group in `cards.token_word`, which loads every unit of the document to
-  find one (twice per `study.correct_card`). Select the tokens sharing its
-  `phrase_start_position`, or the token alone, and share that reader with `enroll_token`. Model:
-  Sonnet 5, low effort — a scoped variant of `_token_rows`.
 - Send each review as soon as it's answered and have a card correction undo it, instead of
   holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
   a closed tab). Needs `study_reviews` to keep the card's schedule from before each review, the
