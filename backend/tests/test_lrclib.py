@@ -8,7 +8,9 @@ from __future__ import annotations
 
 import io
 import urllib.error
+import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 
 import pytest
 from fastapi import HTTPException
@@ -22,6 +24,7 @@ from app.lrclib import (
     fetch_lyrics,
     normalize_lrclib_uri,
     parse_synced_lyrics,
+    search_tracks,
 )
 from app.main import (
     DocumentCreate,
@@ -32,11 +35,13 @@ from app.main import (
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
 from tests.support import (
+    as_session_user,
     create_document,
     document_tokens,
     get_document,
     get_document_tokens,
     link_lrclib,
+    lrclib_search,
     pick_reading,
     unlink_lrclib,
     update_document_text,
@@ -46,19 +51,49 @@ URI = "https://lrclib.net/api/get/1"
 WEATHER = "今日は良い天気です。"
 
 
+def _synced_record(lines: Sequence[tuple[float, str]], duration: float) -> dict:
+    """An LRCLIB record with `lines`, (seconds, text) pairs, as synced
+    lyrics."""
+    return {
+        "syncedLyrics": "\n".join(
+            f"[{int(start // 60):02d}:{start % 60:05.2f}]{text}"
+            for start, text in lines
+        ),
+        "plainLyrics": "\n".join(text for _, text in lines),
+        "duration": duration,
+        "instrumental": False,
+    }
+
+
+def _search_params(uri: str) -> frozenset | None:
+    """The query parameters of `uri` if it's a search, else None."""
+    parts = urllib.parse.urlsplit(uri)
+    if parts.path != "/api/search":
+        return None
+    return frozenset(urllib.parse.parse_qsl(parts.query))
+
+
 class FakeLrclib:
-    """Stands in for LRCLIB's API: serves `records` by address, or raises
-    `error` if one is set."""
+    """Stands in for LRCLIB's API: serves `records` by address and
+    `searches` by query, or raises `error` if one is set."""
 
     def __init__(self):
         self.records: dict[str, dict] = {}
+        # Keyed by a search's query parameters; an unknown search finds
+        # nothing, as LRCLIB's does.
+        self.searches: dict[frozenset, list[dict] | Exception] = {}
         self.error: Exception | None = None
         self.requests: list[str] = []
 
-    def __call__(self, uri: str) -> dict:
+    def __call__(self, uri: str) -> dict | list:
         self.requests.append(uri)
         if self.error is not None:
             raise self.error
+        if (params := _search_params(uri)) is not None:
+            results = self.searches.get(params)
+            if isinstance(results, Exception):
+                raise results
+            return results or []
         if uri not in self.records:
             raise LrclibError("LRCLIB has no track at that address.")
         return self.records[uri]
@@ -67,15 +102,24 @@ class FakeLrclib:
         self, uri: str, lines: list[tuple[float, str]], duration: float = 60.0
     ) -> None:
         """Serve `lines`, (seconds, text) pairs, at `uri` as synced lyrics."""
-        self.records[uri] = {
-            "syncedLyrics": "\n".join(
-                f"[{int(start // 60):02d}:{start % 60:05.2f}]{text}"
-                for start, text in lines
+        self.records[uri] = _synced_record(lines, duration)
+
+    def answer(self, results: list[dict] | Exception, **params: str) -> None:
+        """Answer a search for exactly `params` with `results`, or fail it
+        with that error."""
+        self.searches[frozenset(params.items())] = results
+
+    def searched(self) -> list[dict[str, str]]:
+        """The query parameters of each search made, in no particular order
+        since they're sent concurrently."""
+        return sorted(
+            (
+                dict(params)
+                for uri in self.requests
+                if (params := _search_params(uri)) is not None
             ),
-            "plainLyrics": "\n".join(text for _, text in lines),
-            "duration": duration,
-            "instrumental": False,
-        }
+            key=lambda params: sorted(params.items()),
+        )
 
 
 @pytest.fixture
@@ -405,3 +449,260 @@ def test_linking_replaces_the_lyrics_and_times_the_tokens(
         r.surface for r in tokenize_document(SECOND_SENTENCE)
     ]
     assert document.lrclib_lines == [LineTiming(start=4.0, end=60.0)]
+
+
+# Searching for tracks. The titles are invented.
+SONG = "架空の歌"
+
+
+def _track(
+    track_id: int,
+    name: str = SONG,
+    duration: float = 200.0,
+    *,
+    lines: Sequence[tuple[float, str]] = (
+        (1.0, FIRST_SENTENCE),
+        (9.0, SECOND_SENTENCE),
+    ),
+    **fields,
+) -> dict:
+    """A search result for track `track_id`, synced to `lines` unless
+    `fields` say otherwise."""
+    return {
+        **_synced_record(lines, duration),
+        "id": track_id,
+        "trackName": name,
+        "artistName": "歌手",
+        "albumName": "アルバム",
+        **fields,
+    }
+
+
+def _ids(candidates) -> list[int]:
+    return [candidate.id for candidate in candidates]
+
+
+def test_search_sends_each_query_variant_once(fake_lrclib):
+    search_tracks(f"{SONG} (TV Size)", "歌手", 200)
+
+    assert fake_lrclib.searched() == [
+        {"artist_name": "歌手", "track_name": f"{SONG} (TV Size)"},
+        {"q": SONG},
+        {"q": f"{SONG} (TV Size)"},
+        {"q": f"{SONG} (TV Size) 歌手"},
+    ]
+
+
+def test_search_skips_variants_that_repeat_another(fake_lrclib):
+    # No artist, and nothing to clean off the title.
+    search_tracks(f" {SONG} ", "", 200)
+
+    assert fake_lrclib.searched() == [{"q": SONG}, {"track_name": SONG}]
+
+
+@pytest.mark.parametrize(
+    ("title", "cleaned"),
+    [
+        (f"{SONG} (TV Size)", SONG),
+        (f"{SONG}（TVサイズ）", SONG),
+        (f"{SONG}【MV】", SONG),
+        (f"{SONG} [Remix] (feat. 歌手)", SONG),
+        (f'{SONG} - From "THE FIRST TAKE"', SONG),
+        (f"{SONG} - Into The Night", SONG),
+        (f"{SONG} feat. 歌手", SONG),
+        (f"{SONG} FT. 歌手", SONG),
+        # Brackets at the start or a hyphen inside a word aren't decoration.
+        (f"(秘密){SONG}", f"(秘密){SONG}"),
+        ("Re-Start", "Re-Start"),
+    ],
+)
+def test_cleaned_title_drops_trailing_decorations(title, cleaned):
+    assert lrclib._clean_title(title) == cleaned
+
+
+def test_a_title_that_is_all_decoration_isnt_searched_bare(fake_lrclib):
+    search_tracks("【MV】", "", 200)
+
+    assert {"q": ""} not in fake_lrclib.searched()
+
+
+def test_search_merges_variants_by_track(fake_lrclib):
+    fake_lrclib.answer([_track(1), _track(2)], q=SONG)
+    fake_lrclib.answer([_track(2), _track(3)], track_name=SONG, artist_name="歌手")
+
+    assert sorted(_ids(search_tracks(SONG, "歌手", 200))) == [1, 2, 3]
+
+
+def test_a_match_found_only_by_the_cleaned_title_is_kept(fake_lrclib):
+    fake_lrclib.answer([_track(1)], q=SONG)
+
+    [candidate] = search_tracks(f"{SONG} (TV Size)", "", 200)
+
+    assert (candidate.id, candidate.title_match) == (1, "partial")
+
+
+@pytest.mark.parametrize(
+    ("name", "match"),
+    [
+        ("Fake Song", "whole"),
+        # Width, case, spacing and punctuation aren't told apart.
+        ("ＦＡＫＥ ＳＯＮＧ", "whole"),
+        ("fake-song!", "whole"),
+        # Containing the title, or contained in it, either way round.
+        ("歌手「Fake Song」 Official Music Video", "partial"),
+        ("fake", "partial"),
+        ("Other Song", None),
+        # A title of only punctuation isn't contained in every other one.
+        ("!!!", None),
+    ],
+)
+def test_search_keeps_only_matching_titles(fake_lrclib, name, match):
+    fake_lrclib.answer([_track(1, name)], q="Fake Song")
+
+    candidates = search_tracks("Fake Song", "", 200)
+
+    assert [c.title_match for c in candidates] == ([match] if match else [])
+
+
+def test_decorated_titles_match_however_theyre_written(fake_lrclib):
+    title = f'{SONG} (From "THE FIRST TAKE")'
+    fake_lrclib.answer([_track(1, f"{SONG} - From THE FIRST TAKE")], q=title)
+
+    assert [c.title_match for c in search_tracks(title, "", 200)] == ["whole"]
+
+
+def test_search_drops_tracks_without_lyrics(fake_lrclib):
+    fake_lrclib.answer(
+        [
+            _track(1, instrumental=True),
+            _track(2, syncedLyrics=None, plainLyrics=None),
+            _track(3, syncedLyrics="[ar: 歌手]", plainLyrics=""),
+            _track(4, syncedLyrics=None),
+        ],
+        q=SONG,
+    )
+
+    [candidate] = search_tracks(SONG, "", 200)
+
+    assert (candidate.id, candidate.synced) == (4, False)
+
+
+def test_candidate_fields(fake_lrclib):
+    fake_lrclib.answer(
+        [
+            _track(
+                7,
+                duration=201.5,
+                lines=[(0.0, ""), (1.0, FIRST_SENTENCE), (5.0, ""), (9.0, "二行目")],
+            )
+        ],
+        q=SONG,
+    )
+
+    [candidate] = search_tracks(SONG, "", 200)
+
+    assert candidate == lrclib.LrclibCandidate(
+        id=7,
+        uri=normalize_lrclib_uri("7"),
+        track_name=SONG,
+        artist_name="歌手",
+        album_name="アルバム",
+        duration=201.5,
+        synced=True,
+        title_match="whole",
+        duration_delta=1.5,
+        within_tolerance=True,
+        preview=[FIRST_SENTENCE, "二行目"],
+    )
+
+
+def test_plain_lyrics_preview(fake_lrclib):
+    fake_lrclib.answer(
+        [_track(1, syncedLyrics=None, plainLyrics="\n一行目\n\n二行目\n三行目")],
+        q=SONG,
+    )
+
+    assert search_tracks(SONG, "", 200)[0].preview == ["一行目", "二行目"]
+
+
+def test_search_ranks_length_then_sync_then_title_then_closeness(fake_lrclib):
+    fake_lrclib.answer(
+        [
+            _track(1, duration=230),  # too long
+            _track(2, f"{SONG} (TV Size)", duration=202),
+            _track(3, duration=203, syncedLyrics=None),
+            _track(4, duration=197),
+            _track(5, duration=201),
+            _track(6, duration=203.5),  # just past the tolerance
+        ],
+        q=SONG,
+    )
+
+    candidates = search_tracks(SONG, "", 200)
+
+    assert _ids(candidates) == [5, 4, 2, 3, 6, 1]
+    assert [c.within_tolerance for c in candidates] == [True] * 4 + [False] * 2
+
+
+def test_search_without_a_duration_is_never_within_tolerance(fake_lrclib):
+    fake_lrclib.answer([_track(1), _track(2, duration=None)], q=SONG)
+
+    candidates = search_tracks(SONG, "", None)
+
+    assert [(c.duration_delta, c.within_tolerance) for c in candidates] == [
+        (None, False),
+        (None, False),
+    ]
+
+
+def test_search_tolerates_a_failed_variant(fake_lrclib):
+    fake_lrclib.answer(LrclibUnavailable("Couldn't reach LRCLIB."), track_name=SONG)
+    fake_lrclib.answer([_track(1)], q=SONG)
+
+    assert _ids(search_tracks(SONG, "", 200)) == [1]
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        LrclibUnavailable("LRCLIB is rate-limiting requests — try again later."),
+        # A refusal LRCLIB shouldn't give a search is still LRCLIB failing.
+        LrclibError("LRCLIB has no track at that address."),
+    ],
+)
+def test_search_fails_when_every_variant_does(fake_lrclib, error):
+    fake_lrclib.error = error
+
+    with pytest.raises(LrclibUnavailable):
+        search_tracks(SONG, "歌手", 200)
+
+
+def test_search_endpoint_returns_candidates(fake_lrclib):
+    fake_lrclib.answer([_track(1, duration=262)], q=f"{SONG} 歌手")
+
+    [candidate] = lrclib_search(title=SONG, artist="歌手", duration=261)
+
+    assert (candidate.id, candidate.within_tolerance) == (1, True)
+
+
+def test_search_endpoint_duration_is_optional(fake_lrclib):
+    fake_lrclib.answer([_track(1)], q=SONG)
+
+    [candidate] = lrclib_search(title=SONG)
+
+    assert candidate.duration_delta is None
+
+
+def test_search_endpoint_maps_unavailable_to_502(fake_lrclib):
+    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+
+    with pytest.raises(HTTPException) as rejected:
+        lrclib_search(title=SONG)
+    assert rejected.value.status_code == 502
+
+
+def test_search_endpoint_requires_login(fake_lrclib):
+    with as_session_user(), pytest.raises(HTTPException) as rejected:
+        lrclib_search(title=SONG)
+    assert rejected.value.status_code == 401
+    assert fake_lrclib.requests == []

@@ -47,7 +47,7 @@ Verification.
 |---|---|---|---|---|---|
 | 0 — Doc | Done | This plan committed as `docs/song-search.md`, so each step's session reads the same spec | Haiku 4.5 | low | Mechanical: copy the plan into the repo |
 | 1 — YouTube Music song search | Done | `ytmusicapi` dep, `app/youtube_music.py`, `GET /api/songs/search`, `SongSearch.tsx`; a pick fills Title + YouTube video ID. Usable on its own | Sonnet 5 | medium | Wrapping a library against a clear spec. Its result shape is loose (missing album/duration), but that's visible, not silent |
-| 2 — LRCLIB track search | Not started | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail *silently*: the right track just never shows up |
+| 2 — LRCLIB track search | Done | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail *silently*: the right track just never shows up |
 | 3 — LRCLIB matches in the form | Not started | `LrclibMatches.tsx`, NewDocumentForm wiring, manual fields under `<details>`, CSS | Sonnet 5 | medium | Conventional React. The traps are a typed title being overwritten and a required lyrics box hidden in `<details>`, and the browser check catches both |
 
 Each step runs in its own session at its listed model and effort, and ends
@@ -78,7 +78,8 @@ current version with `pip index versions ytmusicapi` when implementing.
   - Build query variants with no duplicates:
     `track_name=title&artist_name=artist`, `q=f"{title} {artist}"`,
     `q=title`, and `q=` the cleaned title when it differs (strip trailing
-    `(…)`, `[…]`, `（…）`, ` - From "…"`, `feat.` segments).
+    `(…)`, `[…]`, `（…）`, `【…】`, ` - …` subtitles such as ` - From "…"`
+    and ` - Into The Night`, and `feat.` segments).
   - Run them concurrently (`ThreadPoolExecutor`, ≤4 requests per pick).
     Ignore a variant that fails as long as at least one succeeds; otherwise
     re-raise `LrclibUnavailable`.
@@ -89,7 +90,9 @@ current version with `pip index versions ytmusicapi` when implementing.
     match" the API can't do itself.
   - Per candidate: `id`, `uri` (`f"{_API_GET}/{id}"`, the same canonical form
     `normalize_lrclib_uri` produces), `track_name`, `artist_name`,
-    `album_name`, `duration`, `synced` (bool), `duration_delta`, and
+    `album_name`, `duration`, `synced` (bool), `title_match`
+    (`"whole"`/`"partial"`), `duration_delta` (None when the song's
+    duration is unknown, since `duration` is optional), and
     `within_tolerance` (|delta| ≤ `_DURATION_TOLERANCE_SECONDS = 3`; LRCLIB's
     own `/api/get` allows about ±2s, and YouTube Music rounds to whole
     seconds). Also a short `preview` (the first two non-empty lyric lines,
