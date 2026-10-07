@@ -131,8 +131,23 @@ def _locked_card(conn, user_id: int, card_id: int):
     return row
 
 
+def _schedule_params(card: Card) -> dict:
+    """py-fsrs's `card` as bind parameters named for study_cards' scheduling
+    columns."""
+    return {
+        "state": card.state.value,
+        "step": card.step,
+        "stability": card.stability,
+        "difficulty": card.difficulty,
+        "due": card.due,
+        "last_review": card.last_review,
+    }
+
+
 def _store_schedule(conn, card: Card):
     """Write py-fsrs's `card` back to its row and return the row."""
+    # Every change to a schedule sets last_review to its own time, which is
+    # how _undo_review tells whether a review is still what set it.
     return conn.execute(
         text(
             f"""
@@ -143,15 +158,7 @@ def _store_schedule(conn, card: Card):
             RETURNING {CARD_COLUMNS}
             """
         ),
-        {
-            "id": card.card_id,
-            "state": card.state.value,
-            "step": card.step,
-            "stability": card.stability,
-            "difficulty": card.difficulty,
-            "due": card.due,
-            "last_review": card.last_review,
-        },
+        {"id": card.card_id, **_schedule_params(card)},
     ).one()
 
 
@@ -162,10 +169,11 @@ def review_card(
     correct: bool,
     duration_ms: int,
     document_id: int | None = None,
-) -> tuple[Rating, object]:
+) -> tuple[Rating, int, object]:
     """Schedule the user's card after an answer that took `duration_ms`,
     logging the review against `document_id`, the song whose line was
-    played. Returns the rating it was given and the card's new row.
+    played. Returns the rating it was given, the review's id, and the card's
+    new row.
 
     Raises CardNotFound if the card isn't the user's, CardSuspended if it was
     removed from study, and DocumentNotFound if `document_id` isn't one of
@@ -181,17 +189,23 @@ def review_card(
         correct, duration_ms, fast_ms, slow_ms, row.kind in MULTIPLE_CHOICE_KINDS
     )
     reviewed_at = datetime.now(UTC)
+    before = _fsrs_card(row)
     card, _ = Scheduler(desired_retention=row.desired_retention).review_card(
-        _fsrs_card(row), rating, reviewed_at
+        before, rating, reviewed_at
     )
 
-    conn.execute(
+    review_id = conn.execute(
         text(
             """
             INSERT INTO study_reviews (
-                card_id, document_id, reviewed_at, correct, duration_ms, fast_ms, slow_ms, rating
+                card_id, document_id, reviewed_at, correct, duration_ms, fast_ms, slow_ms, rating,
+                prev_state, prev_step, prev_stability, prev_difficulty, prev_due, prev_last_review
             )
-            VALUES (:card_id, :document_id, :reviewed_at, :correct, :duration_ms, :fast_ms, :slow_ms, :rating)
+            VALUES (
+                :card_id, :document_id, :reviewed_at, :correct, :duration_ms, :fast_ms, :slow_ms, :rating,
+                :state, :step, :stability, :difficulty, :due, :last_review
+            )
+            RETURNING id
             """
         ),
         {
@@ -203,9 +217,10 @@ def review_card(
             "fast_ms": fast_ms,
             "slow_ms": slow_ms,
             "rating": int(rating),
+            **_schedule_params(before),
         },
-    )
-    return rating, _store_schedule(conn, card)
+    ).scalar_one()
+    return rating, review_id, _store_schedule(conn, card)
 
 
 def push_out(conn, user_id: int, card_id: int, months: PushOutMonths):
@@ -263,6 +278,45 @@ class NotCorrectable(Exception):
     pass
 
 
+class ReviewNotFound(Exception):
+    pass
+
+
+def _undo_review(conn, card, review_id: int) -> None:
+    """Delete review `review_id` of `card`, a locked card row, and put the
+    card's schedule back as it was before it — unless the schedule has moved
+    on since (a later review, or a push-out), in which case the review
+    stands, since the schedule now builds on it.
+
+    Raises ReviewNotFound if it isn't one of the card's reviews."""
+    params = {"review_id": review_id, "card_id": card.id}
+    # A card's last_review is the time of whatever set its schedule last
+    # (see _store_schedule), so it's this review's only if nothing has since.
+    # A review logged before 0031 has no prior schedule to go back to.
+    before = conn.execute(
+        text(
+            """
+            DELETE FROM study_reviews
+            WHERE id = :review_id AND card_id = :card_id
+              AND reviewed_at = :last_review AND prev_state IS NOT NULL
+            RETURNING card_id AS id, prev_state AS state, prev_step AS step,
+                      prev_stability AS stability, prev_difficulty AS difficulty,
+                      prev_due AS due, prev_last_review AS last_review
+            """
+        ),
+        {**params, "last_review": card.last_review},
+    ).one_or_none()
+    if before is not None:
+        _store_schedule(conn, _fsrs_card(before))
+    elif not conn.execute(
+        text(
+            "SELECT EXISTS (SELECT 1 FROM study_reviews WHERE id = :review_id AND card_id = :card_id)"
+        ),
+        params,
+    ).scalar_one():
+        raise ReviewNotFound()
+
+
 def correct_card(
     conn,
     user_id: int,
@@ -271,19 +325,23 @@ def correct_card(
     token_id: int,
     piece: int | None,
     correct: Callable[[object], object],
+    review_id: int | None = None,
 ) -> tuple[object | None, bool]:
     """Apply `correct(conn)`, a change to which word `token_id` of the
     document is (or `piece` of it, for a token sung in katakana; see
     cards.token_word), made while it was the line of the user's card
     `card_id`. The token then belongs to the card for the word it is now,
-    which is created, or restored, if need be. The old card is deleted if it
-    has no reviews, since nothing was learned on it; with reviews, it stays.
+    which is created, or restored, if need be. `review_id`, the card's review
+    from that line, is undone, since it was asked about the wrong word. The
+    old card is then deleted if it has no reviews, since nothing was learned
+    on it; with reviews, it stays.
 
     Returns the token's card now (CARD_COLUMNS), None if its word has no
     dictionary entry to study, and whether the old card was kept.
 
     Raises CardNotFound if the card isn't the user's, DocumentNotFound if
-    the document isn't, NotCorrectable if the token's word doesn't take this
+    the document isn't, ReviewNotFound if `review_id` isn't one of the
+    card's reviews, NotCorrectable if the token's word doesn't take this
     correction (see cards.CardTokens), and as cards.token_word does if the
     token isn't part of a word."""
     row = _locked_card(conn, user_id, card_id)
@@ -293,6 +351,8 @@ def correct_card(
     before = token_word(conn, document_id, token_id, piece)
     if before.correction != ("reading" if piece is None else "word"):
         raise NotCorrectable()
+    if review_id is not None:
+        _undo_review(conn, row, review_id)
     correct(conn)
     try:
         word = token_word(conn, document_id, token_id, piece)

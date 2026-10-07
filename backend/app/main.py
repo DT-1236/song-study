@@ -133,6 +133,12 @@ def conflict_not_found(request: Request, exc: ConflictNotFound) -> JSONResponse:
     )
 
 
+@app.exception_handler(study.ReviewNotFound)
+def review_not_found(request: Request, exc: study.ReviewNotFound) -> JSONResponse:
+    """A 404 for undoing a review that isn't one of the card's."""
+    return JSONResponse(status_code=404, content={"detail": "Review not found."})
+
+
 @app.exception_handler(study.NotCorrectable)
 def not_correctable(request: Request, exc: study.NotCorrectable) -> JSONResponse:
     """A 422 for a correction a card's token doesn't take."""
@@ -1363,6 +1369,8 @@ class ReviewAnswer(BaseModel):
 class ReviewResult(BaseModel):
     # FSRS's rating, 1 (Again) to 4 (Easy).
     rating: int
+    # For a correction to undo it (CardLineCorrection.review_id).
+    review_id: int
     card: StudyCard
 
 
@@ -1377,7 +1385,7 @@ def review_card(
     """Schedule the user's card after an answer, rated from its correctness
     and how long it took."""
     with engine.begin() as conn:
-        rating, row = study.review_card(
+        rating, review_id, row = study.review_card(
             conn,
             user_id,
             card_id,
@@ -1385,7 +1393,9 @@ def review_card(
             answer.duration_ms,
             answer.document_id,
         )
-    return ReviewResult(rating=int(rating), card=StudyCard(**row._mapping))
+    return ReviewResult(
+        rating=int(rating), review_id=review_id, card=StudyCard(**row._mapping)
+    )
 
 
 @api.post("/cards/{card_id}/push-out", response_model=StudyCard)
@@ -1406,18 +1416,21 @@ def suspend_card(card_id: int, user_id: CurrentUser) -> StudyCard:
     return StudyCard(**row._mapping)
 
 
-class CardReadingCorrection(ReadingCorrection):
-    # The token whose reading to correct: the card's line's.
+class CardLineCorrection(BaseModel):
+    # The token whose word to correct: the card's line's.
     document_id: int
     token_id: int
+    # The card's review from that line, if it was answered, to undo: it was
+    # asked about the wrong word.
+    review_id: int | None = None
+
+
+class CardReadingCorrection(CardLineCorrection, ReadingCorrection):
     furigana_spans: list[dict] | None = None
 
 
-class CardWordCorrection(BaseModel):
-    # The token sung in katakana whose word to correct, and which of its
-    # gloss's pieces: the card's line's.
-    document_id: int
-    token_id: int
+class CardWordCorrection(CardLineCorrection):
+    # Which of the gloss's pieces of the token, sung in katakana.
     piece: int = Field(ge=0)
     # The word's JMDict entry, as a WordOption names it.
     idseq: int
@@ -1434,15 +1447,21 @@ class CardCorrection(BaseModel):
 def _correct_card(
     user_id: int,
     card_id: int,
-    document_id: int,
-    token_id: int,
+    body: CardLineCorrection,
     piece: int | None,
     correct: Callable[[object], object],
 ) -> CardCorrection:
     """study.correct_card in a transaction of its own, as a response."""
     with engine.begin() as conn:
         card, kept = study.correct_card(
-            conn, user_id, card_id, document_id, token_id, piece, correct
+            conn,
+            user_id,
+            card_id,
+            body.document_id,
+            body.token_id,
+            piece,
+            correct,
+            body.review_id,
         )
     return CardCorrection(card=StudyCard(**card._mapping) if card else None, kept=kept)
 
@@ -1457,8 +1476,7 @@ def correct_card_reading(
     return _correct_card(
         user_id,
         card_id,
-        body.document_id,
-        body.token_id,
+        body,
         None,
         lambda conn: select_reading(
             conn, body.document_id, [body.token_id], body.reading, body.furigana_spans
@@ -1476,8 +1494,7 @@ def correct_card_word(
     return _correct_card(
         user_id,
         card_id,
-        body.document_id,
-        body.token_id,
+        body,
         body.piece,
         lambda conn: pick_piece_word(
             conn, body.document_id, [body.token_id], body.piece, body.idseq

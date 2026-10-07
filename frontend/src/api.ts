@@ -708,12 +708,18 @@ export async function fetchAllSongsQueue(): Promise<StudyQueue> {
   return response.json()
 }
 
-// `keepalive` lets the request finish after the page is gone.
+// What answering a card did.
+export type ReviewResult = {
+  rating: number
+  // For a correction to undo it with.
+  review_id: number
+  card: StudyCard
+}
+
 export async function reviewCard(
   cardId: number,
   answer: { correct: boolean; durationMs: number; documentId: number | null },
-  keepalive = false,
-): Promise<{ rating: number; card: StudyCard }> {
+): Promise<ReviewResult> {
   const response = await fetch(`${API_URL}/cards/${cardId}/review`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -722,7 +728,6 @@ export async function reviewCard(
       duration_ms: answer.durationMs,
       document_id: answer.documentId,
     }),
-    keepalive,
   })
 
   await assertOk(response, CARD_ERRORS)
@@ -861,7 +866,8 @@ export type CardCorrection = {
 }
 
 // Picks another reading for the token a card's line has, moving the song to
-// the card for the word that makes it. Logs no review.
+// the card for the word that makes it. Logs no review, and undoes
+// `reviewId`, the card's review from that line, if it was answered.
 export async function correctCardReading(
   cardId: number,
   correction: {
@@ -869,6 +875,7 @@ export async function correctCardReading(
     tokenId: number
     reading: string
     furiganaSpans: FuriganaSpan[]
+    reviewId: number | null
   },
 ): Promise<CardCorrection> {
   const response = await fetch(`${API_URL}/cards/${cardId}/reading`, {
@@ -879,6 +886,7 @@ export async function correctCardReading(
       token_id: correction.tokenId,
       reading: correction.reading,
       furigana_spans: correction.furiganaSpans,
+      review_id: correction.reviewId,
     }),
   })
 
@@ -888,7 +896,8 @@ export async function correctCardReading(
 }
 
 // Picks another word for `piece` of the katakana token a card's line has,
-// moving the song to that word's card. Logs no review.
+// moving the song to that word's card. Logs no review, and undoes `reviewId`
+// as correctCardReading does.
 export async function correctCardWord(
   cardId: number,
   correction: {
@@ -897,6 +906,7 @@ export async function correctCardWord(
     piece: number
     // The word's JMDict entry, as a WordOption names it.
     idseq: number
+    reviewId: number | null
   },
 ): Promise<CardCorrection> {
   const response = await fetch(`${API_URL}/cards/${cardId}/word`, {
@@ -907,6 +917,7 @@ export async function correctCardWord(
       token_id: correction.tokenId,
       piece: correction.piece,
       idseq: correction.idseq,
+      review_id: correction.reviewId,
     }),
   })
 

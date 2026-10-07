@@ -18,7 +18,8 @@ type Choice = {
   label: string
   // What it means, for words told apart by meaning rather than reading.
   detail: string | null
-  apply: () => Promise<CardCorrection>
+  // Undoes `reviewId`, the card's review from the line, if any.
+  apply: (reviewId: number | null) => Promise<CardCorrection>
 }
 
 // The other words `line`'s token could be than `card`'s: the other readings
@@ -45,11 +46,12 @@ async function loadChoices(
         key: String(option.idseq),
         label: wordLabel(option.spelling, card.reading),
         detail: option.gloss.slice(0, 3).join(', ') || null,
-        apply: () =>
+        apply: (reviewId) =>
           correctCardWord(card.id, {
             ...where,
             piece,
             idseq: option.idseq,
+            reviewId,
           }),
       }))
   }
@@ -65,11 +67,12 @@ async function loadChoices(
         option.citation_reading ?? option.reading,
       ),
       detail: null,
-      apply: () =>
+      apply: (reviewId) =>
         correctCardReading(card.id, {
           ...where,
           reading: option.reading,
           furiganaSpans: option.furigana_spans,
+          reviewId,
         }),
     }))
 }
@@ -92,12 +95,16 @@ function correctionMessage(
 export function CardCorrectionPanel({
   card,
   line,
+  reviewId,
   onCorrected,
   onCancel,
 }: {
   card: QueuedCard
   // The card's line, which says how its word can be corrected.
   line: CardLine
+  // The card's review from the line once it's saved, which the correction
+  // undoes; null if it wasn't answered, or its answer failed to save.
+  reviewId: () => Promise<number | null>
   onCorrected: (message: string) => void
   onCancel: () => void
 }) {
@@ -114,14 +121,16 @@ export function CardCorrectionPanel({
 
   function pick(choice: Choice) {
     if (applying) return
-    save(choice.apply, (result) =>
-      onCorrected(
-        correctionMessage(
-          wordLabel(card.lookup_form, card.reading),
-          choice.label,
-          result,
+    save(
+      async () => choice.apply(await reviewId()),
+      (result) =>
+        onCorrected(
+          correctionMessage(
+            wordLabel(card.lookup_form, card.reading),
+            choice.label,
+            result,
+          ),
         ),
-      ),
     )
   }
 

@@ -4,14 +4,14 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on PR #74 (flashcards step 9)
+## `/simplify` on undoing a review from a card correction (migration 0031)
 
-- Send each review as soon as it's answered and have a card correction undo it, instead of
-  holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
-  a closed tab). Needs `study_reviews` to keep the card's schedule from before each review, the
-  review's id returned by `/review`, and `correct_card` to delete that review and restore the
-  schedule when it's the card's latest. Model: Opus 5, high effort — a migration plus FSRS state
-  restored exactly, where a mistake corrupts scheduling silently.
+- Make `_undo_review` (`study.py`) tell whether a review still set the card's schedule without
+  relying on every schedule writer setting `last_review` to its own time (today `review_card` and
+  `push_out` do; `_store_schedule` only notes the rule in a comment). Store the schedule each review
+  produced on `study_reviews` too (a migration adding the six columns `prev_*` mirrors), and undo
+  only while the card's schedule still equals it. Model: Opus 5, medium effort — the design is
+  set, but a slip there silently overwrites a schedule.
 
 ## `/simplify` on keying picked katakana cards by entry (migration 0030)
 
