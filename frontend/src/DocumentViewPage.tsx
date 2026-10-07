@@ -1,5 +1,6 @@
 import {
   Fragment,
+  type ReactNode,
   memo,
   useCallback,
   useEffect,
@@ -13,14 +14,19 @@ import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
   acceptPhraseSuggestions,
+  addTokenCard,
   applyReading,
   errorMessage,
   fetchAlternateReadings,
   fetchDocument,
+  fetchDocumentWords,
+  fetchPieceWords,
   linkLrclib,
+  pickPieceWord,
   resolvePhraseFurigana,
   saveLineTimings,
   setTokensIgnored,
+  suspendCard,
   unlinkLrclib,
   unmergePhrase,
   updateDocumentText,
@@ -29,12 +35,15 @@ import type {
   Conflict,
   ConflictOptionValue,
   Document,
+  DocumentWord,
   FuriganaSpan,
   LineTiming,
   PhraseConflictValue,
   PhraseFuriganaValue,
   PredicateGroupValue,
+  StudyCard,
   Token,
+  WordOption,
 } from './api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { PosTermRuby, getPosInfo } from './PosLegend'
@@ -61,8 +70,9 @@ const REVIEW_REASON_LABELS: Record<string, string> = {
   no_kana_anchor: 'Ambiguous furigana split',
 }
 
-// A stable empty list, for props that must keep one identity.
+// Stable empty lists, for props that must keep one identity.
 const NO_TOKENS: Token[] = []
+const NO_WORDS: DocumentWord[] = []
 
 // Elements where a focused Space already activates the control natively
 // (typing targets are handled separately, in isTypingTarget) — the global
@@ -529,6 +539,140 @@ function IgnoreGlossButton({
   )
 }
 
+// Whether `word` is in the user's study list, with the one action that
+// changes that: adding it, removing it, or restoring it with its history.
+function StudyListControl({
+  word,
+  documentId,
+  onCardChanged,
+}: {
+  word: DocumentWord
+  documentId: number
+  onCardChanged: (card: StudyCard) => void
+}) {
+  const { saving, error, save } = useSave()
+  const card = word.card
+  const studied = card !== null && !card.suspended
+
+  return (
+    <div className="study-list">
+      {card && (
+        <span className="conflict-note">
+          {studied ? 'In your study list ✓' : 'Removed from your study list'}
+        </span>
+      )}
+      <button
+        type="button"
+        className="conflict-option"
+        disabled={saving}
+        onClick={(e) => {
+          e.stopPropagation()
+          save(
+            () =>
+              studied
+                ? suspendCard(card.id)
+                : addTokenCard(documentId, word.token_ids[0], word.piece),
+            onCardChanged,
+          )
+        }}
+      >
+        {studied ? 'Remove' : card ? 'Restore' : 'Add to study list'}
+      </button>
+      {error && <div className="conflict-error">{error}</div>}
+    </div>
+  )
+}
+
+// Offers the other words JMDict has with the reading of `piece` of the
+// targets' gloss, searched for on demand, to make that piece of all of them:
+// for katakana, whose kanji the gloss can only guess (アイ as 会う or 合う).
+function PieceWordPicker({
+  piece,
+  targets,
+  documentId,
+  onTokensUpdated,
+}: {
+  piece: number
+  // Tokens sung in katakana, the first the one the popup is for.
+  targets: Token[]
+  documentId: number
+  onTokensUpdated: (tokens: Token[]) => void
+}) {
+  const [options, setOptions] = useState<WordOption[] | null>(null)
+  const { saving: searching, error: searchError, save: runSearch } = useSave()
+  const { saving: applying, error: applyError, save: applyOption } = useSave()
+  const shown = targets[0].gloss?.pieces[piece]
+  if (!shown) return null
+
+  if (options === null) {
+    return (
+      <div className="phrase-suggestion">
+        <button
+          type="button"
+          className="conflict-option"
+          disabled={searching}
+          onClick={(e) => {
+            e.stopPropagation()
+            runSearch(
+              () => fetchPieceWords(documentId, targets[0].id, piece),
+              setOptions,
+            )
+          }}
+        >
+          Another word read {shown.reading}?
+        </button>
+        {searchError && <div className="conflict-error">{searchError}</div>}
+      </div>
+    )
+  }
+
+  if (options.every((option) => option.spelling === shown.surface)) {
+    return (
+      <div className="conflict-note">
+        No other word is read {shown.reading}.
+      </div>
+    )
+  }
+
+  return (
+    <div className="phrase-suggestion">
+      <div className="conflict-note">Which word is {shown.reading}?</div>
+      {applyError && <div className="conflict-error">{applyError}</div>}
+      <div className="conflict-options">
+        {options.map((option) => {
+          const selected = option.spelling === shown.surface
+          return (
+            <button
+              key={option.spelling}
+              type="button"
+              className={
+                selected ? 'conflict-option selected' : 'conflict-option'
+              }
+              disabled={applying || (selected && targets.length === 1)}
+              onClick={(e) => {
+                e.stopPropagation()
+                applyOption(
+                  () =>
+                    pickPieceWord(
+                      documentId,
+                      targets.map((t) => t.id),
+                      piece,
+                      option.spelling,
+                    ),
+                  onTokensUpdated,
+                )
+              }}
+            >
+              {option.spelling}
+              {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // Every suggestion in `instances` for the same phrase as `suggestion`: the
 // same span and reading, since one word can start different phrases.
 function matchingPhraseSuggestions(
@@ -818,6 +962,7 @@ function ApplyToAllOption({
 function ConflictResolver({
   token,
   instances,
+  wordPieces,
   documentId,
   onTokensUpdated,
 }: {
@@ -825,6 +970,8 @@ function ConflictResolver({
   // Every token in the document in `token`'s group (see groupKey), `token`
   // included.
   instances: Token[]
+  // For a token sung in katakana, the pieces of its gloss that are words.
+  wordPieces: number[]
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
 }) {
@@ -904,6 +1051,15 @@ function ConflictResolver({
               onChange={setApplyToAll}
             />
           )}
+          {wordPieces.map((piece) => (
+            <PieceWordPicker
+              key={piece}
+              piece={piece}
+              targets={targets}
+              documentId={documentId}
+              onTokensUpdated={onTokensUpdated}
+            />
+          ))}
           <TokenDecisions
             targets={targets}
             offerCorrection={false}
@@ -917,8 +1073,15 @@ function ConflictResolver({
 }
 
 // A token's dictionary form, part of speech, and gloss, as its popup and the
-// selection panel show them.
-function GlossDetails({ token }: { token: Token }) {
+// selection panel show them, with `pieceControls` under each piece of a
+// gloss shown as its parts.
+function GlossDetails({
+  token,
+  pieceControls,
+}: {
+  token: Token
+  pieceControls?: (piece: number) => ReactNode
+}) {
   const gloss = token.gloss
   const posInfo = getPosInfo(token.part_of_speech[0])
   // A merged token shows its group's lookup form and reading, not its own
@@ -996,6 +1159,7 @@ function GlossDetails({ token }: { token: Token }) {
                   below for the whole word if this one is wrong.
                 </div>
               )}
+              {pieceControls?.(i)}
             </div>
           ))}
         </div>
@@ -1024,19 +1188,30 @@ const EDGE_MARGIN_PX = 8
 function GlossPopup({
   token,
   instances,
+  words,
   documentId,
   onTokensUpdated,
+  onCardChanged,
   onMouseEnter,
   onMouseLeave,
 }: {
   token: Token
   instances: Token[]
+  // The words `token` is part of that the user can add to their cards: its
+  // own, or for a token sung in katakana, those of its gloss's pieces.
+  words: DocumentWord[]
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
+  onCardChanged: (card: StudyCard) => void
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
   const popupRef = useRef<HTMLDivElement>(null)
+  const ownWord = words.find((word) => word.piece === null)
+  const pieceWords = new Map<number, DocumentWord>()
+  for (const word of words) {
+    if (word.piece !== null) pieceWords.set(word.piece, word)
+  }
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same
@@ -1060,7 +1235,15 @@ function GlossPopup({
     }
     reposition()
     window.addEventListener('resize', reposition)
-    return () => window.removeEventListener('resize', reposition)
+    // Content loaded on demand (a word's other spellings) can widen it.
+    // Observers report before paint, and the transform doesn't change the
+    // size observed, so this neither flickers nor loops.
+    const observer = new ResizeObserver(reposition)
+    if (popupRef.current) observer.observe(popupRef.current)
+    return () => {
+      window.removeEventListener('resize', reposition)
+      observer.disconnect()
+    }
   }, [])
 
   return (
@@ -1071,12 +1254,34 @@ function GlossPopup({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      <GlossDetails token={token} />
+      <GlossDetails
+        token={token}
+        pieceControls={(piece) => {
+          const word = pieceWords.get(piece)
+          return (
+            word && (
+              <StudyListControl
+                word={word}
+                documentId={documentId}
+                onCardChanged={onCardChanged}
+              />
+            )
+          )
+        }}
+      />
+      {ownWord && (
+        <StudyListControl
+          word={ownWord}
+          documentId={documentId}
+          onCardChanged={onCardChanged}
+        />
+      )}
       {/* Always mounted: the reading search is offered for every non-OOV token. */}
       {!token.is_english && (
         <ConflictResolver
           token={token}
           instances={instances}
+          wordPieces={[...pieceWords.keys()]}
           documentId={documentId}
           onTokensUpdated={onTokensUpdated}
         />
@@ -1239,8 +1444,10 @@ const TokenSpan = memo(function TokenSpan({
   className,
   showPopup,
   instances,
+  words,
   documentId,
   onTokensUpdated,
+  onCardChanged,
   onClick,
   onHoverEnter,
   onHoverLeave,
@@ -1251,8 +1458,11 @@ const TokenSpan = memo(function TokenSpan({
   showPopup: boolean
   // Every token in this token's group (see groupKey), itself included.
   instances: Token[]
+  // The words its popup offers to add to the user's cards.
+  words: DocumentWord[]
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
+  onCardChanged: (card: StudyCard) => void
   onClick: (index: number, event: React.MouseEvent<HTMLElement>) => void
   onHoverEnter: (tokenId: number) => void
   onHoverLeave: (tokenId: number) => void
@@ -1279,8 +1489,10 @@ const TokenSpan = memo(function TokenSpan({
         <GlossPopup
           token={token}
           instances={instances}
+          words={words}
           documentId={documentId}
           onTokensUpdated={onTokensUpdated}
+          onCardChanged={onCardChanged}
           onMouseEnter={() => onHoverEnter(token.id)}
           onMouseLeave={() => onHoverLeave(token.id)}
         />
@@ -1291,15 +1503,21 @@ const TokenSpan = memo(function TokenSpan({
 
 const TokenizedText = memo(function TokenizedText({
   tokens,
+  wordsByToken,
   documentId,
   onTokensUpdated,
+  onCardChanged,
   playingLine,
   lineTimings,
   onPlayLine,
 }: {
   tokens: Token[]
+  // The words each token is part of that the user can add to their cards,
+  // by token id.
+  wordsByToken: Map<number, DocumentWord[]>
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
+  onCardChanged: (card: StudyCard) => void
   playingLine: number | null
   // Each line's timing (null for an untimed line), when lines can be played
   // from; null hides the play buttons.
@@ -1554,6 +1772,8 @@ const TokenizedText = memo(function TokenizedText({
           const isPinned = pinnedId === token.id
           const isActive =
             isPinned || (pinnedId === null && hoveredId === token.id)
+          // While selecting, the selection panel shows the gloss instead.
+          const showPopup = isActive && interactive && selected.length === 0
 
           // Two independent signals, deliberately not the same underline:
           // - needs-correction (red): no dictionary entry under the current
@@ -1630,11 +1850,18 @@ const TokenizedText = memo(function TokenizedText({
                 token={token}
                 index={index}
                 className={classNames.join(' ')}
-                // While selecting, the selection panel shows the gloss instead.
-                showPopup={isActive && interactive && selected.length === 0}
+                showPopup={showPopup}
                 instances={instancesByKey.get(keys[index]) ?? NO_TOKENS}
+                // Only the token showing its popup needs them, so the rest
+                // keep their memo when the words change.
+                words={
+                  showPopup
+                    ? (wordsByToken.get(token.id) ?? NO_WORDS)
+                    : NO_WORDS
+                }
                 documentId={documentId}
                 onTokensUpdated={onTokensUpdated}
+                onCardChanged={onCardChanged}
                 onClick={onTokenClick}
                 onHoverEnter={handleHoverEnter}
                 onHoverLeave={handleHoverLeave}
@@ -2276,6 +2503,48 @@ export function DocumentViewPage() {
     setTokens((prev) => prev?.map((t) => byId.get(t.id) ?? t) ?? prev)
   }, [])
 
+  // The words the user can add to their cards, loaded again whenever the
+  // tokens change, since a new reading or a word picked for katakana can
+  // make a token another word. The last ones loaded stay meanwhile; if they
+  // can't be loaded, the popups offer no study list.
+  const [words, setWords] = useState<DocumentWord[] | null>(null)
+  useEffect(() => {
+    if (!tokens) return
+    let cancelled = false
+    fetchDocumentWords(documentId)
+      .then((result) => {
+        if (!cancelled) setWords(result)
+      })
+      .catch(() => {
+        if (!cancelled) setWords(null)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [documentId, tokens])
+
+  const wordsByToken = useMemo(() => {
+    const byToken = new Map<number, DocumentWord[]>()
+    for (const word of words ?? []) {
+      for (const id of word.token_ids) {
+        byToken.set(id, [...(byToken.get(id) ?? []), word])
+      }
+    }
+    return byToken
+  }, [words])
+
+  // Puts `card` on every word it's the card of.
+  const handleCardChanged = useCallback((card: StudyCard) => {
+    setWords(
+      (prev) =>
+        prev?.map((word) =>
+          word.lookup_form === card.lookup_form && word.reading === card.reading
+            ? { ...word, card }
+            : word,
+        ) ?? prev,
+    )
+  }, [])
+
   const handlePlayLine = useCallback(
     (start: number) => youtubePlayerRef.current?.playFrom(start),
     [],
@@ -2651,8 +2920,10 @@ export function DocumentViewPage() {
             ) : (
               <TokenizedText
                 tokens={tokens}
+                wordsByToken={wordsByToken}
                 documentId={documentId}
                 onTokensUpdated={handleTokensUpdated}
+                onCardChanged={handleCardChanged}
                 playingLine={playingLine}
                 // Without a video there's nothing to play them from.
                 lineTimings={hasVideo ? lineTimings : null}

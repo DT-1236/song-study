@@ -364,7 +364,9 @@ def _via_client(endpoint):
                 path_args[name] = value
             elif isinstance(value, BaseModel):
                 body = value.model_dump(mode="json")
-            else:
+            # Left out, as a client leaves out a parameter it has no value
+            # for: sent, None would arrive as an empty string.
+            elif value is not None:
                 query[name] = value
 
         response = client.request(
@@ -414,3 +416,8 @@ get_study_settings = _via_client(main.get_study_settings)
 save_study_settings = _via_client(main.save_study_settings)
 get_song_study_settings = _via_client(main.get_song_study_settings)
 save_song_study_settings = _via_client(main.save_song_study_settings)
+get_piece_words = _via_client(main.get_piece_words)
+pick_piece_word_endpoint = _via_client(main.pick_piece_word_endpoint)
+get_document_words = _via_client(main.get_document_words)
+correct_card_reading = _via_client(main.correct_card_reading)
+correct_card_word = _via_client(main.correct_card_word)

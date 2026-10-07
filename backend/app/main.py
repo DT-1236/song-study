@@ -17,17 +17,20 @@ from app import study
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
 from app.card_content import Line, Option, Queue, RunLine
-from app.cards import CardKind, NotStudyable, enroll_token
+from app.cards import CardKind, NotStudyable, document_words, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
     ConflictNotFound,
     TokenNotFound,
     TokensNotGroupable,
+    WordNotOffered,
     accept_phrase_suggestions,
     correct_reading,
     create_conflicts,
     create_phrase_conflicts,
     lock_token_group,
+    pick_piece_word,
+    piece_word_options,
     repair_gloss_links,
     resolve_conflict,
     resolve_phrase_furigana,
@@ -49,6 +52,7 @@ from app.glosses import (
     search_jmdict,
     shown_pieces,
     store_glosses,
+    with_picked_words,
 )
 from app.grammar import find_predicate_groups
 from app.kanji import MAX_DECK_WORDS, CardKanji, KanjiEntry
@@ -124,6 +128,15 @@ def conflict_not_found(request: Request, exc: ConflictNotFound) -> JSONResponse:
     """A 404 for a conflict option that isn't in the document the route names."""
     return JSONResponse(
         status_code=404, content={"detail": "Conflict option not found."}
+    )
+
+
+@app.exception_handler(WordNotOffered)
+def word_not_offered(request: Request, exc: WordNotOffered) -> JSONResponse:
+    """A 422 for picking a word that a piece of katakana can't be."""
+    return JSONResponse(
+        status_code=422,
+        content={"detail": "That isn't one of the words this can be."},
     )
 
 
@@ -763,7 +776,11 @@ def _read_tokens(
                        ELSE 'predicate'
                    END AS group_kind,
                    gl.reading AS gloss_reading, gl.entries AS gloss_entries, gl.source AS gloss_source,
-                   gl.lookup_form AS gloss_lookup_form
+                   gl.lookup_form AS gloss_lookup_form,
+                   (
+                       SELECT jsonb_agg(jsonb_build_array(kp.piece, kp.reading, kp.spelling))
+                       FROM katakana_picks kp WHERE kp.token_id = t.id
+                   ) AS katakana_picks
             FROM tokens t
             LEFT JOIN gloss_lookups gl ON gl.id = t.gloss_lookup_id
             WHERE t.document_id = :document_id {token_filter}
@@ -793,12 +810,20 @@ def _read_tokens(
             Conflict(id=c.id, kind=c.kind, value=c.value, selected=c.selected)
         )
 
+    # Each composite gloss as its token shows it: a katakana token's with the
+    # words picked for its pieces.
+    composites = {
+        row.id: (
+            with_picked_words(row.gloss_entries, row.katakana_picks)
+            if row.katakana_picks
+            else row.gloss_entries
+        )
+        for row in rows
+        if row.gloss_source == "composite"
+    }
+
     # Every composite's pieces' lookups, in one read.
-    lookups = piece_lookups(
-        conn,
-        [row.gloss_entries for row in rows if row.gloss_source == "composite"],
-        cache_only=cache_only,
-    )
+    lookups = piece_lookups(conn, composites.values(), cache_only=cache_only)
     shown_pieces_memo: dict[str, list[dict] | None] = {}
     tokens = []
     unlinked = False
@@ -809,15 +834,18 @@ def _read_tokens(
         gloss_entries = data.pop("gloss_entries")
         gloss_source = data.pop("gloss_source")
         gloss_lookup_form = data.pop("gloss_lookup_form")
+        # Already applied to the gloss, in composites.
+        data.pop("katakana_picks")
         conflicts = conflicts_by_token.get(row.id, [])
         if gloss_reading is None:
             data["gloss"] = None
             unlinked = unlinked or is_glossable(row.part_of_speech, bool(conflicts))
         elif gloss_source == "composite":
+            composite = composites[row.id]
             # Each piece ranked for its own part of speech, not the token's.
-            entries_key = json.dumps(gloss_entries, sort_keys=True)
+            entries_key = json.dumps(composite, sort_keys=True)
             if entries_key not in shown_pieces_memo:
-                shown_pieces_memo[entries_key] = shown_pieces(gloss_entries, lookups)
+                shown_pieces_memo[entries_key] = shown_pieces(composite, lookups)
             pieces = shown_pieces_memo[entries_key]
             dropped_lookup = dropped_lookup or pieces is None
             # None only under cache_only, for a piece whose lookup isn't
@@ -1179,6 +1207,47 @@ def set_tokens_ignored(
         return _fetch_tokens(conn, document_id, token_ids=body.token_ids)
 
 
+class WordOption(BaseModel):
+    spelling: str
+    # The glosses of its first sense.
+    gloss: list[str]
+
+
+@api.get(
+    "/documents/{document_id}/tokens/{token_id}/pieces/{piece}/words",
+    response_model=list[WordOption],
+)
+def get_piece_words(
+    document_id: OwnedDocument, token_id: int, piece: int, user_id: CurrentUser
+) -> list[WordOption]:
+    """The words piece `piece` of token_id's gloss could be, for a token sung
+    in katakana: every word JMDict has with the piece's reading, to pick
+    from through /tokens/piece-word."""
+    # A transaction, since a lookup the cache doesn't have is stored.
+    with engine.begin() as conn:
+        options = piece_word_options(conn, document_id, token_id, piece)
+    return [WordOption(**option) for option in options]
+
+
+class PieceWordPick(TokenIds):
+    piece: int = Field(ge=0)
+    spelling: str = Field(min_length=1)
+
+
+@api.post("/documents/{document_id}/tokens/piece-word", response_model=list[Token])
+def pick_piece_word_endpoint(
+    document_id: OwnedDocument, body: PieceWordPick, user_id: CurrentUser
+) -> list[Token]:
+    """Make `spelling` the word that piece `piece` of the gloss of each of
+    the tokens in `token_ids`, sung in katakana, is, as pick_piece_word
+    does. Returns the tokens."""
+    with engine.begin() as conn:
+        picked = pick_piece_word(
+            conn, document_id, body.token_ids, body.piece, body.spelling
+        )
+        return _fetch_tokens(conn, document_id, token_ids=picked)
+
+
 class StudyCard(BaseModel):
     id: int
     kind: CardKind
@@ -1227,14 +1296,51 @@ def _study_queue(queue: Queue) -> StudyQueue:
     )
 
 
+class DocumentWord(BaseModel):
+    # Every token of the word and what's glossed with it.
+    token_ids: list[int]
+    # For a word of a token sung in katakana, which piece of its gloss.
+    piece: int | None
+    lookup_form: str
+    reading: str
+    # The user's card for it, removed or not; None if they have none.
+    card: StudyCard | None
+
+
+@api.get("/documents/{document_id}/words", response_model=list[DocumentWord])
+def get_document_words(
+    document_id: OwnedDocument, user_id: CurrentUser
+) -> list[DocumentWord]:
+    """Every word of the document the user could add to their cards, where
+    it is, with their card for it if they have one."""
+    # A transaction, since a gloss the cache has lost is looked up again and
+    # stored.
+    with engine.begin() as conn:
+        words = document_words(conn, user_id, document_id)
+    return [
+        DocumentWord(
+            token_ids=word.token_ids,
+            piece=word.piece,
+            lookup_form=word.key.lookup_form,
+            reading=word.key.reading,
+            card=StudyCard(**word.card._mapping) if word.card else None,
+        )
+        for word in words
+    ]
+
+
 @api.put("/documents/{document_id}/tokens/{token_id}/card", response_model=StudyCard)
 def add_token_card(
-    document_id: OwnedDocument, token_id: int, user_id: CurrentUser
+    document_id: OwnedDocument,
+    token_id: int,
+    user_id: CurrentUser,
+    piece: int | None = Query(default=None, ge=0),
 ) -> StudyCard:
     """Add the word `token_id` is part of to the user's cards, or restore it
-    if they removed it, as enroll_token does."""
+    if they removed it, as enroll_token does. `piece` names which of the
+    words of a token sung in katakana."""
     with engine.begin() as conn:
-        row = enroll_token(conn, user_id, document_id, token_id)
+        row = enroll_token(conn, user_id, document_id, token_id, piece)
     return StudyCard(**row._mapping)
 
 
@@ -1289,6 +1395,88 @@ def suspend_card(card_id: int, user_id: CurrentUser) -> StudyCard:
     with engine.begin() as conn:
         row = study.suspend_card(conn, user_id, card_id)
     return StudyCard(**row._mapping)
+
+
+class CardReadingCorrection(ReadingCorrection):
+    # The token whose reading to correct: the card's line's.
+    document_id: int
+    token_id: int
+    furigana_spans: list[dict] | None = None
+
+
+class CardWordCorrection(BaseModel):
+    # The token sung in katakana whose word to correct, and which of its
+    # gloss's pieces: the card's line's.
+    document_id: int
+    token_id: int
+    piece: int = Field(ge=0)
+    spelling: str = Field(min_length=1)
+
+
+class CardCorrection(BaseModel):
+    # The user's card for the word the line has now; None if it has no
+    # dictionary entry to study.
+    card: StudyCard | None
+    # Whether the card corrected was kept, which it is once it has reviews.
+    kept: bool
+
+
+def _card_correction(correction: study.Correction) -> CardCorrection:
+    return CardCorrection(
+        card=StudyCard(**correction.card._mapping) if correction.card else None,
+        kept=correction.kept,
+    )
+
+
+@api.post("/cards/{card_id}/reading", response_model=CardCorrection)
+def correct_card_reading(
+    card_id: int, body: CardReadingCorrection, user_id: CurrentUser
+) -> CardCorrection:
+    """Select `reading` for the token the user's card was being studied
+    from, as /tokens/reading does, moving the song to the card for the word
+    the token is then (see study.correct_card). Nothing is logged."""
+    with engine.begin() as conn:
+        return _card_correction(
+            study.correct_card(
+                conn,
+                user_id,
+                card_id,
+                body.document_id,
+                body.token_id,
+                None,
+                lambda: select_reading(
+                    conn,
+                    body.document_id,
+                    [body.token_id],
+                    body.reading,
+                    body.furigana_spans,
+                ),
+            )
+        )
+
+
+@api.post("/cards/{card_id}/word", response_model=CardCorrection)
+def correct_card_word(
+    card_id: int, body: CardWordCorrection, user_id: CurrentUser
+) -> CardCorrection:
+    """Pick `spelling` as the word that piece `piece` of the katakana token
+    the user's card was being studied from is, as /tokens/piece-word does,
+    moving the song to the card for that word (see study.correct_card).
+    Nothing is logged."""
+    with engine.begin() as conn:
+        return _card_correction(
+            study.correct_card(
+                conn,
+                user_id,
+                card_id,
+                body.document_id,
+                body.token_id,
+                body.piece,
+                lambda: pick_piece_word(
+                    conn, body.document_id, [body.token_id], body.piece, body.spelling
+                ),
+            )
+        )
 
 
 @api.get("/study/queue", response_model=StudyQueue)

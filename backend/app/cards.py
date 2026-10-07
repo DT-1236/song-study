@@ -27,6 +27,7 @@ from app.glosses import (
     plan_glosses,
     shown_spellings,
     store_glosses,
+    with_picked_words,
 )
 from app.grammar import has_grammar_note, is_grammar_word
 
@@ -110,9 +111,11 @@ class CardTokens:
     alt_lookup_form: str | None
     # The tokens it's written with: all of an accepted phrase's, else one.
     tokens: list
-    # Set only for one of the words of a token sung in katakana: where in
-    # the token it is, as [begin, end) offsets, how its gloss writes it (声
-    # for コエ), and the part of speech its senses are ranked for.
+    # Set only for one of the words of a token sung in katakana: which piece
+    # of its gloss it is, where in the token it is, as [begin, end) offsets,
+    # how its gloss writes it (声 for コエ), and the part of speech its senses
+    # are ranked for.
+    piece: int | None = None
     span: tuple[int, int] | None = None
     written_as: str | None = None
     pos_major: str | None = None
@@ -126,7 +129,7 @@ def _token_rows(conn, document_ids: list[int]) -> list:
     """The documents' tokens, each document's in order, each with its
     selected reading, for the first token of an accepted phrase, the phrase,
     and for a token sung in katakana, its gloss as the hiragana's words (see
-    app.katakana)."""
+    app.katakana) and the words the user picked for its pieces."""
     return conn.execute(
         text(
             """
@@ -135,7 +138,11 @@ def _token_rows(conn, document_ids: list[int]) -> list:
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase,
-                   kg.entries AS katakana_gloss
+                   kg.entries AS katakana_gloss,
+                   (
+                       SELECT jsonb_agg(jsonb_build_array(kp.piece, kp.reading, kp.spelling))
+                       FROM katakana_picks kp WHERE kp.token_id = t.id
+                   ) AS katakana_picks
             FROM tokens t
             -- A token has at most one selected conflict, so neither join
             -- repeats it. A phrase's value has a reading too, so only reading
@@ -248,22 +255,29 @@ def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
     return CardTokens(*word, [head]) if word else None
 
 
+def katakana_gloss(row) -> dict:
+    """The gloss of token `row` (see _token_rows), sung in katakana, with the
+    words the user picked for its pieces."""
+    return with_picked_words(row.katakana_gloss, row.katakana_picks or [])
+
+
 def katakana_lookups(conn, units: Iterable[list]) -> dict[GlossKey, tuple]:
     """The lookups the pieces of the katakana tokens in `units` (see _units)
     are glossed from, as unit_card_tokens takes them. One that isn't cached
     is looked up and cached first."""
     return piece_lookups(
         conn,
-        [unit[0].katakana_gloss for unit in units if unit[0].katakana_gloss],
+        [katakana_gloss(unit[0]) for unit in units if unit[0].katakana_gloss],
     )
 
 
 def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardTokens]:
     """The words and grammar terms token `row`, sung in katakana, is glossed
     as (ココロノコエ as 心の声), given its pieces' `lookups`. A word is the
-    one its gloss writes it as, so アイタイ's あう is 会う, which the gloss
-    guesses from the sense it shows first."""
-    gloss = row.katakana_gloss
+    one the user picked for its piece, or else the one its gloss writes it
+    as, so アイタイ's あう is 会う, which the gloss guesses from the sense it
+    shows first."""
+    gloss = katakana_gloss(row)
     # Worked out here rather than stored, as on the page, so a change to how
     # a gloss ranks or spells its pieces reaches every card key.
     spellings = shown_spellings(gloss, lookups)
@@ -271,7 +285,7 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
         return []
     pieces = gloss["pieces"]
     found = []
-    for piece, spelling in zip(pieces, spellings, strict=True):
+    for index, (piece, spelling) in enumerate(zip(pieces, spellings, strict=True)):
         if piece["normalized_form"] is None:
             # Every piece but a grammar word's has a key. Its reading is the
             # word's whichever way it's written.
@@ -288,6 +302,7 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
                 key,
                 piece["alt_lookup_form"],
                 [row],
+                piece=index,
                 span=tuple(piece["span"]),
                 written_as=spelling,
                 pos_major=piece_pos_major(piece),
@@ -529,16 +544,17 @@ def _enroll_units(
     )
 
 
-def enroll_token(conn, user_id: int, document_id: int, token_id: int):
-    """The user's card row for the word `token_id` is part of — for a
-    predicate group, the word the group is built on — created if they have
-    none, or restored with its history if they removed it. Unlike
-    enroll_new_words, this takes a word marked as needing no gloss, or read
-    as a guess, since adding it is an explicit choice.
+def token_word(
+    conn, document_id: int, token_id: int, piece: int | None = None
+) -> CardTokens:
+    """The word `token_id` is part of, as a card for it is keyed — for a
+    predicate group, the word the group is built on; for a token sung in
+    katakana, the word its gloss's `piece` is — whether or not it has a
+    gloss to study.
 
     Raises TokenNotFound if the document has no token `token_id`, and
-    NotStudyable if it isn't part of a word glossed from a JMDict
-    headword."""
+    NotStudyable if the token isn't part of a word, or `piece` doesn't name
+    one of a katakana token's words, or is given for any other token."""
     unit = next(
         (
             unit
@@ -549,11 +565,27 @@ def enroll_token(conn, user_id: int, document_id: int, token_id: int):
     )
     if unit is None:
         raise TokenNotFound()
-    word = _unit_word(unit, explicit=True)
-    if word is None or not _studyable(conn, [(word.key, word.alt_lookup_form)]):
+    if unit[0].katakana_gloss is None:
+        word = _unit_word(unit, explicit=True) if piece is None else None
+    else:
+        katakana = _katakana_card_tokens(unit[0], katakana_lookups(conn, [unit]))
+        word = next(
+            (w for w in katakana if w.piece == piece and w.key.kind == "recognition"),
+            None,
+        )
+    if word is None:
         raise NotStudyable()
+    return word
 
+
+def add_card(conn, user_id: int, document_id: int, word: CardTokens):
+    """The user's card row for `word`, a word of `document_id`, created if
+    they have none, or restored with its history if they removed it.
+
+    Raises NotStudyable unless the word is glossed from a JMDict headword."""
     key, alt = word.key, word.alt_lookup_form
+    if not _studyable(conn, [(key, alt)]):
+        raise NotStudyable()
     return conn.execute(
         text(
             f"""
@@ -574,3 +606,67 @@ def enroll_token(conn, user_id: int, document_id: int, token_id: int):
             "document_id": document_id,
         },
     ).one()
+
+
+def enroll_token(
+    conn, user_id: int, document_id: int, token_id: int, piece: int | None = None
+):
+    """The user's card row for the word `token_id` is part of (see
+    token_word), created if they have none, or restored with its history if
+    they removed it. Unlike enroll_new_words, this takes a word marked as
+    needing no gloss, or read as a guess, and a word of a token sung in
+    katakana, since adding it is an explicit choice.
+
+    Raises TokenNotFound if the document has no token `token_id`, and
+    NotStudyable if it isn't part of a word glossed from a JMDict
+    headword."""
+    return add_card(
+        conn, user_id, document_id, token_word(conn, document_id, token_id, piece)
+    )
+
+
+@dataclass
+class TokenWord:
+    """A word of a document the user can add to their cards, where it is."""
+
+    # Every token of what it's glossed with, so that any token of a
+    # predicate group stands for its head word.
+    token_ids: list[int]
+    # For a word of a token sung in katakana, which piece of its gloss.
+    piece: int | None
+    key: CardKey
+    # The user's card for it (CARD_COLUMNS), removed or not; None if they
+    # have none.
+    card: object | None
+
+
+def document_words(conn, user_id: int, document_id: int) -> list[TokenWord]:
+    """Every word of the document the user could add to their cards, as
+    enroll_token takes them, wherever the document has it, each with their
+    card for it if they have one."""
+    units = document_units(conn, document_id)
+    katakana = katakana_lookups(conn, units)
+    found = [
+        (unit, word)
+        for unit in units
+        for word in unit_card_tokens(unit, katakana=katakana)
+        if word.key.kind == "recognition"
+    ]
+    studyable = _studyable(conn, [(w.key, w.alt_lookup_form) for _, w in found])
+    cards = {
+        CardKey(row.kind, row.lookup_form, row.reading): row
+        for row in conn.execute(
+            text(
+                f"""
+                SELECT {CARD_COLUMNS} FROM study_cards c {CARD_KEYS_JOIN_SQL}
+                WHERE c.user_id = :user_id
+                """
+            ),
+            {"user_id": user_id, "keys": card_keys_param(studyable)},
+        )
+    }
+    return [
+        TokenWord([row.id for row in unit], word.piece, word.key, cards.get(word.key))
+        for unit, word in found
+        if word.key in studyable
+    ]

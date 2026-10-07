@@ -254,6 +254,10 @@ export type Gloss = {
 export type ConflictOptionValue = {
   reading: string
   furigana_spans: FuriganaSpan[]
+  // The reading of the word's dictionary form, which its gloss is keyed by:
+  // the same as `reading` unless the token is inflected. Missing from
+  // options saved before it existed.
+  citation_reading?: string
 }
 
 // A suggested multi-token JMDict headword starting at this token (see
@@ -559,6 +563,12 @@ export type CardLine = {
   // For a word or grammar term sung in katakana, its dictionary form as its
   // gloss writes it (声 for コエ); null for one that isn't.
   written_as: string | null
+  // How the card's word can be corrected from here: by picking another
+  // reading of the token, or for a word sung in katakana, another word with
+  // its reading for `piece` of the token's gloss. Null for a grammar term or
+  // an accepted phrase.
+  correction: 'reading' | 'word' | null
+  piece: number | null
 }
 
 export type CardOption = {
@@ -688,9 +698,11 @@ export async function fetchAllSongsQueue(): Promise<StudyQueue> {
   return response.json()
 }
 
+// `keepalive` lets the request finish after the page is gone.
 export async function reviewCard(
   cardId: number,
   answer: { correct: boolean; durationMs: number; documentId: number | null },
+  keepalive = false,
 ): Promise<{ rating: number; card: StudyCard }> {
   const response = await fetch(`${API_URL}/cards/${cardId}/review`, {
     method: 'POST',
@@ -700,6 +712,7 @@ export async function reviewCard(
       duration_ms: answer.durationMs,
       document_id: answer.documentId,
     }),
+    keepalive,
   })
 
   await assertOk(response, CARD_ERRORS)
@@ -728,6 +741,155 @@ export async function suspendCard(cardId: number): Promise<StudyCard> {
   })
 
   await assertOk(response, { 404: 'Card not found.' })
+
+  return response.json()
+}
+
+// A word of a document the user can add to their cards, where it is.
+export type DocumentWord = {
+  // Every token of the word and what's glossed with it.
+  token_ids: number[]
+  // For a word of a token sung in katakana, which piece of its gloss.
+  piece: number | null
+  lookup_form: string
+  reading: string
+  // The user's card for it, removed or not; null if they have none.
+  card: StudyCard | null
+}
+
+export async function fetchDocumentWords(
+  documentId: number,
+): Promise<DocumentWord[]> {
+  const response = await fetch(`${API_URL}/documents/${documentId}/words`)
+
+  await assertOk(response, { 404: 'Document not found.' })
+
+  return response.json()
+}
+
+// Adds the word the token is part of to the user's cards, or restores it if
+// they removed it. `piece` names which word of a token sung in katakana.
+export async function addTokenCard(
+  documentId: number,
+  tokenId: number,
+  piece: number | null,
+): Promise<StudyCard> {
+  const url = new URL(
+    `${API_URL}/documents/${documentId}/tokens/${tokenId}/card`,
+    window.location.origin,
+  )
+  if (piece !== null) url.searchParams.set('piece', String(piece))
+  const response = await fetch(url, { method: 'PUT' })
+
+  await assertOk(response, { 404: 'Token not found.' })
+
+  return response.json()
+}
+
+// A word a piece of katakana could be.
+export type WordOption = {
+  spelling: string
+  // The glosses of its first sense.
+  gloss: string[]
+}
+
+// Every word JMDict has with the reading of `piece` of the token's gloss,
+// for a token sung in katakana.
+export async function fetchPieceWords(
+  documentId: number,
+  tokenId: number,
+  piece: number,
+): Promise<WordOption[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/${tokenId}/pieces/${piece}/words`,
+  )
+
+  await assertOk(response, { 404: 'Token not found.' })
+
+  return response.json()
+}
+
+// Makes `spelling` the word `piece` of each token's gloss is, for tokens
+// sung in katakana. Returns the tokens.
+export async function pickPieceWord(
+  documentId: number,
+  tokenIds: number[],
+  piece: number,
+  spelling: string,
+): Promise<Token[]> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens/piece-word`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token_ids: tokenIds, piece, spelling }),
+    },
+  )
+
+  await assertOk(response, { 404: 'Token not found.' })
+
+  return response.json()
+}
+
+// What correcting the word a card's line has did.
+export type CardCorrection = {
+  // The user's card for the word the line has now; null if it has no
+  // dictionary entry to study.
+  card: StudyCard | null
+  // Whether the card corrected was kept, which it is once it has reviews.
+  kept: boolean
+}
+
+// Picks another reading for the token a card's line has, moving the song to
+// the card for the word that makes it. Logs no review.
+export async function correctCardReading(
+  cardId: number,
+  correction: {
+    documentId: number
+    tokenId: number
+    reading: string
+    furiganaSpans: FuriganaSpan[]
+  },
+): Promise<CardCorrection> {
+  const response = await fetch(`${API_URL}/cards/${cardId}/reading`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      document_id: correction.documentId,
+      token_id: correction.tokenId,
+      reading: correction.reading,
+      furigana_spans: correction.furiganaSpans,
+    }),
+  })
+
+  await assertOk(response, CARD_ERRORS)
+
+  return response.json()
+}
+
+// Picks another word for `piece` of the katakana token a card's line has,
+// moving the song to that word's card. Logs no review.
+export async function correctCardWord(
+  cardId: number,
+  correction: {
+    documentId: number
+    tokenId: number
+    piece: number
+    spelling: string
+  },
+): Promise<CardCorrection> {
+  const response = await fetch(`${API_URL}/cards/${cardId}/word`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      document_id: correction.documentId,
+      token_id: correction.tokenId,
+      piece: correction.piece,
+      spelling: correction.spelling,
+    }),
+  })
+
+  await assertOk(response, CARD_ERRORS)
 
   return response.json()
 }
