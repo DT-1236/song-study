@@ -67,7 +67,7 @@ def test_each_word_of_a_song_is_offered_with_the_users_card_for_it(committed_eng
 def test_every_token_of_a_predicate_group_stands_for_its_headword_key(committed_engine):
     document_id = create_tokenized_document(text="聞こえてるんだって")
 
-    [word] = get_document_words(document_id)
+    [word] = [w for w in get_document_words(document_id) if w.kind == "recognition"]
 
     assert (word.lookup_form, word.reading) == ("聞こえる", "きこえる")
     assert word.token_ids == [t.id for t in get_document_tokens(document_id)]
@@ -95,8 +95,10 @@ def test_each_word_of_a_katakana_token_is_offered_as_its_piece(committed_engine)
 
     words = _words(document_id)
 
-    # Grammar isn't a word to add.
-    assert set(words) == {("僕", "ぼく"), ("会う", "あう")}
+    # The grammar attached to a word is offered too; the の between two
+    # words isn't.
+    assert set(words) == {("僕", "ぼく"), ("会う", "あう"), ("たい", None)}
+    assert words[("たい", None)].piece == TAI
     assert words[("僕", "ぼく")].piece == BOKU
     assert words[("会う", "あう")].piece == AU
     assert words[("会う", "あう")].token_ids == [token.id]
@@ -123,18 +125,27 @@ def test_a_word_of_a_katakana_token_is_added_by_its_piece(committed_engine):
     assert (card.lookup_form, card.reading) == ("会う", "あう")
 
 
+def test_grammar_attached_to_a_katakana_word_is_added_by_its_piece(committed_engine):
+    document_id = create_tokenized_document(text=KATAKANA_SONG)
+
+    card = add_token_card(document_id, _katakana_token(document_id).id, piece=TAI)
+
+    assert (card.kind, card.lookup_form, card.reading) == ("grammar", "たい", None)
+
+
 @pytest.mark.parametrize(
     "piece",
     [
         None,
-        # Grammar between two words, and grammar attached to one.
+        # Grammar between two words.
         NO,
-        TAI,
         # Past the last piece.
         9,
     ],
 )
-def test_a_katakana_token_can_only_be_added_by_a_word_piece(committed_engine, piece):
+def test_a_katakana_token_can_only_be_added_by_a_piece_with_a_card(
+    committed_engine, piece
+):
     document_id = create_tokenized_document(text=KATAKANA_SONG)
 
     with pytest.raises(HTTPException) as exc:

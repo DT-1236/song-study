@@ -26,8 +26,10 @@ from tests.support import (
     document_tokens,
     empty_gloss_cache,
     get_document_tokens,
+    get_document_words,
     pick_reading,
     set_tokens_ignored,
+    suspend_card,
     user_cards,
     word_key,
 )
@@ -424,3 +426,40 @@ def test_adding_another_documents_token_is_refused(committed_engine):
         add_token_card(document_id, document_tokens(other_id, "君")[0].id)
 
     assert exc.value.status_code == 404
+
+
+def _grammar_words(document_id: int):
+    return [w for w in get_document_words(document_id) if w.kind == "grammar"]
+
+
+def test_a_predicate_groups_grammar_can_be_added_removed_and_restored(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="聞こえてるんだって")
+    group_gloss = get_document_tokens(document_id)[0].gloss
+    [word] = [w for w in _grammar_words(document_id) if w.lookup_form == "って"]
+    # The grammar's piece is where the group's gloss lists it.
+    assert group_gloss.pieces[word.piece].surface == "って"
+    assert word.card is None
+
+    card = add_token_card(document_id, word.token_ids[0], piece=word.piece)
+    assert (card.kind, card.lookup_form, card.reading) == ("grammar", "って", None)
+
+    suspend_card(card.id)
+    [again] = [w for w in _grammar_words(document_id) if w.lookup_form == "って"]
+    assert again.card.suspended
+    restored = add_token_card(document_id, word.token_ids[0], piece=word.piece)
+    assert (restored.id, restored.suspended) == (card.id, False)
+
+
+def test_a_piece_that_isnt_a_word_or_grammar_of_a_group_cant_be_added(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="聞こえてるんだって")
+    token_id = document_tokens(document_id, "って")[0].id
+
+    with pytest.raises(HTTPException) as exc:
+        add_token_card(document_id, token_id, piece=0)
+
+    assert exc.value.status_code == 422
+    assert user_cards() == {}

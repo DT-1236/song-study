@@ -138,7 +138,8 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
     document's in order, each with its selected reading, for the first token
     of an accepted phrase, the phrase, and for a token sung in katakana, its
     gloss as the hiragana's words (see app.katakana) and the words the user
-    picked for its pieces."""
+    picked for its pieces, and for a member of a group, how many pieces the
+    group's gloss has."""
     return conn.execute(
         text(
             f"""
@@ -147,7 +148,10 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase,
-                   kg.entries AS katakana_gloss, {KATAKANA_PICKS_SQL} AS katakana_picks
+                   kg.entries AS katakana_gloss, {KATAKANA_PICKS_SQL} AS katakana_picks,
+                   (SELECT jsonb_array_length(g.entries -> 'pieces') FROM gloss_lookups g
+                    WHERE g.id = t.gloss_lookup_id AND g.source = 'composite'
+                      AND t.phrase_start_position IS NOT NULL) AS group_piece_count
             FROM tokens t
             -- A token has at most one selected conflict, so neither join
             -- repeats it. A phrase's value has a reading too, so only reading
@@ -239,16 +243,24 @@ def _word_token_count(unit: list) -> int:
     return phrase.get("phrase_token_count", len(unit))
 
 
-def _attached_grammar(unit: list) -> list:
+def _attached_grammar(unit: list) -> list[tuple[int, object]]:
     """The tokens of `unit` that are grammar attached to its word, and have
-    an explanation of their own."""
+    an explanation of their own, each with its index in `unit`."""
     # The particles inside a phrase (この期に及んで's に) are part of the
     # headword, not grammar attached to it.
     return [
-        row
-        for row in unit[_word_token_count(unit) :]
-        if has_grammar_note(row.normalized_form)
+        (index, row)
+        for index, row in enumerate(unit)
+        if index >= _word_token_count(unit) and has_grammar_note(row.normalized_form)
     ]
+
+
+def _group_piece(unit: list, index: int) -> int | None:
+    """Which piece of the group gloss `unit` shares is its token `index`, or
+    None if its gloss isn't a composite."""
+    count = unit[0].group_piece_count
+    # A group's gloss ends with one piece per token after its word.
+    return None if count is None else count - (len(unit) - index)
 
 
 def _unit_word(unit: list, explicit: bool) -> CardTokens | None:
@@ -346,8 +358,13 @@ def unit_card_tokens(
         return _katakana_card_tokens(unit[0], katakana)
     word = _unit_word(unit, explicit)
     return ([word] if word else []) + [
-        CardTokens(CardKey("grammar", row.normalized_form, None), None, [row])
-        for row in _attached_grammar(unit)
+        CardTokens(
+            CardKey("grammar", row.normalized_form, None),
+            None,
+            [row],
+            piece=_group_piece(unit, index),
+        )
+        for index, row in _attached_grammar(unit)
     ]
 
 
@@ -570,26 +587,28 @@ def _enroll_units(
 def token_word(
     conn, document_id: int, token_id: int, piece: int | None = None
 ) -> CardTokens:
-    """The word `token_id` is part of, as a card for it is keyed — for a
-    predicate group, the word the group is built on; for a token sung in
-    katakana, the word its gloss's `piece` is — whether or not it has a
-    gloss to study.
+    """The word or grammar term `token_id` is part of, as a card for it is
+    keyed — by default, for a predicate group, the word the group is built
+    on; with a `piece` of its gloss, the word or grammar term that is, as for
+    a token sung in katakana or a group — whether or not it has a gloss to
+    study.
 
     Raises TokenNotFound if the document has no token `token_id`, and
     NotStudyable if the token isn't part of a word, or `piece` doesn't name
-    one of a katakana token's words, or is given for any other token."""
+    a word or grammar term of its gloss."""
     units = _units(_token_rows(conn, [document_id], token_id))
     if not units:
         raise TokenNotFound()
     unit = units[0]
-    if unit[0].katakana_gloss is None:
-        word = _unit_word(unit, explicit=True) if piece is None else None
-    else:
-        katakana = _katakana_card_tokens(unit[0], katakana_lookups(conn, [unit]))
-        word = next(
-            (w for w in katakana if w.piece == piece and w.key.kind == "recognition"),
-            None,
+    if piece is None:
+        word = (
+            None
+            if unit[0].katakana_gloss is not None
+            else _unit_word(unit, explicit=True)
         )
+    else:
+        found = unit_card_tokens(unit, katakana=katakana_lookups(conn, [unit]))
+        word = next((w for w in found if w.piece == piece), None)
     if word is None:
         raise NotStudyable()
     return word
@@ -599,9 +618,10 @@ def add_card(conn, user_id: int, document_id: int, word: CardTokens):
     """The user's card row for `word`, a word of `document_id`, created if
     they have none, or restored with its history if they removed it.
 
-    Raises NotStudyable unless the word is glossed from a JMDict headword."""
+    Raises NotStudyable unless the word is glossed from a JMDict headword;
+    a grammar term has its own explanation instead."""
     key, alt = word.key, word.alt_lookup_form
-    if not _studyable(conn, [(key, alt)]):
+    if key.kind != "grammar" and not _studyable(conn, [(key, alt)]):
         raise NotStudyable()
     return conn.execute(
         text(
@@ -643,7 +663,8 @@ class TokenWord:
     # Every token of what it's glossed with, so that any token of a
     # predicate group stands for its head word.
     token_ids: list[int]
-    # For a word of a token sung in katakana, which piece of its gloss.
+    # For a word or grammar term that's one piece of a gloss (a katakana
+    # token's or a group's), which one.
     piece: int | None
     key: CardKey
     # The user's card for it (CARD_COLUMNS), removed or not; None if they
@@ -652,18 +673,20 @@ class TokenWord:
 
 
 def document_words(conn, user_id: int, document_id: int) -> list[TokenWord]:
-    """Every word of the document the user could add to their cards, as
-    enroll_token takes them, wherever the document has it, each with their
-    card for it if they have one."""
+    """Every word and grammar term of the document the user could add to
+    their cards, as enroll_token takes them, wherever the document has it,
+    each with their card for it if they have one."""
     units = document_units(conn, document_id)
     katakana = katakana_lookups(conn, units)
     found = [
         (unit, word)
         for unit in units
         for word in unit_card_tokens(unit, katakana=katakana)
-        if word.key.kind == "recognition"
     ]
-    studyable = _studyable(conn, [(w.key, w.alt_lookup_form) for _, w in found])
+    studyable = _studyable(
+        conn,
+        [(w.key, w.alt_lookup_form) for _, w in found if w.key.kind != "grammar"],
+    ) | {w.key for _, w in found if w.key.kind == "grammar"}
     cards = _user_cards(conn, user_id, studyable)
     return [
         TokenWord([row.id for row in unit], word.piece, word.key, cards.get(word.key))

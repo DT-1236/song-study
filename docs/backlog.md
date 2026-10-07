@@ -4,16 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## Flashcards step 9 (correction and deck management)
-
-- Offer the study-list control for grammar cards too. A grammar card removed in a session (`-`) has
-  no way back: `cards.document_words` lists only `recognition` words, so the gloss popup's
-  `StudyListControl` never shows for a predicate group's grammar pieces. Include the `grammar`
-  keys `unit_card_tokens` finds (with the piece index of each in the group's composite gloss),
-  let `PUT …/tokens/{tid}/card` name the grammar term, and render the control in each
-  note-bearing piece of `GlossDetails`. Model: Sonnet 5, medium effort — the pattern exists for
-  katakana pieces, but mapping a group's tokens to its gloss pieces needs working out.
-
 ## `/simplify` on PR #74 (flashcards step 9)
 
 - Store the picked JMDict entry, not just its spelling, in `katakana_picks`. A picked piece is

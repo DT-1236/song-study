@@ -1318,10 +1318,13 @@ def _study_queue(queue: Queue) -> StudyQueue:
 class DocumentWord(BaseModel):
     # Every token of the word and what's glossed with it.
     token_ids: list[int]
-    # For a word of a token sung in katakana, which piece of its gloss.
+    # For a word or grammar term that's one piece of a gloss (a katakana
+    # token's or a group's), which one.
     piece: int | None
+    kind: CardKind
     lookup_form: str
-    reading: str
+    # None for a grammar term.
+    reading: str | None
     # The user's card for it, removed or not; None if they have none.
     card: StudyCard | None
 
@@ -1330,8 +1333,8 @@ class DocumentWord(BaseModel):
 def get_document_words(
     document_id: OwnedDocument, user_id: CurrentUser
 ) -> list[DocumentWord]:
-    """Every word of the document the user could add to their cards, where
-    it is, with their card for it if they have one."""
+    """Every word and grammar term of the document the user could add to
+    their cards, where it is, with their card for it if they have one."""
     # A transaction, since a gloss the cache has lost is looked up again and
     # stored.
     with engine.begin() as conn:
@@ -1340,6 +1343,7 @@ def get_document_words(
         DocumentWord(
             token_ids=word.token_ids,
             piece=word.piece,
+            kind=word.key.kind,
             lookup_form=word.key.lookup_form,
             reading=word.key.reading,
             card=StudyCard(**word.card._mapping) if word.card else None,
@@ -1356,8 +1360,9 @@ def add_token_card(
     piece: int | None = Query(default=None, ge=0),
 ) -> StudyCard:
     """Add the word `token_id` is part of to the user's cards, or restore it
-    if they removed it, as enroll_token does. `piece` names which of the
-    words of a token sung in katakana."""
+    if they removed it, as enroll_token does. `piece` names which word or
+    grammar term of a gloss's pieces, for a token sung in katakana or in a
+    group."""
     with engine.begin() as conn:
         row = enroll_token(conn, user_id, document_id, token_id, piece)
     return StudyCard(**row._mapping)

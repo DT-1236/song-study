@@ -1185,6 +1185,10 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
+  // Grammar has no other word to pick for its piece.
+  const wordPieces = [...pieceWords]
+    .filter(([, word]) => word.kind === 'recognition')
+    .map(([piece]) => piece)
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same
@@ -1254,7 +1258,7 @@ function GlossPopup({
         <ConflictResolver
           token={token}
           instances={instances}
-          wordPieces={[...pieceWords.keys()]}
+          wordPieces={wordPieces}
           documentId={documentId}
           onTokensUpdated={onTokensUpdated}
         />
@@ -2521,7 +2525,9 @@ export function DocumentViewPage() {
     setWords(
       (prev) =>
         prev?.map((word) =>
-          word.lookup_form === card.lookup_form && word.reading === card.reading
+          word.kind === card.kind &&
+          word.lookup_form === card.lookup_form &&
+          word.reading === card.reading
             ? { ...word, card }
             : word,
         ) ?? prev,
