@@ -359,26 +359,38 @@ def song_queue(conn, user_id: int, document_id: int) -> Queue:
     # Locked so two sessions started at once can't both find room under the
     # limit and enroll past it. NO KEY UPDATE, so that reviews and cards
     # being created against the song (foreign keys to it) needn't wait.
-    limit = conn.execute(
+    per_day = conn.execute(
         text(
             """
-            SELECT d.new_cards_per_day - (
-                SELECT count(*) FROM study_cards c
-                WHERE c.user_id = :user_id AND c.first_seen_document_id = d.id
-                  -- A day is the last 24 hours, not a calendar day, so it
-                  -- needs no time zone. A word added by hand from the song
-                  -- counts too: the card's row doesn't say how it began.
-                  AND c.created_at > now() - interval '1 day'
-            )
-            FROM documents d
-            WHERE d.id = :document_id AND d.owner_id = :user_id
-            FOR NO KEY UPDATE OF d
+            SELECT new_cards_per_day FROM documents
+            WHERE id = :document_id AND owner_id = :user_id
+            FOR NO KEY UPDATE
             """
         ),
         {"user_id": user_id, "document_id": document_id},
     ).scalar_one_or_none()
-    if limit is None:
+    if per_day is None:
         raise DocumentNotFound()
+    # Counted in its own statement, after the lock: under READ COMMITTED a
+    # statement reads from a snapshot taken before any lock wait inside it,
+    # so a count in the locking statement would miss the cards the session
+    # that held the lock just enrolled.
+    limit = (
+        per_day
+        - conn.execute(
+            text(
+                """
+            SELECT count(*) FROM study_cards
+            WHERE user_id = :user_id AND first_seen_document_id = :document_id
+              -- A day is the last 24 hours, not a calendar day, so it needs
+              -- no time zone. A word added by hand from the song counts too:
+              -- the card's row doesn't say how it began.
+              AND created_at > now() - interval '1 day'
+            """
+            ),
+            {"user_id": user_id, "document_id": document_id},
+        ).scalar_one()
+    )
     songs = load_songs(conn, user_id, [document_id])
     keys = song_card_keys(conn, user_id, document_id, songs[document_id].units, limit)
     cards = _due_cards(conn, user_id, keys)

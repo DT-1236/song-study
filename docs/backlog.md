@@ -21,15 +21,3 @@ so it can be picked up without re-deriving the reasoning.
   review's id returned by `/review`, and `correct_card` to delete that review and restore the
   schedule when it's the card's latest. Model: Opus 5, high effort — a migration plus FSRS state
   restored exactly, where a mistake corrupts scheduling silently.
-
-## `/code-review` on PR #75 (backlog sweep: low- and medium-effort items)
-
-- Count the song's new cards today after taking its lock in `study.song_queue`
-  (`study.py`, the `FOR NO KEY UPDATE OF d` statement). The count is a subquery in the locking
-  statement's select list, so under READ COMMITTED it's read from the statement's snapshot before
-  the lock wait: when two session starts overlap, the second still sees the full limit and
-  enrolls past it (20 new cards on a 10-a-day song). Take the lock in one statement, then count in
-  a second. Add a test that forces the overlap with `BackgroundCall` and `wait_for_lock_wait`, as
-  `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
-  within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
-  fix depends on Postgres's snapshot rules.
