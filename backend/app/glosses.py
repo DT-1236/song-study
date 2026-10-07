@@ -791,6 +791,16 @@ KATAKANA_PICKS_SQL = """
     )
 """
 
+# A gloss_lookups row (as gl) that's the gloss of a token sung in katakana.
+KATAKANA_GLOSS_SQL = "gl.source = 'composite' AND gl.entries ? 'looked_up_as'"
+
+# A token's (as t) katakana gloss (as gl) and its picks, for
+# picked_katakana_gloss; both NULL for a token not sung in katakana.
+KATAKANA_GLOSS_COLUMNS = f"""
+    CASE WHEN {KATAKANA_GLOSS_SQL} THEN gl.entries END AS katakana_gloss,
+    {KATAKANA_PICKS_SQL} AS katakana_picks
+"""
+
 
 def is_word_piece(piece: dict) -> bool:
     """Whether a piece of a katakana token's gloss is a word, rather than
@@ -824,6 +834,12 @@ def with_picked_words(composite: dict, picks: Iterable[KatakanaPick] | None) -> 
             "idseq": idseq,
         }
     return {**composite, "pieces": pieces}
+
+
+def picked_katakana_gloss(row) -> dict:
+    """The gloss of the token `row` (selected with KATAKANA_GLOSS_COLUMNS),
+    sung in katakana, with the words the user picked for its pieces."""
+    return with_picked_words(row.katakana_gloss, row.katakana_picks)
 
 
 def piece_current_idseq(
