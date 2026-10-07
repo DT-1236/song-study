@@ -1,10 +1,7 @@
 import { useState } from 'react'
 import { errorMessage, searchSongs } from './api'
 import type { SongResult } from './api'
-
-function formatDuration(seconds: number): string {
-  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
-}
+import { formatDuration } from './timing'
 
 // Searches YouTube Music's songs and reports the one picked. It runs on Enter
 // or a click rather than per keystroke, since each search hits an unofficial

@@ -46,6 +46,12 @@ export function timingsFromStarts(
   return result
 }
 
+// `seconds` as m:ss, with whole seconds.
+export function formatDuration(seconds: number): string {
+  const wholeSeconds = Math.floor(seconds)
+  return `${Math.floor(wholeSeconds / 60)}:${String(wholeSeconds % 60).padStart(2, '0')}`
+}
+
 // `seconds` as m:ss.cc, the precision LRC timestamps have.
 export function formatTimestamp(seconds: number): string {
   const centiseconds = Math.round(seconds * 100)
