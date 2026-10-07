@@ -63,3 +63,9 @@ so it can be picked up without re-deriving the reasoning.
   shows it selected. Have `token_reading_options` say which options are the token's own (a flag,
   or its own field in the response) so the page drops them by that instead of rebuilding the set
   with `katakanaToHiragana`, and filter in `SearchedOptions`' render. Model: Sonnet 5, low effort.
+- Offer the word picker on every word piece of a katakana token, not only those whose word is
+  studyable. `GlossPopup` (`DocumentViewPage.tsx`) builds `wordPieces` from `words`, and
+  `cards.document_words` lists only keys `_studyable` accepts, so a piece whose shown word has a
+  compound or katakana fallback gloss gets no "pick another word", though it's the likeliest to be
+  wrong. Take the word pieces from the token's gloss (`is_word_piece` pieces) instead. Model:
+  Sonnet 5, low effort.

@@ -61,6 +61,7 @@ def test_offers_only_reading_options_of_the_tokens_own(committed_engine, text, s
 
     options = get_alternate_readings(document_id, token.id)
 
+    assert options
     assert all("phrase_token_count" not in o for o in options)
     assert all("furigana_spans" in o for o in options)
 
