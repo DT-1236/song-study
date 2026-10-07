@@ -4,7 +4,7 @@ PORT ?= 8000
 # Dev-server auto-reload; run `make start RELOAD=` to turn it off.
 RELOAD ?= --reload
 
-.PHONY: venv install migrate start test format lint
+.PHONY: venv install migrate start test format format-check lint
 
 # Creates the virtualenv only if it doesn't exist yet.
 venv: $(BIN)/python
@@ -32,6 +32,9 @@ test: install
 
 format: install
 	$(BIN)/ruff format app tests migrations
+
+format-check: install
+	$(BIN)/ruff format --check app tests migrations
 
 lint: install
 	$(BIN)/ruff check app tests migrations
