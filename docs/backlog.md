@@ -23,7 +23,9 @@ so it can be picked up without re-deriving the reasoning.
   `app.exception_handler(LrclibUnavailable)` and
   `app.exception_handler(YouTubeMusicUnavailable)`, each returning a 502
   `JSONResponse({"detail": str(exc)})`, and drop those try blocks.
-  `_fetch_lrclib_for_link` keeps its 422 for `LrclibError`, which must stay
-  below the handler (`LrclibUnavailable` subclasses it). The existing 502 tests
-  in `test_lrclib.py` and `test_youtube_music.py` cover it. *Haiku 4.5,
-  low*: mechanical, one obvious answer.
+  `_fetch_lrclib_for_link` keeps its 422 for `LrclibError`. Since
+  `LrclibUnavailable` subclasses it, that `except` has to let outages through
+  (`except LrclibUnavailable: raise` ahead of it, or an `isinstance` check), or
+  they turn into 422s. The existing 502 tests in `test_lrclib.py` and
+  `test_youtube_music.py` cover it. *Sonnet 5, low*: mostly mechanical, but
+  the subclass catch is an easy silent slip.
