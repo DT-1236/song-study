@@ -230,6 +230,8 @@ export type GlossPiece = {
   reading: string
   senses: GlossSense[]
   ambiguous_readings: string[]
+  // A word, rather than grammar.
+  is_word: boolean
   // What a grammar word or helper verb adds to the word before it, for a
   // piece of a group's gloss (see backend/app/grammar.py).
   note: string | null

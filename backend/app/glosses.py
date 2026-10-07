@@ -887,6 +887,7 @@ def shown_pieces(composite: dict, lookups: dict[GlossKey, tuple]) -> list[dict] 
                 "reading": piece["reading"],
                 "senses": senses,
                 "ambiguous_readings": _ambiguous_readings(piece),
+                "is_word": is_word_piece(piece),
                 "note": (
                     grammar_note(piece["normalized_form"], piece["part_of_speech"])
                     if piece["normalized_form"] is not None

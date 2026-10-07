@@ -33,9 +33,3 @@ so it can be picked up without re-deriving the reasoning.
   `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
   within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
   fix depends on Postgres's snapshot rules.
-- Offer the word picker on every word piece of a katakana token, not only those whose word is
-  studyable. `GlossPopup` (`DocumentViewPage.tsx`) builds `wordPieces` from `words`, and
-  `cards.document_words` lists only keys `_studyable` accepts, so a piece whose shown word has a
-  compound or katakana fallback gloss gets no "pick another word", though it's the likeliest to be
-  wrong. Take the word pieces from the token's gloss (`is_word_piece` pieces) instead. Model:
-  Sonnet 5, low effort.

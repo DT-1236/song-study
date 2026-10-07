@@ -1190,9 +1190,12 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
-  const wordPieces = words.flatMap((word) =>
-    word.piece !== null && word.correction === 'word' ? [word.piece] : [],
-  )
+  // From the gloss rather than `words`, which lists only the pieces whose
+  // shown word is studyable.
+  const wordPieces =
+    token.gloss?.looked_up_as != null
+      ? token.gloss.pieces.flatMap((piece, i) => (piece.is_word ? [i] : []))
+      : []
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same
