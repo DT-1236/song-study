@@ -418,6 +418,14 @@ function SearchedOptions<T>({
   )
 }
 
+// `text` with its katakana as hiragana, as the server's to_hiragana does,
+// keeping ー.
+function katakanaToHiragana(text: string): string {
+  return text.replace(/[ァ-ヶ]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0x60),
+  )
+}
+
 // Offers every other reading JMDict has for the targets' dictionary form,
 // searched for on demand, to apply to all of them.
 function AlternateReadingSearch({
@@ -429,11 +437,23 @@ function AlternateReadingSearch({
   documentId: number
   onTokensUpdated: TokensUpdated
 }) {
+  // The readings the targets already offer: their options, shown above by
+  // ReadingOptions, or with none, the one they were tokenized with.
+  const source = targets.find(hasReadingOptions)
+  const offered = new Set(
+    source
+      ? readingConflicts(source).map((c) => c.value.reading)
+      : [katakanaToHiragana(targets[0].reading_katakana)],
+  )
   return (
     <SearchedOptions<ConflictOptionValue>
       searchLabel="Look for other readings"
       noneFound="No other readings found for this word."
-      search={() => fetchAlternateReadings(documentId, targets[0].id)}
+      search={async () =>
+        (await fetchAlternateReadings(documentId, targets[0].id)).filter(
+          (option) => !offered.has(option.reading),
+        )
+      }
       apply={(option) =>
         applyReading(
           documentId,
