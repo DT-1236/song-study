@@ -1116,8 +1116,8 @@ def unmerge_phrase_tokens(
 def get_alternate_readings(
     document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[dict]:
-    """Every other reading JMDict has for token_id's dictionary form, as
-    reading options to apply through /tokens/reading."""
+    """Every other reading JMDict has for token_id's dictionary form, plus the
+    token's own reading options, as options to apply through /tokens/reading."""
     with engine.connect() as conn:
         row = conn.execute(
             text(
@@ -1128,9 +1128,27 @@ def get_alternate_readings(
         ).one_or_none()
         if row is None:
             raise TokenNotFound()
-        return alternate_reading_options(
+        own = [
+            c.value
+            for c in conn.execute(
+                text(
+                    "SELECT value FROM conflicts WHERE token_id = :token_id ORDER BY id"
+                ),
+                {"token_id": token_id},
+            )
+        ]
+        options = alternate_reading_options(
             row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
         )
+        # The token's own options can differ from the others only in furigana
+        # split, so they're told apart by citation reading, as the panel does.
+        seen = {o.get("citation_reading") or o["reading"] for o in options}
+        for value in own:
+            key = value.get("citation_reading") or value["reading"]
+            if key not in seen:
+                seen.add(key)
+                options.append(value)
+        return options
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")
