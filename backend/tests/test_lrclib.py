@@ -10,6 +10,7 @@ import io
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Sequence
 
 import pytest
 from fastapi import HTTPException
@@ -50,7 +51,7 @@ URI = "https://lrclib.net/api/get/1"
 WEATHER = "今日は良い天気です。"
 
 
-def _synced_record(lines: list[tuple[float, str]], duration: float) -> dict:
+def _synced_record(lines: Sequence[tuple[float, str]], duration: float) -> dict:
     """An LRCLIB record with `lines`, (seconds, text) pairs, as synced
     lyrics."""
     return {
@@ -62,6 +63,14 @@ def _synced_record(lines: list[tuple[float, str]], duration: float) -> dict:
         "duration": duration,
         "instrumental": False,
     }
+
+
+def _search_params(uri: str) -> frozenset | None:
+    """The query parameters of `uri` if it's a search, else None."""
+    parts = urllib.parse.urlsplit(uri)
+    if parts.path != "/api/search":
+        return None
+    return frozenset(urllib.parse.parse_qsl(parts.query))
 
 
 class FakeLrclib:
@@ -80,9 +89,8 @@ class FakeLrclib:
         self.requests.append(uri)
         if self.error is not None:
             raise self.error
-        parts = urllib.parse.urlsplit(uri)
-        if parts.path == "/api/search":
-            results = self.searches.get(frozenset(urllib.parse.parse_qsl(parts.query)))
+        if (params := _search_params(uri)) is not None:
+            results = self.searches.get(params)
             if isinstance(results, Exception):
                 raise results
             return results or []
@@ -106,9 +114,9 @@ class FakeLrclib:
         since they're sent concurrently."""
         return sorted(
             (
-                dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(uri).query))
+                dict(params)
                 for uri in self.requests
-                if "/api/search?" in uri
+                if (params := _search_params(uri)) is not None
             ),
             key=lambda params: sorted(params.items()),
         )
@@ -452,13 +460,16 @@ def _track(
     name: str = SONG,
     duration: float = 200.0,
     *,
-    lines: list[tuple[float, str]] = ((1.0, FIRST_SENTENCE), (9.0, SECOND_SENTENCE)),
+    lines: Sequence[tuple[float, str]] = (
+        (1.0, FIRST_SENTENCE),
+        (9.0, SECOND_SENTENCE),
+    ),
     **fields,
 ) -> dict:
     """A search result for track `track_id`, synced to `lines` unless
     `fields` say otherwise."""
     return {
-        **_synced_record(list(lines), duration),
+        **_synced_record(lines, duration),
         "id": track_id,
         "trackName": name,
         "artistName": "歌手",
@@ -662,9 +673,8 @@ def test_search_tolerates_a_failed_variant(fake_lrclib):
 def test_search_fails_when_every_variant_does(fake_lrclib, error):
     fake_lrclib.error = error
 
-    with pytest.raises(LrclibUnavailable) as raised:
+    with pytest.raises(LrclibUnavailable):
         search_tracks(SONG, "歌手", 200)
-    assert raised.type is LrclibUnavailable
 
 
 def test_search_endpoint_returns_candidates(fake_lrclib):

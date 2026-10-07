@@ -57,17 +57,21 @@ def normalize_lrclib_uri(value: str) -> str:
     fetches whatever this returns."""
     value = value.strip()
     if _TRACK_ID_RE.fullmatch(value):
-        return f"{_API_GET}/{value}"
+        return _track_uri(value)
     parsed = urllib.parse.urlsplit(value if "://" in value else f"https://{value}")
     if (
         parsed.scheme in ("http", "https")
         and parsed.hostname in ("lrclib.net", "www.lrclib.net")
         and (match := _GET_BY_ID_PATH_RE.fullmatch(parsed.path))
     ):
-        return f"{_API_GET}/{match.group(1)}"
+        return _track_uri(match.group(1))
     raise LrclibError(
         "Enter an LRCLIB track ID, or its https://lrclib.net/api/get/… address."
     )
+
+
+def _track_uri(track_id: int | str) -> str:
+    return f"{_API_GET}/{track_id}"
 
 
 @dataclass(frozen=True)
@@ -251,18 +255,18 @@ def _search_queries(title: str, artist: str) -> list[dict[str, str]]:
     # LRCLIB matches whole words only, and a Japanese title with no spaces is
     # one word, so a decorated title ("… (TV Size)") never finds the plain
     # one. Each variant here can find tracks the others miss.
-    queries = [
-        {"track_name": title, "artist_name": artist}
-        if artist
-        else {"track_name": title},
-        {"q": f"{title} {artist}".strip()},
-        {"q": title},
-    ]
+    if artist:
+        queries = [
+            {"track_name": title, "artist_name": artist},
+            {"q": f"{title} {artist}"},
+        ]
+    else:
+        queries = [{"track_name": title}]
+    queries.append({"q": title})
     cleaned = _clean_title(title)
     if cleaned and cleaned != title:
         queries.append({"q": cleaned})
-    unique = {tuple(sorted(query.items())): query for query in queries}
-    return list(unique.values())
+    return queries
 
 
 # A trailing bracketed part: "(TV Size)", "[Remix]", "（feat. …）", "【MV】".
@@ -299,7 +303,7 @@ def _title_key(title: str) -> str:
     key = "".join(
         char
         for char in text
-        if unicodedata.category(char)[0] in "LNM" or unicodedata.category(char) == "So"
+        if (category := unicodedata.category(char))[0] in "LNM" or category == "So"
     )
     # An empty key would be contained in every title.
     return key or "".join(text.split())
@@ -330,7 +334,7 @@ def _candidate(
     )
     return LrclibCandidate(
         id=record["id"],
-        uri=f"{_API_GET}/{record['id']}",
+        uri=_track_uri(record["id"]),
         track_name=record.get("trackName") or "",
         artist_name=record.get("artistName") or "",
         album_name=record.get("albumName"),

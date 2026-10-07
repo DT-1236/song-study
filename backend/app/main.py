@@ -696,10 +696,9 @@ def lrclib_search(
     duration: float | None = Query(default=None, gt=0),
 ):
     try:
-        candidates = search_tracks(title, artist, duration)
+        return search_tracks(title, artist, duration)
     except LrclibUnavailable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return candidates
 
 
 class GlossSense(JmdictSense):
