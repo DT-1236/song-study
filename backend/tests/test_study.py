@@ -632,3 +632,45 @@ def test_overlapping_session_starts_both_get_every_card(committed_engine, monkey
     second_cards = [row.id for row, _ in second.outcome().cards]
     assert first_cards
     assert second_cards == first_cards
+
+
+def test_overlapping_session_starts_enroll_within_the_limit(
+    committed_engine, monkeypatch
+):
+    document_id = create_tokenized_document("君を呼ぶ。")
+    save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=1))
+    first_enrolled = threading.Event()
+    release_first = threading.Event()
+    enroll = study.song_card_keys
+    sessions = []
+
+    def enroll_then_hold(*args):
+        keys = enroll(*args)
+        if not sessions:
+            sessions.append("first")
+            first_enrolled.set()
+            release_first.wait(timeout=30)
+        return keys
+
+    monkeypatch.setattr("app.study.song_card_keys", enroll_then_hold)
+
+    def session():
+        with committed_engine.begin() as conn:
+            return study.song_queue(conn, TEST_USER_ID, document_id)
+
+    try:
+        first = BackgroundCall(session)
+        assert first_enrolled.wait(timeout=30)
+        second = BackgroundCall(session)
+        wait_for_lock_wait()
+    finally:
+        release_first.set()
+    first.outcome()
+    second.outcome()
+
+    with committed_engine.connect() as conn:
+        enrolled = conn.execute(
+            text("SELECT count(*) FROM study_cards WHERE first_seen_document_id = :id"),
+            {"id": document_id},
+        ).scalar_one()
+    assert enrolled == 1

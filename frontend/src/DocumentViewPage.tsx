@@ -350,6 +350,7 @@ function SearchedOptions<T>({
   renderOption,
   isSelected = () => false,
   canRepick = false,
+  refetchAfterApply = false,
 }: {
   searchLabel: string
   noneFound: string
@@ -361,6 +362,7 @@ function SearchedOptions<T>({
   renderOption: (option: T) => ReactNode
   isSelected?: (option: T) => boolean
   canRepick?: boolean
+  refetchAfterApply?: boolean
 }) {
   const [options, setOptions] = useState<T[] | null>(null)
   const { saving: searching, error: searchError, save: runSearch } = useSave()
@@ -406,7 +408,15 @@ function SearchedOptions<T>({
               disabled={applying || (selected && !canRepick)}
               onClick={(e) => {
                 e.stopPropagation()
-                applyOption(() => apply(option), onTokensUpdated)
+                applyOption(
+                  () => apply(option),
+                  (tokens) => {
+                    onTokensUpdated(tokens)
+                    // Separate from the save, so a failed search can't hide
+                    // that it worked.
+                    if (refetchAfterApply) runSearch(search, setOptions)
+                  },
+                )
               }}
             >
               {renderOption(option)}
@@ -415,14 +425,6 @@ function SearchedOptions<T>({
         })}
       </div>
     </div>
-  )
-}
-
-// `text` with its katakana as hiragana, as the server's to_hiragana does,
-// keeping ー.
-function katakanaToHiragana(text: string): string {
-  return text.replace(/[ァ-ヶ]/g, (ch) =>
-    String.fromCharCode(ch.charCodeAt(0) - 0x60),
   )
 }
 
@@ -437,20 +439,13 @@ function AlternateReadingSearch({
   documentId: number
   onTokensUpdated: TokensUpdated
 }) {
-  // The readings the targets already offer: the one they were tokenized
-  // with, and any options ReadingOptions shows above.
-  const source = targets.find(hasReadingOptions)
-  const offered = new Set([
-    katakanaToHiragana(targets[0].reading_katakana),
-    ...(source ? readingConflicts(source).map((c) => c.value.reading) : []),
-  ])
   return (
     <SearchedOptions<ConflictOptionValue>
       searchLabel="Look for other readings"
       noneFound="No other readings found for this word."
       search={async () =>
         (await fetchAlternateReadings(documentId, targets[0].id)).filter(
-          (option) => !offered.has(option.reading),
+          (option) => !option.own,
         )
       }
       apply={(option) =>
@@ -462,6 +457,7 @@ function AlternateReadingSearch({
         )
       }
       onTokensUpdated={onTokensUpdated}
+      refetchAfterApply
       optionKey={(option) => option.reading}
       renderOption={(option) => renderFuriganaSpans(option.furigana_spans)}
     />
@@ -1205,9 +1201,12 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
-  const wordPieces = words.flatMap((word) =>
-    word.piece !== null && word.correction === 'word' ? [word.piece] : [],
-  )
+  // From the gloss rather than `words`, which lists only the pieces whose
+  // shown word is studyable.
+  const wordPieces =
+    token.gloss?.looked_up_as != null
+      ? token.gloss.pieces.flatMap((piece, i) => (piece.is_word ? [i] : []))
+      : []
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same

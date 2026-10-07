@@ -230,6 +230,8 @@ export type GlossPiece = {
   reading: string
   senses: GlossSense[]
   ambiguous_readings: string[]
+  // A word, rather than grammar.
+  is_word: boolean
   // What a grammar word or helper verb adds to the word before it, for a
   // piece of a group's gloss (see backend/app/grammar.py).
   note: string | null
@@ -259,6 +261,10 @@ export type ConflictOptionValue = {
   // options saved before it existed.
   citation_reading?: string
 }
+
+// A reading option from fetchAlternateReadings, which also says whether the
+// token already offers it itself.
+export type AlternateReadingOption = ConflictOptionValue & { own: boolean }
 
 // A suggested multi-token JMDict headword starting at this token (see
 // backend/app/phrase_merge.py): the headword and its reading, the on-page
@@ -360,7 +366,7 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
 export async function fetchAlternateReadings(
   documentId: number,
   tokenId: number,
-): Promise<ConflictOptionValue[]> {
+): Promise<AlternateReadingOption[]> {
   const response = await fetch(
     `${API_URL}/documents/${documentId}/tokens/${tokenId}/alternate-readings`,
   )

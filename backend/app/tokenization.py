@@ -653,13 +653,14 @@ def _reconstruct_citation_reading(
         # part-of-speech, is shaped the same way and needs no transform.
         return alt_reading
 
-    if conjugation_type.startswith(("上一段", "下一段")):
+    family = conjugation_family(conjugation_type)
+    if family == "ichidan":
         # Ichidan citation form is the stem plus る (揃え -> 揃える, アタタメ
         # -> アタタメル): append whatever's missing from this occurrence's
         # own (shorter) reading, which is almost always exactly る.
         return alt_reading + dict_form_citation[len(reading) :]
 
-    if conjugation_type.startswith("五段"):
+    if family == "godan":
         # Godan citation form's renyou stem replaces the final mora rather
         # than adding one (書く/カク -> 書き/カキ: ク becomes キ, same mora
         # count) — always exactly one mora, since a godan citation ending
@@ -671,6 +672,18 @@ def _reconstruct_citation_reading(
     # leaves alt_reading unchanged rather than guess at a transformation
     # that might not hold.
     return alt_reading
+
+
+def conjugation_family(conjugation_type: str) -> str | None:
+    """'godan' or 'ichidan' for a conjugation tag in Sudachi's naming
+    (五段-カ行, 下一段-バ行), the two classes whose readings
+    project_citation_reading can carry over, or None for any other: the
+    irregular サ変 and カ変 verbs, or a word that doesn't conjugate."""
+    if conjugation_type.startswith(("上一段", "下一段")):
+        return "ichidan"
+    if conjugation_type.startswith("五段"):
+        return "godan"
+    return None
 
 
 def project_citation_reading(
@@ -686,13 +699,14 @@ def project_citation_reading(
     if reading == dict_form_citation:
         return alt_citation_reading
 
-    if conjugation_type.startswith(("上一段", "下一段")):
+    family = conjugation_family(conjugation_type)
+    if family == "ichidan":
         suffix_len = len(dict_form_citation) - len(reading)
         if 0 < suffix_len <= len(alt_citation_reading):
             return alt_citation_reading[: len(alt_citation_reading) - suffix_len]
         return alt_citation_reading
 
-    if conjugation_type.startswith("五段") and alt_citation_reading and reading:
+    if family == "godan" and alt_citation_reading and reading:
         return alt_citation_reading[:-1] + reading[-1:]
 
     return alt_citation_reading
