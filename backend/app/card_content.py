@@ -240,9 +240,11 @@ def _audio(song: Song, index: int) -> Audio | None:
     return Audio(song.youtube_video_id, timing["start"], timing["end"])
 
 
-def _occurrences(conn, songs: Iterable[Song]) -> dict[CardKey, list[_Occurrence]]:
+def _occurrences(
+    conn, songs: Iterable[Song]
+) -> tuple[dict[CardKey, list[_Occurrence]], dict[GlossKey, tuple]]:
     """Everywhere `songs` have each word and grammar term a card can be for,
-    by key."""
+    by key, and the katakana lookups used to find them."""
     songs = list(songs)
     katakana = katakana_lookups(conn, (unit for song in songs for unit in song.units))
     found: dict[CardKey, list[_Occurrence]] = {}
@@ -252,7 +254,7 @@ def _occurrences(conn, songs: Iterable[Song]) -> dict[CardKey, list[_Occurrence]
                 found.setdefault(card_tokens.key, []).append(
                     _Occurrence(song, unit, card_tokens)
                 )
-    return found
+    return found, katakana
 
 
 def _choose_occurrence(
@@ -476,9 +478,9 @@ class _Glosses:
     """Words' glosses, looked up as needed and kept for the rest of the
     queue."""
 
-    def __init__(self, conn):
+    def __init__(self, conn, found: dict[GlossKey, tuple[object, str]] | None = None):
         self._conn = conn
-        self._found: dict[GlossKey, tuple[object, str]] = {}
+        self._found: dict[GlossKey, tuple[object, str]] = found or {}
         # Ranked once per word, though a word is drawn for many cards.
         self._senses: dict[_Word, WordSenses] = {}
 
@@ -559,7 +561,7 @@ class _Library:
             }
             if self._occurrences is None:
                 songs = load_songs(self._conn, self._user_id)
-                self._occurrences = _occurrences(self._conn, songs.values())
+                self._occurrences, _ = _occurrences(self._conn, songs.values())
             self._deck = [
                 _Word.of(occurrences[0].found)
                 for key, occurrences in self._occurrences.items()
@@ -666,9 +668,9 @@ def queue_contents(
     if it has the card's word, else any of them, all the user's songs; and
     the sidebar entries of their kanji. `rng` draws the lines and options."""
     rng = rng or random.Random()
-    occurrences = _occurrences(conn, songs.values())
+    occurrences, katakana_found = _occurrences(conn, songs.values())
     library = _Library(conn, user_id, occurrences if studied is None else None)
-    glosses = _Glosses(conn)
+    glosses = _Glosses(conn, katakana_found)
 
     keys = [CardKey.of(card) for card in cards]
     chosen = [
@@ -752,14 +754,14 @@ def run_through_lines(
     key, to the card's id and retrievability) that it has, the weakest
     first."""
     # Nothing to find the lines of when no word is fading.
-    occurrences = _occurrences(conn, [song]) if weak else {}
+    occurrences, katakana_found = _occurrences(conn, [song]) if weak else ({}, {})
     present = {key: occurrences[key] for key in weak if key in occurrences}
     words = {
         key: _Word.of(os[0].found)
         for key, os in present.items()
         if key.kind == "recognition"
     }
-    glosses = _Glosses(conn)
+    glosses = _Glosses(conn, katakana_found)
     glosses.fetch(words.values())
     notes = grammar_notes()
 

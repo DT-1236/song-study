@@ -24,8 +24,3 @@ so it can be picked up without re-deriving the reasoning.
   wrong entry, or offer the word the token already is. Needs a `current` field on `WordOption`
   (API and `api.ts`). Model: Sonnet 5, medium effort — the rule exists in `_ranked_senses`, and it
   needs threading through one endpoint and two callers.
-- Stop the study queue fetching a picked word's card lookup twice. `katakana_lookups` already
-  returns its `(spelling, reading)` entries, and `card_content._Glosses` fetches them again for the
-  card's answer. Seeding `_Glosses._found` from the `katakana` lookups `_occurrences` builds would
-  save one indexed SELECT per queue that has a pick. It's worth doing only if queue round trips
-  start being counted. Model: Haiku 4.5, low effort — a mechanical hand-off between two dicts.
