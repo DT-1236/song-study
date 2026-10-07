@@ -131,16 +131,16 @@ def _locked_card(conn, user_id: int, card_id: int):
     return row
 
 
-def _schedule_params(card: Card) -> dict:
+def _schedule_params(card: Card, prefix: str = "") -> dict:
     """py-fsrs's `card` as bind parameters named for study_cards' scheduling
-    columns."""
+    columns, each name led by `prefix`."""
     return {
-        "state": card.state.value,
-        "step": card.step,
-        "stability": card.stability,
-        "difficulty": card.difficulty,
-        "due": card.due,
-        "last_review": card.last_review,
+        f"{prefix}state": card.state.value,
+        f"{prefix}step": card.step,
+        f"{prefix}stability": card.stability,
+        f"{prefix}difficulty": card.difficulty,
+        f"{prefix}due": card.due,
+        f"{prefix}last_review": card.last_review,
     }
 
 
@@ -202,7 +202,7 @@ def review_card(
             )
             VALUES (
                 :card_id, :document_id, :reviewed_at, :correct, :duration_ms, :fast_ms, :slow_ms, :rating,
-                :state, :step, :stability, :difficulty, :due, :last_review,
+                :prev_state, :prev_step, :prev_stability, :prev_difficulty, :prev_due, :prev_last_review,
                 :next_state, :next_step, :next_stability, :next_difficulty, :next_due, :next_last_review
             )
             RETURNING id
@@ -217,8 +217,8 @@ def review_card(
             "fast_ms": fast_ms,
             "slow_ms": slow_ms,
             "rating": int(rating),
-            **_schedule_params(before),
-            **{f"next_{k}": v for k, v in _schedule_params(card).items()},
+            **_schedule_params(before, "prev_"),
+            **_schedule_params(card, "next_"),
         },
     ).scalar_one()
     return rating, review_id, _store_schedule(conn, card)
@@ -283,23 +283,22 @@ class ReviewNotFound(Exception):
     pass
 
 
-def _undo_review(conn, card, review_id: int) -> None:
-    """Delete review `review_id` of `card`, a locked card row, and put the
-    card's schedule back as it was before it — unless the schedule has moved
+def _undo_review(conn, card_id: int, review_id: int) -> None:
+    """Delete review `review_id` of card `card_id`, which the caller has
+    locked, and put the card's schedule back as it was before it — unless the schedule has moved
     on since (a later review, or a push-out), in which case the review
     stands, since the schedule now builds on it.
 
     Raises ReviewNotFound if it isn't one of the card's reviews."""
-    params = {"review_id": review_id, "card_id": card.id}
-    # A review logged before 0031 has no prior schedule to go back to, and
-    # one the schedule had moved on from by 0032 has no next_* to match.
+    params = {"review_id": review_id, "card_id": card_id}
+    # A review the schedule had moved on from by 0032 has no next_* to match,
+    # nor has one logged before 0031, with no prior schedule to go back to.
     before = conn.execute(
         text(
             """
             DELETE FROM study_reviews r
             USING study_cards c
             WHERE r.id = :review_id AND r.card_id = :card_id AND c.id = r.card_id
-              AND r.prev_state IS NOT NULL
               AND (c.state, c.step, c.stability, c.difficulty, c.due, c.last_review)
                   IS NOT DISTINCT FROM (r.next_state, r.next_step, r.next_stability,
                                         r.next_difficulty, r.next_due, r.next_last_review)
@@ -356,7 +355,7 @@ def correct_card(
     if before.correction != ("reading" if piece is None else "word"):
         raise NotCorrectable()
     if review_id is not None:
-        _undo_review(conn, row, review_id)
+        _undo_review(conn, row.id, review_id)
     correct(conn)
     try:
         word = token_word(conn, document_id, token_id, piece)
