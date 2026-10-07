@@ -146,8 +146,6 @@ def _schedule_params(card: Card) -> dict:
 
 def _store_schedule(conn, card: Card):
     """Write py-fsrs's `card` back to its row and return the row."""
-    # Every change to a schedule sets last_review to its own time, which is
-    # how _undo_review tells whether a review is still what set it.
     return conn.execute(
         text(
             f"""
@@ -199,11 +197,13 @@ def review_card(
             """
             INSERT INTO study_reviews (
                 card_id, document_id, reviewed_at, correct, duration_ms, fast_ms, slow_ms, rating,
-                prev_state, prev_step, prev_stability, prev_difficulty, prev_due, prev_last_review
+                prev_state, prev_step, prev_stability, prev_difficulty, prev_due, prev_last_review,
+                next_state, next_step, next_stability, next_difficulty, next_due, next_last_review
             )
             VALUES (
                 :card_id, :document_id, :reviewed_at, :correct, :duration_ms, :fast_ms, :slow_ms, :rating,
-                :state, :step, :stability, :difficulty, :due, :last_review
+                :state, :step, :stability, :difficulty, :due, :last_review,
+                :next_state, :next_step, :next_stability, :next_difficulty, :next_due, :next_last_review
             )
             RETURNING id
             """
@@ -218,6 +218,7 @@ def review_card(
             "slow_ms": slow_ms,
             "rating": int(rating),
             **_schedule_params(before),
+            **{f"next_{k}": v for k, v in _schedule_params(card).items()},
         },
     ).scalar_one()
     return rating, review_id, _store_schedule(conn, card)
@@ -290,21 +291,24 @@ def _undo_review(conn, card, review_id: int) -> None:
 
     Raises ReviewNotFound if it isn't one of the card's reviews."""
     params = {"review_id": review_id, "card_id": card.id}
-    # A card's last_review is the time of whatever set its schedule last
-    # (see _store_schedule), so it's this review's only if nothing has since.
-    # A review logged before 0031 has no prior schedule to go back to.
+    # A review logged before 0031 has no prior schedule to go back to, and
+    # one the schedule had moved on from by 0032 has no next_* to match.
     before = conn.execute(
         text(
             """
-            DELETE FROM study_reviews
-            WHERE id = :review_id AND card_id = :card_id
-              AND reviewed_at = :last_review AND prev_state IS NOT NULL
-            RETURNING card_id AS id, prev_state AS state, prev_step AS step,
-                      prev_stability AS stability, prev_difficulty AS difficulty,
-                      prev_due AS due, prev_last_review AS last_review
+            DELETE FROM study_reviews r
+            USING study_cards c
+            WHERE r.id = :review_id AND r.card_id = :card_id AND c.id = r.card_id
+              AND r.prev_state IS NOT NULL
+              AND (c.state, c.step, c.stability, c.difficulty, c.due, c.last_review)
+                  IS NOT DISTINCT FROM (r.next_state, r.next_step, r.next_stability,
+                                        r.next_difficulty, r.next_due, r.next_last_review)
+            RETURNING r.card_id AS id, r.prev_state AS state, r.prev_step AS step,
+                      r.prev_stability AS stability, r.prev_difficulty AS difficulty,
+                      r.prev_due AS due, r.prev_last_review AS last_review
             """
         ),
-        {**params, "last_review": card.last_review},
+        params,
     ).one_or_none()
     if before is not None:
         _store_schedule(conn, _fsrs_card(before))

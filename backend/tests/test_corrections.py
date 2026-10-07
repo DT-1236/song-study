@@ -511,6 +511,25 @@ def test_a_review_pushed_out_since_stands(committed_engine):
     assert _reviews(committed_engine) == [review.review_id]
 
 
+def test_a_review_whose_schedule_changed_without_a_new_last_review_stands(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="辛い")
+    old = _card_for(document_id, "辛い")
+    review = _answer(old.id)
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE study_cards SET due = due + interval '1 day' WHERE id = :id"),
+            {"id": old.id},
+        )
+    moved = _tsurai()
+
+    _correct_reading(old.id, document_id, "辛い", "からい", review.review_id)
+
+    assert _tsurai() == moved
+    assert _reviews(committed_engine) == [review.review_id]
+
+
 def test_undoing_another_cards_review_is_refused(committed_engine):
     document_id = create_tokenized_document(text="辛い 君")
     old = _card_for(document_id, "辛い")
