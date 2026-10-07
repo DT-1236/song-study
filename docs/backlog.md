@@ -16,11 +16,3 @@ so it can be picked up without re-deriving the reasoning.
   of `formatTimestamp` in `frontend/src/timing.ts`. Sharing it means splitting
   that function and covering the whole-second case in `timing.test.ts`.
   Haiku 4.5, low: one obvious answer.
-
-## Song search
-
-- Play the picked song in `SongSearch`/`NewDocumentForm` with the existing
-  `YouTubePlayer` (`frontend/src/YouTubePlayer.tsx`, `videoId` prop), shown
-  once a song is picked and following the picked video ID as it changes, laid
-  out as on the document page. Sonnet 5, low: reuses a component against a
-  clear precedent.

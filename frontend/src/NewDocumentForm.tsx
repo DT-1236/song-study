@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
 import type { SongResult } from './api'
 import { SongSearch } from './SongSearch'
+import { YouTubePlayer } from './YouTubePlayer'
 
 export function NewDocumentForm() {
   const [title, setTitle] = useState('')
@@ -57,6 +58,9 @@ export function NewDocumentForm() {
       <h1>New document</h1>
 
       <SongSearch onPick={handlePick} />
+      {youtubeVideoId.trim() !== '' && (
+        <YouTubePlayer videoId={youtubeVideoId.trim()} />
+      )}
 
       <label htmlFor="title">Title</label>
       <input
