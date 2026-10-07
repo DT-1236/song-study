@@ -677,6 +677,9 @@ def document_words(conn, user_id: int, document_id: int) -> list[TokenWord]:
         (unit, word)
         for unit in units
         for word in unit_card_tokens(unit, katakana=katakana)
+        # Grammar is offered on its piece of the unit's gloss, so not while
+        # that gloss is unlinked: with no piece it would pass for the word.
+        if word.key.kind != "grammar" or word.piece is not None
     ]
     studyable = _studyable(conn, [(w.key, w.alt_lookup_form) for _, w in found])
     cards = _user_cards(conn, user_id, studyable)

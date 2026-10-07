@@ -463,3 +463,14 @@ def test_a_piece_that_isnt_a_word_or_grammar_of_a_group_cant_be_added(
 
     assert exc.value.status_code == 422
     assert user_cards() == {}
+
+
+def test_grammar_isnt_offered_while_its_groups_gloss_is_unlinked(committed_engine):
+    document_id = create_tokenized_document(text="聞こえてるんだって")
+    clear_gloss_links(document_id)
+
+    words = get_document_words(document_id)
+
+    # With no gloss to place it in, it has no piece, which would make it
+    # look like the group's own word.
+    assert [(w.kind, w.piece) for w in words] == [("recognition", None)]
