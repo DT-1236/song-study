@@ -333,18 +333,32 @@ function ReadingCorrectionForm({
   )
 }
 
-// Offers every other reading JMDict has for the targets' dictionary form,
-// searched for on demand, to apply to all of them.
-function AlternateReadingSearch({
-  targets,
-  documentId,
+// A button that fetches a list of options on demand, then shows them to
+// apply one. Nothing is offered once every option fetched is already selected.
+function SearchedOptions<T>({
+  searchLabel,
+  noneFound,
+  heading,
+  search,
+  apply,
   onTokensUpdated,
+  optionKey,
+  renderOption,
+  isSelected = () => false,
+  canRepick = false,
 }: {
-  targets: Token[]
-  documentId: number
+  searchLabel: string
+  noneFound: string
+  heading?: string
+  search: () => Promise<T[]>
+  apply: (option: T) => Promise<Token[]>
   onTokensUpdated: (tokens: Token[]) => void
+  optionKey: (option: T) => string
+  renderOption: (option: T) => ReactNode
+  isSelected?: (option: T) => boolean
+  canRepick?: boolean
 }) {
-  const [options, setOptions] = useState<ConflictOptionValue[] | null>(null)
+  const [options, setOptions] = useState<T[] | null>(null)
   const { saving: searching, error: searchError, save: runSearch } = useSave()
   const { saving: applying, error: applyError, save: applyOption } = useSave()
 
@@ -357,56 +371,77 @@ function AlternateReadingSearch({
           disabled={searching}
           onClick={(e) => {
             e.stopPropagation()
-            runSearch(
-              () => fetchAlternateReadings(documentId, targets[0].id),
-              setOptions,
-            )
+            runSearch(search, setOptions)
           }}
         >
-          Look for other readings
+          {searchLabel}
         </button>
         {searchError && <div className="conflict-error">{searchError}</div>}
       </div>
     )
   }
 
-  if (options.length === 0) {
-    return (
-      <div className="conflict-note">
-        No other readings found for this word.
-      </div>
-    )
+  if (options.every(isSelected)) {
+    return <div className="conflict-note">{noneFound}</div>
   }
 
   return (
     <div className="phrase-suggestion">
+      {heading && <div className="conflict-note">{heading}</div>}
       {applyError && <div className="conflict-error">{applyError}</div>}
       <div className="conflict-options">
-        {options.map((option) => (
-          <button
-            key={option.reading}
-            type="button"
-            className="conflict-option"
-            disabled={applying}
-            onClick={(e) => {
-              e.stopPropagation()
-              applyOption(
-                () =>
-                  applyReading(
-                    documentId,
-                    targets.map((t) => t.id),
-                    option.reading,
-                    option.furigana_spans,
-                  ),
-                onTokensUpdated,
-              )
-            }}
-          >
-            {renderFuriganaSpans(option.furigana_spans)}
-          </button>
-        ))}
+        {options.map((option) => {
+          const selected = isSelected(option)
+          return (
+            <button
+              key={optionKey(option)}
+              type="button"
+              className={
+                selected ? 'conflict-option selected' : 'conflict-option'
+              }
+              disabled={applying || (selected && !canRepick)}
+              onClick={(e) => {
+                e.stopPropagation()
+                applyOption(() => apply(option), onTokensUpdated)
+              }}
+            >
+              {renderOption(option)}
+            </button>
+          )
+        })}
       </div>
     </div>
+  )
+}
+
+// Offers every other reading JMDict has for the targets' dictionary form,
+// searched for on demand, to apply to all of them.
+function AlternateReadingSearch({
+  targets,
+  documentId,
+  onTokensUpdated,
+}: {
+  targets: Token[]
+  documentId: number
+  onTokensUpdated: (tokens: Token[]) => void
+}) {
+  return (
+    <SearchedOptions<ConflictOptionValue>
+      searchLabel="Look for other readings"
+      noneFound="No other readings found for this word."
+      search={() => fetchAlternateReadings(documentId, targets[0].id)}
+      apply={(option) =>
+        applyReading(
+          documentId,
+          targets.map((t) => t.id),
+          option.reading,
+          option.furigana_spans,
+        )
+      }
+      onTokensUpdated={onTokensUpdated}
+      optionKey={(option) => option.reading}
+      renderOption={(option) => renderFuriganaSpans(option.furigana_spans)}
+    />
   )
 }
 
@@ -574,78 +609,36 @@ function PieceWordPicker({
   documentId: number
   onTokensUpdated: (tokens: Token[]) => void
 }) {
-  const [options, setOptions] = useState<WordOption[] | null>(null)
-  const { saving: searching, error: searchError, save: runSearch } = useSave()
-  const { saving: applying, error: applyError, save: applyOption } = useSave()
   const shown = targets[0].gloss?.pieces[piece]
   if (!shown) return null
 
-  if (options === null) {
-    return (
-      <div className="phrase-suggestion">
-        <button
-          type="button"
-          className="conflict-option"
-          disabled={searching}
-          onClick={(e) => {
-            e.stopPropagation()
-            runSearch(
-              () => fetchPieceWords(documentId, targets[0].id, piece),
-              setOptions,
-            )
-          }}
-        >
-          Another word read {shown.reading}?
-        </button>
-        {searchError && <div className="conflict-error">{searchError}</div>}
-      </div>
-    )
-  }
-
-  if (options.every((option) => option.spelling === shown.surface)) {
-    return (
-      <div className="conflict-note">
-        No other word is read {shown.reading}.
-      </div>
-    )
-  }
-
   return (
-    <div className="phrase-suggestion">
-      <div className="conflict-note">Which word is {shown.reading}?</div>
-      {applyError && <div className="conflict-error">{applyError}</div>}
-      <div className="conflict-options">
-        {options.map((option) => {
-          const selected = option.spelling === shown.surface
-          return (
-            <button
-              key={option.spelling}
-              type="button"
-              className={
-                selected ? 'conflict-option selected' : 'conflict-option'
-              }
-              disabled={applying || (selected && targets.length === 1)}
-              onClick={(e) => {
-                e.stopPropagation()
-                applyOption(
-                  () =>
-                    pickPieceWord(
-                      documentId,
-                      targets.map((t) => t.id),
-                      piece,
-                      option.spelling,
-                    ),
-                  onTokensUpdated,
-                )
-              }}
-            >
-              {option.spelling}
-              {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
-            </button>
-          )
-        })}
-      </div>
-    </div>
+    <SearchedOptions<WordOption>
+      searchLabel={`Another word read ${shown.reading}?`}
+      noneFound={`No other word is read ${shown.reading}.`}
+      heading={`Which word is ${shown.reading}?`}
+      search={() => fetchPieceWords(documentId, targets[0].id, piece)}
+      apply={(option) =>
+        pickPieceWord(
+          documentId,
+          targets.map((t) => t.id),
+          piece,
+          option.spelling,
+        )
+      }
+      onTokensUpdated={onTokensUpdated}
+      optionKey={(option) => option.spelling}
+      renderOption={(option) => (
+        <>
+          {option.spelling}
+          {option.gloss.length > 0 && ` — ${option.gloss.join(', ')}`}
+        </>
+      )}
+      isSelected={(option) => option.spelling === shown.surface}
+      // Re-picking the selected word only does anything when it also brings
+      // the other targets in line.
+      canRepick={targets.length > 1}
+    />
   )
 }
 

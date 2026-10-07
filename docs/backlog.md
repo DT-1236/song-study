@@ -41,10 +41,6 @@ so it can be picked up without re-deriving the reasoning.
   find one (twice per `study.correct_card`). Select the tokens sharing its
   `phrase_start_position`, or the token alone, and share that reader with `enroll_token`. Model:
   Sonnet 5, low effort — a scoped variant of `_token_rows`.
-- Merge `PieceWordPicker` and `AlternateReadingSearch` in `DocumentViewPage.tsx` into one
-  "options searched on demand" component taking the fetch, the apply, how to render an option
-  and which is selected: they share their state, two `useSave`s and layout. Model: Sonnet 5,
-  medium effort — the two differ in labels and selected-state rules.
 - Send each review as soon as it's answered and have a card correction undo it, instead of
   holding the answer in `StudyPage.tsx` until the card is left (which relies on `pagehide` for
   a closed tab). Needs `study_reviews` to keep the card's schedule from before each review, the
