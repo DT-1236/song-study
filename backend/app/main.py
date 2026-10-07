@@ -21,7 +21,6 @@ from app.card_content import Line, Option, Queue, RunLine
 from app.cards import CardKind, NotStudyable, document_words, enroll_token
 from app.conflicts import (
     IS_ACCEPTED_PHRASE_SQL,
-    NON_READING_KINDS,
     ConflictNotFound,
     TokenNotFound,
     TokensNotGroupable,
@@ -37,6 +36,7 @@ from app.conflicts import (
     resolve_conflict,
     resolve_phrase_furigana,
     select_reading,
+    token_reading_options,
     unmerge_phrase,
 )
 from app.db import DOCUMENT_COLUMNS, engine, json_param, owned_document_row
@@ -44,7 +44,6 @@ from app.glosses import (
     KATAKANA_PICKS_SQL,
     GlossKey,
     GlossPlan,
-    alternate_reading_options,
     gloss_key,
     is_glossable,
     is_probably_english,
@@ -1117,36 +1116,10 @@ def unmerge_phrase_tokens(
 def get_alternate_readings(
     document_id: OwnedDocument, token_id: int, user_id: CurrentUser
 ) -> list[dict]:
-    """The default reading of token_id's dictionary form and every other one
-    JMDict has for it, plus the token's own reading options, as options to
-    apply through /tokens/reading."""
+    """Every reading token_id can be given (see token_reading_options), as
+    options to apply through /tokens/reading."""
     with engine.connect() as conn:
-        row = conn.execute(
-            text(
-                """
-                SELECT t.surface, t.reading_katakana, t.dictionary_form, t.normalized_form,
-                       (SELECT COALESCE(jsonb_agg(c.value ORDER BY c.id), '[]') FROM conflicts c
-                        WHERE c.token_id = t.id AND c.kind <> ALL(:non_reading_kinds)) AS own
-                FROM tokens t WHERE t.id = :token_id AND t.document_id = :document_id
-                """
-            ),
-            {
-                "token_id": token_id,
-                "document_id": document_id,
-                "non_reading_kinds": list(NON_READING_KINDS),
-            },
-        ).one_or_none()
-        if row is None:
-            raise TokenNotFound()
-        options = alternate_reading_options(
-            row.surface, row.reading_katakana, row.dictionary_form, row.normalized_form
-        )
-        # The token's own options can differ from these only in furigana
-        # split, so they're told apart by citation reading.
-        merged: dict[str, dict] = {}
-        for value in [*options, *row.own]:
-            merged.setdefault(value.get("citation_reading", value["reading"]), value)
-        return list(merged.values())
+        return token_reading_options(conn, document_id, token_id)
 
 
 _KANA_ONLY_RE = re.compile(r"^[ぁ-んァ-ヶー]+$")

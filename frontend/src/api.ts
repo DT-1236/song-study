@@ -354,8 +354,9 @@ export async function fetchTokens(documentId: number): Promise<Token[]> {
   return response.json()
 }
 
-// Every other reading JMDict has for tokenId's dictionary form, as reading
-// options to apply with applyReading.
+// Every reading tokenId can be given, one per reading: its own options (or
+// the reading it was tokenized with), then every other reading JMDict has
+// for its dictionary form, as reading options to apply with applyReading.
 export async function fetchAlternateReadings(
   documentId: number,
   tokenId: number,

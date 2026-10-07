@@ -45,3 +45,29 @@ so it can be picked up without re-deriving the reasoning.
 - In `cards._token_rows`, tie the `token_id` group subquery to `ANY(:document_ids)` rather than
   `t.document_id`, so Postgres runs it once rather than per grouped token. Model: Haiku 4.5, low
   effort.
+
+## `/code-review` on PR #75 (backlog sweep: low- and medium-effort items)
+
+- Count the song's new cards today after taking its lock in `study.song_queue`
+  (`study.py`, the `FOR NO KEY UPDATE OF d` statement). The count is a subquery in the locking
+  statement's select list, so under READ COMMITTED it's read from the statement's snapshot before
+  the lock wait: when two session starts overlap, the second still sees the full limit and
+  enrolls past it (20 new cards on a 10-a-day song). Take the lock in one statement, then count in
+  a second. Add a test that forces the overlap with `BackgroundCall` and `wait_for_lock_wait`, as
+  `test_overlapping_session_starts_both_get_every_card` does, and checks the total enrolled stays
+  within the limit. Model: Opus 5, medium effort — the test has to pin the interleaving, and the
+  fix depends on Postgres's snapshot rules.
+- Skip gloss-cache work that grammar pieces don't need: `cards.token_word` calls
+  `katakana_lookups` for any unit given a `piece`, katakana or not, and `_studyable` calls
+  `gloss_sources` even when every key is grammar. Call `katakana_lookups` only when
+  `unit[0].katakana_gloss` is set, and return early from `_studyable` when no non-grammar keys
+  remain. Model: Haiku 4.5, low effort.
+- Project JMDict's other readings onto an inflected token by the other reading's own conjugation.
+  `glosses.alternate_reading_options` passes each through `project_citation_reading` with the
+  token's conjugation type, which only handles 一段 and 五段 verbs and returns the citation
+  reading unchanged otherwise: 来 of 来た (カ変) is offered きたる rather than きた, though 来る
+  read きたる is 五段. Take the conjugation class from JMDict's part of speech for that reading
+  (v5r for きたる), and leave out an alternate that still can't be projected rather than offering
+  its citation form on an inflected surface. Add cases to `TestAlternateReadingOptions` in
+  `test_glosses.py`. Model: Sonnet 5, medium effort — the projection exists for 一段 and 五段, but
+  the conjugation class per reading has to come from JMDict's entry.
