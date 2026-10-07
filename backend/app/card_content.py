@@ -27,7 +27,7 @@ from app.cards import (
     units_by_document,
 )
 from app.db import DOCUMENT_COLUMNS
-from app.glosses import GlossKey, gloss_entries, rank_senses
+from app.glosses import GlossKey, gloss_entries, picked_entries, rank_senses
 from app.grammar import grammar_category, grammar_notes, notes_overlap
 from app.kanji import (
     CardKanji,
@@ -501,7 +501,9 @@ class _Glosses:
             if source == "jmdict":
                 senses = [
                     sense
-                    for sense in rank_senses(entries, word.pos_major)
+                    for sense in rank_senses(
+                        picked_entries(entries, word.key.idseq), word.pos_major
+                    )
                     if sense["gloss"]
                 ]
             self._senses[word] = WordSenses(
@@ -544,11 +546,11 @@ class _Library:
         """The words the user has a card for that are in a song of theirs."""
         if self._deck is None:
             card_keys = {
-                CardKey(*row)
+                CardKey.of(row)
                 for row in self._conn.execute(
                     text(
                         """
-                        SELECT kind, lookup_form, reading FROM study_cards
+                        SELECT kind, lookup_form, reading, idseq FROM study_cards
                         WHERE user_id = :user_id AND kind = 'recognition'
                         """
                     ),
@@ -668,7 +670,7 @@ def queue_contents(
     library = _Library(conn, user_id, occurrences if studied is None else None)
     glosses = _Glosses(conn)
 
-    keys = [CardKey(card.kind, card.lookup_form, card.reading) for card in cards]
+    keys = [CardKey.of(card) for card in cards]
     chosen = [
         _choose_occurrence(occurrences.get(key, []), studied, rng) for key in keys
     ]

@@ -290,9 +290,27 @@ def pick_reading(document_id: int, surface: str, reading: str) -> None:
     )
 
 
-def word_key(lookup_form: str, reading: str) -> CardKey:
-    """The key of the card for a word."""
-    return CardKey("recognition", lookup_form, reading)
+# JMDict's entries for 合う; for 元 read もと, as "origin" and as "former";
+# and for the words read うん: two written in kana, "yes" and "some", and 運.
+TO_FIT = 1284430
+ORIGIN, FORMER = 1260670, 2219590
+YES, SOME, LUCK = 1001090, 2759530, 1172610
+
+
+def pick_piece_word(document_id: int, token_ids: list[int], piece: int, idseq: int):
+    """Pick JMDict entry `idseq` as the word `piece` of the gloss of each of
+    the document's tokens `token_ids` is. Returns the tokens."""
+    from app.main import PieceWordPick
+
+    return pick_piece_word_endpoint(
+        document_id, PieceWordPick(token_ids=token_ids, piece=piece, idseq=idseq)
+    )
+
+
+def word_key(lookup_form: str, reading: str, idseq: int | None = None) -> CardKey:
+    """The key of the card for a word; with `idseq`, for one picked for a
+    piece of katakana."""
+    return CardKey("recognition", lookup_form, reading, idseq)
 
 
 def user_cards(user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
@@ -302,7 +320,7 @@ def user_cards(user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
             text("SELECT * FROM study_cards WHERE user_id = :user_id"),
             {"user_id": user_id},
         ).all()
-    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
+    return {CardKey.of(row): row for row in rows}
 
 
 def selected_reading(token) -> str:

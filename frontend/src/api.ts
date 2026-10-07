@@ -543,6 +543,9 @@ export type StudyCard = {
   lookup_form: string
   // Null for a grammar term.
   reading: string | null
+  // The JMDict entry of a word picked for a piece of katakana, which tells
+  // apart two read and written alike; null for any other.
+  idseq: number | null
   suspended: boolean
   due: string
   first_seen_document_id: number | null
@@ -763,6 +766,8 @@ export type DocumentWord = {
   lookup_form: string
   // Null for a grammar term.
   reading: string | null
+  // As on a card (see StudyCard).
+  idseq: number | null
   // How it can be corrected, as on a card (see CardLine).
   correction: 'reading' | 'word' | null
   // The user's card for it, removed or not; null if they have none.

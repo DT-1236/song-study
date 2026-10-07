@@ -22,6 +22,7 @@ from app.conflicts import NON_READING_KINDS, TokenNotFound
 from app.glosses import (
     KATAKANA_PICKS_SQL,
     GlossKey,
+    gloss_entries,
     is_word_piece,
     own_gloss_key,
     piece_lookups,
@@ -54,26 +55,37 @@ def is_mature(state: int, stability: float | None) -> bool:
     )
 
 
-CARD_COLUMNS = "id, kind, lookup_form, reading, suspended, due, first_seen_document_id"
+CARD_COLUMNS = (
+    "id, kind, lookup_form, reading, idseq, suspended, due, first_seen_document_id"
+)
 
 
 @dataclass(frozen=True)
 class CardKey:
     """What a card tests: a word, by its gloss key, or a grammar term, with
-    no reading."""
+    no reading. A word picked for a piece of katakana is also keyed by its
+    JMDict entry, `idseq`, when another is read and written alike (元 read
+    もと, "origin" and "former")."""
 
     kind: CardKind
     lookup_form: str
     reading: str | None
+    idseq: int | None = None
+
+    @classmethod
+    def of(cls, row) -> CardKey:
+        """The key of a study_cards `row`."""
+        return cls(row.kind, row.lookup_form, row.reading, row.idseq)
 
 
 # Joins `study_cards c` to the keys in a :keys parameter from card_keys_param.
 # Its columns are prefixed so an unqualified CARD_COLUMNS stays unambiguous.
 CARD_KEYS_JOIN_SQL = """
     JOIN jsonb_to_recordset(CAST(:keys AS JSONB))
-        AS k(key_kind text, key_lookup_form text, key_reading text)
+        AS k(key_kind text, key_lookup_form text, key_reading text, key_idseq int)
       ON c.kind = k.key_kind AND c.lookup_form = k.key_lookup_form
      AND c.reading IS NOT DISTINCT FROM k.key_reading
+     AND c.idseq IS NOT DISTINCT FROM k.key_idseq
 """
 
 
@@ -85,6 +97,7 @@ def card_keys_param(keys: Iterable[CardKey]) -> str:
                 "key_kind": k.kind,
                 "key_lookup_form": k.lookup_form,
                 "key_reading": k.reading,
+                "key_idseq": k.idseq,
             }
             for k in keys
         ]
@@ -285,12 +298,47 @@ def katakana_gloss(row) -> dict:
 
 def katakana_lookups(conn, units: Iterable[list]) -> dict[GlossKey, tuple]:
     """The lookups the pieces of the katakana tokens in `units` (see _units)
-    are glossed from, as unit_card_tokens takes them. One that isn't cached
-    is looked up and cached first."""
-    return piece_lookups(
-        conn,
-        [katakana_gloss(unit[0]) for unit in units if unit[0].katakana_gloss],
+    are glossed from, and those of the cards of the words picked for them,
+    as unit_card_tokens takes them. One that isn't cached is looked up and
+    cached first."""
+    glosses = [katakana_gloss(unit[0]) for unit in units if unit[0].katakana_gloss]
+    lookups = piece_lookups(conn, glosses)
+    # A picked word's card key is spelled as its entry is, which only the
+    # piece's own lookup says.
+    picked = {
+        _word_gloss_key(piece, spelling)
+        for gloss in glosses
+        if any("idseq" in piece for piece in gloss["pieces"])
+        for piece, spelling in zip(
+            gloss["pieces"], shown_spellings(gloss, lookups), strict=True
+        )
+        if "idseq" in piece
+    }
+    return lookups | gloss_entries(
+        conn, [(key, None) for key in picked - lookups.keys()]
     )
+
+
+def _word_gloss_key(piece: dict, spelling: str) -> GlossKey:
+    """The gloss key of a card for word `piece` of a katakana token's gloss,
+    shown as `spelling`: its reading is the word's whichever way it's
+    written."""
+    return (spelling, piece["key"][1])
+
+
+def _card_entry(
+    piece: dict, key: GlossKey, lookups: dict[GlossKey, tuple]
+) -> int | None:
+    """The JMDict entry a card for word `piece`, a katakana token's, under
+    gloss `key` is keyed by: the one picked for it, if `key`'s lookup has
+    others, else none. A pick that the card's spelling and reading already
+    say is the same card as the word unpicked or written in kanji."""
+    if "idseq" not in piece:
+        return None
+    entries, source = lookups[key]
+    if source != "jmdict" or all(e["idseq"] == piece["idseq"] for e in entries):
+        return None
+    return piece["idseq"]
 
 
 def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardTokens]:
@@ -309,8 +357,10 @@ def _katakana_card_tokens(row, lookups: dict[GlossKey, tuple]) -> list[CardToken
     found = []
     for index, (piece, spelling) in enumerate(zip(pieces, spellings, strict=True)):
         if is_word_piece(piece):
-            # Its reading is the word's whichever way it's written.
-            key = CardKey("recognition", spelling, piece["key"][1])
+            gloss_key = _word_gloss_key(piece, spelling)
+            key = CardKey(
+                "recognition", *gloss_key, _card_entry(piece, gloss_key, lookups)
+            )
         # Grammar between two words (the の of 心の声) is a unit of its own,
         # and like a particle outside a group, gives nothing. A helper verb
         # has a key as well, but counts as grammar, as in _attached_grammar.
@@ -445,7 +495,7 @@ def _user_cards(
         ),
         {"user_id": user_id, "keys": card_keys_param(keys)},
     )
-    return {CardKey(row.kind, row.lookup_form, row.reading): row for row in rows}
+    return {CardKey.of(row): row for row in rows}
 
 
 def song_words(conn, units: list[list], user_id: int) -> SongWords:
@@ -536,15 +586,19 @@ def _enroll_units(
             text(
                 """
                 INSERT INTO study_cards (
-                    user_id, kind, lookup_form, reading, alt_lookup_form, first_seen_document_id
+                    user_id, kind, lookup_form, reading, idseq, alt_lookup_form,
+                    first_seen_document_id
                 )
-                SELECT :user_id, w.kind, w.lookup_form, w.reading, w.alt_lookup_form, :document_id
+                SELECT :user_id, w.kind, w.lookup_form, w.reading, w.idseq, w.alt_lookup_form,
+                       :document_id
                 FROM jsonb_to_recordset(CAST(:words AS JSONB))
-                    AS w(ord int, kind text, lookup_form text, reading text, alt_lookup_form text)
+                    AS w(ord int, kind text, lookup_form text, reading text, idseq int,
+                         alt_lookup_form text)
                 WHERE NOT EXISTS (
                     SELECT 1 FROM study_cards c
                     WHERE c.user_id = :user_id AND c.kind = w.kind AND c.lookup_form = w.lookup_form
                       AND c.reading IS NOT DISTINCT FROM w.reading
+                      AND c.idseq IS NOT DISTINCT FROM w.idseq
                 )
                 ORDER BY w.ord
                 LIMIT :limit
@@ -565,6 +619,7 @@ def _enroll_units(
                             "kind": w.key.kind,
                             "lookup_form": w.key.lookup_form,
                             "reading": w.key.reading,
+                            "idseq": w.key.idseq,
                             "alt_lookup_form": w.alt_lookup_form,
                         }
                         for i, w in enumerate(words)
@@ -620,9 +675,12 @@ def add_card(conn, user_id: int, document_id: int, word: CardTokens):
         text(
             f"""
             INSERT INTO study_cards (
-                user_id, kind, lookup_form, reading, alt_lookup_form, first_seen_document_id
+                user_id, kind, lookup_form, reading, idseq, alt_lookup_form,
+                first_seen_document_id
             )
-            VALUES (:user_id, :kind, :lookup_form, :reading, :alt_lookup_form, :document_id)
+            VALUES (
+                :user_id, :kind, :lookup_form, :reading, :idseq, :alt_lookup_form, :document_id
+            )
             ON CONFLICT ON CONSTRAINT study_cards_word_key DO UPDATE SET suspended = FALSE
             RETURNING {CARD_COLUMNS}
             """
@@ -632,6 +690,7 @@ def add_card(conn, user_id: int, document_id: int, word: CardTokens):
             "kind": key.kind,
             "lookup_form": key.lookup_form,
             "reading": key.reading,
+            "idseq": key.idseq,
             "alt_lookup_form": alt,
             "document_id": document_id,
         },
