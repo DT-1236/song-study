@@ -95,7 +95,7 @@ class FakeLrclib:
                 raise results
             return results or []
         if uri not in self.records:
-            raise LrclibError("LRCLIB has no track at that address.")
+            raise lrclib._NotFound("LRCLIB has no track at that address.")
         return self.records[uri]
 
     def publish(
@@ -226,6 +226,13 @@ def test_record_without_lyrics_is_an_error(fake_lrclib):
         fetch_lyrics(URI)
 
 
+def test_a_missing_track_is_a_refusal_not_an_outage(fake_lrclib):
+    with pytest.raises(LrclibError) as raised:
+        fetch_lyrics(URI)
+    # Exactly, since LrclibUnavailable is an LrclibError too.
+    assert raised.type is LrclibError
+
+
 def test_requests_identify_the_app(monkeypatch):
     sent = []
 
@@ -242,7 +249,7 @@ def test_requests_identify_the_app(monkeypatch):
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
-        (urllib.error.HTTPError(URI, 404, "Not Found", {}, None), LrclibError),
+        (urllib.error.HTTPError(URI, 404, "Not Found", {}, None), lrclib._NotFound),
         (
             urllib.error.HTTPError(
                 URI, 429, "Too Many Requests", {"Retry-After": "3"}, None
@@ -662,16 +669,10 @@ def test_search_tolerates_a_failed_variant(fake_lrclib):
     assert _ids(search_tracks(SONG, "", 200)) == [1]
 
 
-@pytest.mark.parametrize(
-    "error",
-    [
-        LrclibUnavailable("LRCLIB is rate-limiting requests — try again later."),
-        # A refusal LRCLIB shouldn't give a search is still LRCLIB failing.
-        LrclibError("LRCLIB has no track at that address."),
-    ],
-)
-def test_search_fails_when_every_variant_does(fake_lrclib, error):
-    fake_lrclib.error = error
+def test_search_fails_when_every_variant_does(fake_lrclib):
+    fake_lrclib.error = LrclibUnavailable(
+        "LRCLIB is rate-limiting requests — try again later."
+    )
 
     with pytest.raises(LrclibUnavailable):
         search_tracks(SONG, "歌手", 200)
