@@ -6,13 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on the third backlog sweep (branch `backlog-sweep-3`)
 
-- Name study_cards' six scheduling columns once in `study.py` (state, step, stability, difficulty,
-  due, last_review). Today they're written out by hand in `_schedule_params`, `_store_schedule`'s
-  SET, `review_card`'s INSERT (`prev_*` and `next_*`, columns and values), and `_undo_review`'s
-  row comparison and RETURNING aliases. A column missed in `_undo_review`'s comparison would let
-  an undo go through while the schedule differs. Build those lists from one tuple, keeping the SQL
-  readable. Migrations stay literal. Model: Sonnet 5, low effort — mechanical, but the comparison
-  must still list every column.
 - Have `piece_word_options` (`conflicts.py`) look up the piece's own lookup and its reading's
   `(reading, reading)` lookup in one `gloss_entries` call. Today `piece_current_idseq`
   (`glosses.py`) and `word_options` each make one, and for a picked piece they're the same key.
