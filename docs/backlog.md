@@ -56,3 +56,10 @@ so it can be picked up without re-deriving the reasoning.
   its citation form on an inflected surface. Add cases to `TestAlternateReadingOptions` in
   `test_glosses.py`. Model: Sonnet 5, medium effort — the projection exists for 一段 and 五段, but
   the conjugation class per reading has to come from JMDict's entry.
+- Leave the token's own readings out of the document page's "Look for other readings" list as it
+  renders, not once when it's fetched. `AlternateReadingSearch` (`DocumentViewPage.tsx`) filters
+  the fetched list by the readings the targets offer at that moment, and `SearchedOptions` keeps
+  that list in state, so a reading picked from it stays listed below `ReadingOptions`, which now
+  shows it selected. Have `token_reading_options` say which options are the token's own (a flag,
+  or its own field in the response) so the page drops them by that instead of rebuilding the set
+  with `katakanaToHiragana`, and filter in `SearchedOptions`' render. Model: Sonnet 5, low effort.

@@ -437,14 +437,13 @@ function AlternateReadingSearch({
   documentId: number
   onTokensUpdated: TokensUpdated
 }) {
-  // The readings the targets already offer: their options, shown above by
-  // ReadingOptions, or with none, the one they were tokenized with.
+  // The readings the targets already offer: the one they were tokenized
+  // with, and any options ReadingOptions shows above.
   const source = targets.find(hasReadingOptions)
-  const offered = new Set(
-    source
-      ? readingConflicts(source).map((c) => c.value.reading)
-      : [katakanaToHiragana(targets[0].reading_katakana)],
-  )
+  const offered = new Set([
+    katakanaToHiragana(targets[0].reading_katakana),
+    ...(source ? readingConflicts(source).map((c) => c.value.reading) : []),
+  ])
   return (
     <SearchedOptions<ConflictOptionValue>
       searchLabel="Look for other readings"

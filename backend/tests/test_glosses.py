@@ -221,6 +221,14 @@ class TestAlternateReadingOptions:
         matched = next(o for o in options if o["reading"] == "あい")
         assert matched["citation_reading"] == "あく"
 
+    def test_offers_the_dictionary_forms_reading_when_read_another_way(self):
+        # 方 read かた here: its standalone reading, ほう, is another one.
+        readings = [
+            o["reading"] for o in alternate_reading_options("方", "カタ", "方", "方")
+        ]
+        assert "ほう" in readings
+        assert "かた" not in readings
+
     def test_empty_for_a_word_with_no_alternate_reading(self):
         assert alternate_reading_options("受け", "ウケ", "受ける", "受ける") == []
 

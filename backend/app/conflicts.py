@@ -1224,7 +1224,7 @@ def token_reading_options(conn, document_id: int, token_id: int) -> list[dict]:
     row = conn.execute(
         text(
             """
-            SELECT t.surface, t.reading_katakana, t.furigana_spans,
+            SELECT t.surface, t.reading_katakana, t.furigana_spans, t.furigana_override,
                    t.dictionary_form, t.normalized_form,
                    (SELECT jsonb_agg(c.value ORDER BY c.id) FROM conflicts c
                     WHERE c.token_id = t.id AND c.kind <> ALL(:non_reading_kinds)) AS own
@@ -1245,7 +1245,7 @@ def token_reading_options(conn, document_id: int, token_id: int) -> list[dict]:
     own = row.own or [
         conflict_option_value(
             to_hiragana(row.reading_katakana),
-            row.furigana_spans,
+            row.furigana_override or row.furigana_spans,
             headword_reading(row.normalized_form, row.dictionary_form),
         )
     ]

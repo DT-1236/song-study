@@ -487,10 +487,17 @@ def alternate_reading_options(
     options for an occurrence of it on `surface`, which can be inflected."""
     dict_form_citation = citation_reading(dictionary_form)
     conjugation_type = conjugation_type_of(normalized_form)
+    # Written as its dictionary form, the occurrence can be read as another
+    # of the word's readings (方 as かた, not ほう), so its own is the one to
+    # leave out. Inflected, its own is the dictionary form's, which
+    # projecting doesn't always reproduce (美しく isn't read うつくしい).
+    own_citation = (
+        reading_katakana if surface == dictionary_form else dict_form_citation
+    )
 
     options = []
     for alt_citation in search_readings(dictionary_form):
-        if alt_citation == dict_form_citation:
+        if alt_citation == own_citation:
             continue
         alt_surface_reading = project_citation_reading(
             alt_citation, reading_katakana, dict_form_citation, conjugation_type
