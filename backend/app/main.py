@@ -59,11 +59,13 @@ from app.glosses import (
 from app.grammar import find_predicate_groups
 from app.kanji import MAX_DECK_WORDS, CardKanji, KanjiEntry
 from app.lrclib import (
+    LrclibCandidate,
     LrclibError,
     LrclibLyrics,
     LrclibUnavailable,
     fetch_lyrics,
     normalize_lrclib_uri,
+    search_tracks,
 )
 from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
@@ -683,6 +685,21 @@ def songs_search(user_id: CurrentUser, q: str = Query(min_length=1)):
     except YouTubeMusicUnavailable as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
     return songs
+
+
+@api.get("/lrclib/search", response_model=list[LrclibCandidate])
+def lrclib_search(
+    user_id: CurrentUser,
+    title: str = Query(min_length=1),
+    artist: str = "",
+    # In seconds; left out when the song's length isn't known.
+    duration: float | None = Query(default=None, gt=0),
+):
+    try:
+        candidates = search_tracks(title, artist, duration)
+    except LrclibUnavailable as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return candidates
 
 
 class GlossSense(JmdictSense):
