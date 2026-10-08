@@ -97,7 +97,7 @@
 - Don't hand-roll servers, Vite configs or Playwright setup in a scratchpad.
   If the harness lacks something a check needs, add it to the harness.
 - When a check errors, hangs or is blocked by the harness rather than by
-  the change under test, a Sonnet- or Opus-class model should consider
+  the change under test, a model at Sonnet's tier or above should consider
   updating the harness itself (`harness.mjs`, `servers.sh`,
   `browser_server.py`) rather than working around it in the check. Either
   way, record the fix or the new gotcha in `docs/browser-checks.md` in the
