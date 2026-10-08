@@ -86,7 +86,7 @@ class FakeLrclib:
         self.error: Exception | None = None
         self.requests: list[str] = []
 
-    def __call__(self, uri: str) -> dict | list:
+    def __call__(self, uri: str) -> dict | list | None:
         self.requests.append(uri)
         if self.error is not None:
             raise self.error
@@ -95,9 +95,7 @@ class FakeLrclib:
             if isinstance(results, Exception):
                 raise results
             return results or []
-        if uri not in self.records:
-            raise lrclib._NotFound("LRCLIB has no track at that address.")
-        return self.records[uri]
+        return self.records.get(uri)
 
     def publish(
         self, uri: str, lines: list[tuple[float, str]], duration: float = 60.0
@@ -248,7 +246,6 @@ def test_requests_identify_the_app(monkeypatch):
 @pytest.mark.parametrize(
     ("error", "expected"),
     [
-        (urllib.error.HTTPError(URI, 404, "Not Found", {}, None), lrclib._NotFound),
         (
             urllib.error.HTTPError(
                 URI, 429, "Too Many Requests", {"Retry-After": "3"}, None
@@ -269,10 +266,17 @@ def test_request_failures(monkeypatch, error, expected):
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
 
-    with pytest.raises(expected) as raised:
+    with pytest.raises(expected):
         lrclib._get_json(URI)
-    # Exactly, since _NotFound is an LrclibUnavailable too.
-    assert raised.type is expected
+
+
+def test_a_missing_track_is_none(monkeypatch):
+    def urlopen(request, timeout):
+        raise urllib.error.HTTPError(URI, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    assert lrclib._get_json(URI) is None
 
 
 def test_a_document_needs_lyrics_or_an_lrclib_track():
