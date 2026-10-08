@@ -811,8 +811,9 @@ li.grammar-legend-item {
   cursor: pointer;
 }
 
-/* LRCLIB's lyrics on the new-document form: the document page's lyrics box,
-   with no furigana to make room for. */
+/* LRCLIB's lyrics, as a pick on the new-document form or a track being
+   chosen on a document page shows them: the document page's lyrics box, with
+   no furigana to make room for. */
 .synced-lyrics {
   --lyrics-line-height: 1.8;
 }
