@@ -38,7 +38,7 @@ import type {
   DocumentWord,
   FuriganaSpan,
   LineTiming,
-  LrclibCandidate,
+  LrclibLyrics,
   PhraseConflictValue,
   PhraseFuriganaValue,
   PredicateGroupValue,
@@ -1970,30 +1970,34 @@ const TokenizedText = memo(function TokenizedText({
 })
 
 // Chooses an LRCLIB track to link `doc` to, from a search for `song` or by
-// its ID, and links it on Save. `choice` is the match chosen, which the page
-// previews, so its timing can be checked against the video first: nothing
-// changes until Save.
+// its ID, and links it on Save. `onPreview` gets the chosen match's lyrics
+// (null while there are none), for the page to preview so its timing can be
+// checked against the video first: nothing changes until Save.
 function LrclibPicker({
   doc,
   song,
-  choice,
-  loading,
-  loadError,
-  onChoose,
+  onPreview,
   onLinked,
   onCancel,
 }: {
   doc: Document
   song: LrclibSong
-  choice: LrclibCandidate | null | undefined
-  // Whether the chosen match's lyrics are still loading, and why they
-  // didn't load.
-  loading: boolean
-  loadError: string | null
-  onChoose: (candidate: LrclibCandidate | undefined) => void
+  onPreview: (lyrics: LrclibLyrics | null) => void
   onLinked: (doc: Document) => void
   onCancel: () => void
 }) {
+  const {
+    choice,
+    choose,
+    lyrics,
+    loading,
+    error: loadError,
+  } = useLrclibChoice()
+  const onPreviewRef = useLatest(onPreview)
+  useEffect(() => {
+    onPreviewRef.current(lyrics)
+  }, [lyrics, onPreviewRef])
+
   // A track typed in by hand, in place of a chosen match.
   const [draft, setDraft] = useState('')
   // Keeping the lyrics loses nothing, so it's the default.
@@ -2017,7 +2021,7 @@ function LrclibPicker({
         chosen={choice}
         onChoose={(candidate) => {
           // There's no "none" row to choose null from.
-          onChoose(candidate ?? undefined)
+          choose(candidate ?? undefined)
           setDraft('')
         }}
       />
@@ -2037,7 +2041,7 @@ function LrclibPicker({
           onChange={(e) => {
             setDraft(e.target.value)
             // A typed track isn't the chosen match any more.
-            onChoose(undefined)
+            choose(undefined)
           }}
           placeholder={LRCLIB_URI_PLACEHOLDER}
           disabled={saving}
@@ -2480,8 +2484,9 @@ type EditMode =
   | { kind: 'lyrics'; draft: string }
   // Each line's start as edited, null once its timing is deleted.
   | { kind: 'timings'; draft: (number | null)[] }
-  // The song LRCLIB is searched for while a track to link is being chosen.
-  | { kind: 'lrclib'; song: LrclibSong }
+  // The song LRCLIB is searched for while a track to link is being chosen,
+  // and the chosen match's lyrics, which show in place of the document's.
+  | { kind: 'lrclib'; song: LrclibSong; preview: LrclibLyrics | null }
 
 const VIEWING: EditMode = { kind: 'view' }
 
@@ -2509,11 +2514,7 @@ export function DocumentViewPage() {
   const [mode, setMode] = useState<EditMode>(VIEWING)
   const timingDraft = mode.kind === 'timings' ? mode.draft : null
   const lrclibSong = mode.kind === 'lrclib' ? mode.song : null
-
-  // The LRCLIB match chosen while choosing one, whose lyrics show in place
-  // of the document's.
-  const lrclibChoice = useLrclibChoice()
-  const lrclibPreview = lrclibSong ? lrclibChoice.lyrics : null
+  const lrclibPreview = mode.kind === 'lrclib' ? mode.preview : null
   const {
     saving: savingLyrics,
     error: lyricsSaveError,
@@ -2787,8 +2788,6 @@ export function DocumentViewPage() {
     const channel = player?.getVideoData()?.author ?? ''
     // 0 until the video has loaded.
     const duration = Math.round(player?.getDuration() ?? 0)
-    // The last choosing's match, which outlives it, even across documents.
-    lrclibChoice.choose(undefined)
     setMode({
       kind: 'lrclib',
       song: {
@@ -2796,7 +2795,12 @@ export function DocumentViewPage() {
         artists: channel.replace(/ - Topic$/, ''),
         duration_seconds: duration || null,
       },
+      preview: null,
     })
+  }
+
+  function handleLrclibPreview(preview: LrclibLyrics | null) {
+    setMode((mode) => (mode.kind === 'lrclib' ? { ...mode, preview } : mode))
   }
 
   function stopChoosingLrclib() {
@@ -2875,10 +2879,7 @@ export function DocumentViewPage() {
             <LrclibPicker
               doc={doc}
               song={lrclibSong}
-              choice={lrclibChoice.choice}
-              loading={lrclibChoice.loading}
-              loadError={lrclibChoice.error}
-              onChoose={lrclibChoice.choose}
+              onPreview={handleLrclibPreview}
               onLinked={handleDocumentLinked}
               onCancel={stopChoosingLrclib}
             />
