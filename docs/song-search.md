@@ -38,9 +38,10 @@ The manual fields stay as a fallback (decided 2026-10-07).
 
 ## Build order
 
-There are three steps, each on its own branch and PR. Steps 1 and 2 don't
-depend on each other. Step 3 needs both. The "Approach" section below is the
-spec for all three. Each step runs its own tests plus the relevant part of
+There are four steps, each on its own branch and PR. Steps 1 and 2 don't
+depend on each other. Step 3 needs both, and step 4 needs step 3. The
+"Approach" section below is the spec for steps 1–3, and "Step 4" after it is
+the spec for the last. Each step runs its own tests plus the relevant part of
 Verification.
 
 | Step | Status | Ships | Model | Effort | Why |
@@ -49,6 +50,7 @@ Verification.
 | 1 — YouTube Music song search | Done | `ytmusicapi` dep, `app/youtube_music.py`, `GET /api/songs/search`, `SongSearch.tsx`; a pick fills Title + YouTube video ID. Usable on its own | Sonnet 5 | medium | Wrapping a library against a clear spec. Its result shape is loose (missing album/duration), but that's visible, not silent |
 | 2 — LRCLIB track search | Done | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail *silently*: the right track just never shows up |
 | 3 — LRCLIB matches in the form | Done | `LrclibMatches.tsx`, NewDocumentForm wiring, manual fields under `<details>`, CSS | Sonnet 5 | medium | Conventional React. The traps are a typed title being overwritten and a required lyrics box hidden in `<details>`, and the browser check catches both |
+| 4 — LRCLIB lyrics and playback highlight | Not started | `GET /api/lrclib/tracks/{id}`; picking an LRCLIB option fills a disabled lyrics field, and timed lyrics highlight the playing line beside the video; `usePlayingLine` and the highlight settings shared with `DocumentViewPage` | **Opus 5** | medium | The shared hook is lifted out of `DocumentViewPage`'s playback effect, whose seek and nudge handling fails silently (a highlight a line late, or stuck). The rest is conventional React |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Steps fully specified here can run at
@@ -167,6 +169,112 @@ this work.
 - Endpoint tests go through `tests/support.py` helpers against
   `TEST_DATABASE_URL`, including the auth requirement.
 
+## Step 4 — LRCLIB lyrics and playback highlight
+
+Picking a LRCLIB option should work like picking a YouTube one: it fills in
+the form and you see the result at once. Step 3 only stores the track's id and
+hides the lyrics box, so nothing shows what was picked. This step loads the
+chosen track's lyrics into the form, locks the field, and, since the track
+has timings, highlights the line being sung as the video plays, as the
+document page does, without furigana or glosses.
+
+This replaces step 3's rule that the Lyrics textarea is hidden while an
+LRCLIB track is set. It also replaces step 3's radio list: the matches are
+shown the way the YouTube results are.
+
+### Backend
+
+- `GET /api/lrclib/tracks/{track_id}` (`user_id: CurrentUser`) returns
+  `{text, lines}`, the shape of `LrclibLyrics`: the lyrics, and one
+  `{start, end}` per line, or `lines: null` for unsynced lyrics. It calls
+  `fetch_lyrics(_track_uri(track_id))`, the path linking a track already uses,
+  and maps `LrclibUnavailable` to 502 through the existing handler and
+  `LrclibError` to 422 as `_fetch_lrclib_for_link` does.
+- It's a separate endpoint rather than a `lyrics` field on each search
+  candidate: a search returns up to 20 tracks and only one is ever picked, so
+  sending every track's full lyrics would be mostly wasted bytes. The cost is
+  one more request per pick, made while the person is already reading the
+  list.
+
+### Frontend
+
+- **`api.ts`:** `LrclibLyrics` type and `fetchLrclibLyrics(id)`, following
+  `searchLrclib`'s shape.
+- **`NewDocumentForm.tsx`:**
+  - Choosing a candidate fetches its lyrics. While loading, the Lyrics field
+    shows "Loading lyrics…". A failure shows the error and leaves the choice
+    unset, so the form can't be saved with a track whose lyrics didn't load.
+    A stale response from an earlier choice is ignored (same cancellation
+    pattern as `LrclibMatches`).
+  - The Lyrics field is always shown, and is disabled and filled with the
+    track's text while a track is picked. Choosing None, or picking another
+    song, restores the textarea with whatever the person had pasted: the
+    pasted draft is its own state, never overwritten by LRCLIB's text.
+  - The disabled field isn't `required`. A track typed into the manual field
+    keeps today's behavior (disabled, "Loaded from LRCLIB" placeholder),
+    since only picked candidates have their lyrics fetched here.
+  - Submit is unchanged: the server ignores pasted text when a track is
+    given.
+- **Match list, like the song list:** `LrclibMatches` renders its candidates
+  as `SongSearch` renders songs: a `<ul>` of full-width button rows (the
+  `.song-results` / `.song-result` look, reusing those rules or a shared
+  class) instead of radios.
+  - Each row shows the track name, then artist · album, the duration with ±Δs,
+    a "synced" badge, and the two-line preview. There's no thumbnail, since
+    LRCLIB has none.
+  - Clicking a row picks it and collapses the list to that one row, as a
+    YouTube pick closes its list. The row carries a "Change" button that
+    reopens the list. A pre-selected match starts collapsed the same way.
+  - The other-length matches stay behind "Show N with other lengths", and
+    "None — I'll paste the lyrics" stays as the last row.
+- **Highlighted lyrics:** a textarea can't highlight a line, so when the
+  track is synced the disabled field is shown as a read-only list of lines
+  (`.lyrics-box` with `.timing-row` rows, classes the timing editor already
+  styles) in the textarea's place, with the playing line carrying
+  `.playing`. Unsynced lyrics stay in the plain disabled textarea. No
+  furigana, tokens, glosses, or click-to-seek (the document page has those;
+  none are needed to check a pick).
+- **Shared with `DocumentViewPage`:** extract rather than copy.
+  - `usePlayingLine(playerRef, timings, seeks)`, lifted from the playing-line
+    effect in `DocumentViewPage` (the `lastStartedBy` search, the poll, the
+    reset on cleanup). `DocumentViewPage` switches to it with no behavior
+    change.
+  - The highlight color and opacity settings: the form reads the same
+    persisted `highlightColor` / `highlightOpacity` and sets the same
+    `--highlight-color` / `--highlight-opacity` properties, via a small
+    shared hook, so the highlight looks as the person configured it. Both
+    pages' defaults stay in one place.
+  - `YouTubePlayer` gets a ref and `onSeek` in the form, as on the document
+    page, so the highlight follows a seek at once.
+- **`App.css`:** the `.timing-row.playing` highlight rule is currently scoped
+  to the timing editor. Widen it to the new list (a shared class, or a
+  selector added to the existing rule). Qualify any new button rules as
+  step 3 does, and don't touch the shared `.new-document-form button` rule.
+
+### Tests and verification
+
+- Backend: the endpoint returns timed lines for a synced record and
+  `lines: null` for plain lyrics; a missing track is 422; an outage is 502;
+  it needs auth. Extend `FakeLrclib`, with invented text.
+- Frontend: nothing here is covered by the existing `timing.test.ts`, so the
+  browser check carries it. If `usePlayingLine` has pure parts worth testing,
+  they live in `timing.ts` beside `lastStartedBy`.
+- Browser check, extending the Verification flow above:
+  0. Confirm the LRCLIB matches look like the song results (rows, not
+     radios), that a click collapses the list to the picked row, and that
+     "Change" reopens it.
+  1. Pick `夜に駆ける`, then its pre-selected LRCLIB match. Confirm the lyrics
+     fill the field as a read-only list and it can't be edited.
+  2. Play the video. Confirm the highlighted line follows the singing, and a
+     seek (via the player's own scrubber) moves it at once.
+  3. Pick an unsynced candidate, if the list has one: a disabled textarea,
+     no highlight. Pick None: an editable textarea holding what was pasted
+     before.
+  4. Type lyrics, pick a candidate, then None: the typed lyrics are back.
+  5. Change the highlight color on a document page. Confirm the form uses it.
+  6. Re-check the document page's own highlight, nudge and seek behavior,
+     since its effect was refactored.
+
 ## Verification
 - `cd backend && .venv/bin/pytest`, `.venv/bin/ruff check app tests migrations`,
   `.venv/bin/ruff format --check …`
@@ -182,7 +290,8 @@ this work.
 
   (YouTube Music and LRCLIB are called live here, which is fine because
   neither touches the DB.)
-- Steps 1 and 3 get the browser check (step 1 covers only points 1 and 3).
+- Steps 1, 3 and 4 get the browser check (step 1 covers only points 1 and 3;
+  step 4 adds the checks in its own section).
   Step 2 is checked with pytest, plus a curl to the test backend's
   `/api/lrclib/search?title=夜に駆ける&artist=YOASOBI&duration=261`.
 - Each step goes on its own branch off `main`. Confirm the branch in the
