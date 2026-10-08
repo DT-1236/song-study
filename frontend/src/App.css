@@ -540,27 +540,18 @@ li.grammar-legend-item {
   font-size: 0.85em;
 }
 
-.lrclib-matches {
-  margin: 0;
-  padding: 0;
-  border: none;
-  min-width: 0;
-}
-
-.lrclib-matches > legend {
-  margin-top: 0.75rem;
-  padding: 0;
-  font-weight: 600;
-}
-
 .lrclib-match-badge {
   margin-left: 0.5rem;
   color: var(--accent);
 }
 
-.lrclib-match-change {
-  color: var(--accent);
-  font-size: 0.85em;
+/* The LRCLIB match chosen, shown under its search box as the video is
+   under the song search. */
+.lrclib-choice {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */

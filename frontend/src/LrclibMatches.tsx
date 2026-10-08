@@ -1,9 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
-import { errorMessage, searchLrclib } from './api'
+import { useState } from 'react'
+import { searchLrclib } from './api'
 import type { LrclibCandidate, SongResult } from './api'
+import { SearchDropdown } from './SearchDropdown'
 import { formatDuration } from './timing'
-import { useClickOutside } from './useClickOutside'
-import { useLatest } from './useLatest'
 
 const NONE_LABEL = "None — I'll paste the lyrics"
 
@@ -31,13 +30,14 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
   )
 }
 
-// Lists the LRCLIB tracks matching the picked song, and reports the one
-// chosen (or null for "none"). `chosen` is the choice the parent kept, or
-// undefined while there's none: a choice collapses the list to its row, which
-// reopens it when clicked, and a click elsewhere collapses it again. Matches
-// whose length differs from the song's sit behind a toggle. A synced match
-// within tolerance is chosen up front. The parent remounts it (by key) for
-// each newly picked song.
+// Searches LRCLIB for the picked song's lyrics, by track title (the song's
+// to start with), and reports the match chosen (or null for "none"). The
+// song's artist and length still rank what's found, and matches of another
+// length sit behind a toggle. A synced match of the right length is chosen up
+// front; otherwise the results open. `chosen` is the choice the parent kept,
+// or undefined while there's none, and shows below the search box as the
+// video shows the picked song. The parent remounts it (by key) for each newly
+// picked song.
 export function LrclibMatches({
   song,
   chosen,
@@ -47,112 +47,100 @@ export function LrclibMatches({
   chosen: LrclibCandidate | null | undefined
   onChoose: (candidate: LrclibCandidate | null) => void
 }) {
+  // Null until a search has found something to show.
   const [candidates, setCandidates] = useState<LrclibCandidate[] | null>(null)
-  // Whether the list was reopened on a choice, until the next one.
-  const [reopened, setReopened] = useState(false)
   const [showOthers, setShowOthers] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const onChooseRef = useLatest(onChoose)
-  const rootRef = useRef<HTMLFieldSetElement>(null)
-  // Only a list reopened on a choice closes: without one, the list is all
-  // there is to show.
-  useClickOutside(rootRef, reopened, () => setReopened(false))
 
-  useEffect(() => {
-    let cancelled = false
-
-    searchLrclib({
-      title: song.title,
-      artist: song.artists,
-      durationSeconds: song.duration_seconds,
-    })
-      .then((found) => {
-        if (cancelled) return
-        setCandidates(found)
-        const first = found[0]
-        if (first?.within_tolerance && first.synced) onChooseRef.current(first)
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setError(errorMessage(err, 'LRCLIB search failed.'))
-      })
-
-    return () => {
-      cancelled = true
+  function handleResults(found: LrclibCandidate[], initial: boolean) {
+    setCandidates(found)
+    setShowOthers(false)
+    const first = found[0]
+    if (initial && first?.within_tolerance && first.synced) {
+      onChoose(first)
+      return false
     }
-  }, [song, onChooseRef])
-
-  function choose(candidate: LrclibCandidate | null) {
-    setReopened(false)
-    onChoose(candidate)
+    return true
   }
 
-  if (error) return <p className="form-error">{error}</p>
-  if (candidates === null) return <p>Searching LRCLIB…</p>
+  function renderResults(close: () => void) {
+    if (candidates === null) return null
+    const choose = (candidate: LrclibCandidate | null) => {
+      onChoose(candidate)
+      close()
+    }
+    // The chosen match stays listed, even if it's one of the others.
+    const matching = candidates.filter(
+      (c) => c.within_tolerance || c === chosen,
+    )
+    const hiddenCount = candidates.length - matching.length
+    const shown = showOthers ? candidates : matching
 
-  if (chosen !== undefined && !reopened) {
     return (
-      <fieldset ref={rootRef} className="lrclib-matches">
-        <legend>Lyrics from LRCLIB</legend>
+      <>
         <ul className="song-results">
+          {shown.map((c) => (
+            <li key={c.id}>
+              <button
+                type="button"
+                className={c === chosen ? 'song-result chosen' : 'song-result'}
+                onClick={() => choose(c)}
+              >
+                <CandidateText candidate={c} />
+              </button>
+            </li>
+          ))}
           <li>
             <button
               type="button"
-              className="song-result chosen"
-              onClick={() => setReopened(true)}
+              className={chosen === null ? 'song-result chosen' : 'song-result'}
+              onClick={() => choose(null)}
             >
-              {chosen ? (
-                <CandidateText candidate={chosen} />
-              ) : (
-                <span className="song-result-text">{NONE_LABEL}</span>
-              )}
-              <span className="lrclib-match-change">Change</span>
+              <span className="song-result-text">{NONE_LABEL}</span>
             </button>
           </li>
         </ul>
-      </fieldset>
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            className="lrclib-matches-toggle"
+            onClick={() => setShowOthers((shown) => !shown)}
+          >
+            {showOthers ? 'Hide' : `Show ${hiddenCount} with other lengths`}
+          </button>
+        )}
+      </>
     )
   }
 
-  // The chosen match stays listed, even if it's one of the others.
-  const matching = candidates.filter((c) => c.within_tolerance || c === chosen)
-  const hiddenCount = candidates.length - matching.length
-  const shown = showOthers ? candidates : matching
-
   return (
-    <fieldset ref={rootRef} className="lrclib-matches">
-      <legend>Lyrics from LRCLIB</legend>
-      <ul className="song-results">
-        {shown.map((c) => (
-          <li key={c.id}>
-            <button
-              type="button"
-              className={c === chosen ? 'song-result chosen' : 'song-result'}
-              onClick={() => choose(c)}
-            >
-              <CandidateText candidate={c} />
-            </button>
-          </li>
-        ))}
-        <li>
-          <button
-            type="button"
-            className={chosen === null ? 'song-result chosen' : 'song-result'}
-            onClick={() => choose(null)}
-          >
+    <>
+      <SearchDropdown
+        id="lrclib-search-query"
+        label="Lyrics from LRCLIB"
+        placeholder="Track title"
+        initialQuery={song.title}
+        searchOnMount
+        search={(title) =>
+          searchLrclib({
+            title,
+            artist: song.artists,
+            durationSeconds: song.duration_seconds,
+          })
+        }
+        onResults={handleResults}
+        failureMessage="LRCLIB search failed."
+      >
+        {renderResults}
+      </SearchDropdown>
+      {chosen !== undefined && (
+        <div className="lrclib-choice">
+          {chosen ? (
+            <CandidateText candidate={chosen} />
+          ) : (
             <span className="song-result-text">{NONE_LABEL}</span>
-          </button>
-        </li>
-      </ul>
-      {hiddenCount > 0 && (
-        <button
-          type="button"
-          className="lrclib-matches-toggle"
-          onClick={() => setShowOthers((shown) => !shown)}
-        >
-          {showOthers ? 'Hide' : `Show ${hiddenCount} with other lengths`}
-        </button>
+          )}
+        </div>
       )}
-    </fieldset>
+    </>
   )
 }

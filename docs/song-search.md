@@ -222,15 +222,17 @@ shown the way the YouTube results are.
   - Each row shows the track name, then artist · album, the duration with ±Δs,
     a "synced" badge, and the two-line preview. There's no thumbnail, since
     LRCLIB has none.
-  - Clicking a row picks it and collapses the list to that one row, as a
-    YouTube pick closes its list. The row carries a "Change" button that
-    reopens the list. A pre-selected match starts collapsed the same way.
+  - Clicking a row picks it and closes the list, as a YouTube pick does. A
+    pre-selected match leaves the list closed.
   - The other-length matches stay behind "Show N with other lengths", and
     "None — I'll paste the lyrics" stays as the last row.
-  - Both lists can be recalled after a pick: clicking into the song
-    search box shows its last results again (Escape closes them), and
-    clicking the collapsed LRCLIB row reopens its matches. The picked row is
-    marked in each.
+  - The LRCLIB matches sit in a search box of their own, as the songs do,
+    searched by track title (the song's to start with; the song's artist and
+    length still rank the results). Both lists drop down from their search
+    box: after a search, or on clicking back into it, with the picked row
+    marked. A pick, a click elsewhere or Escape closes them. The chosen match
+    shows in a box below its search, as the video does below the song
+    search.
 - **Highlighted lyrics:** a textarea can't highlight a line, so when the
   track is synced the disabled field is shown as a read-only list of lines
   (`.lyrics-box` with `.timing-row` rows, classes the timing editor already
@@ -265,8 +267,8 @@ shown the way the YouTube results are.
   they live in `timing.ts` beside `lastStartedBy`.
 - Browser check, extending the Verification flow above:
   0. Confirm the LRCLIB matches look like the song results (rows, not
-     radios), that a click collapses the list to the picked row, and that
-     "Change" reopens it.
+     radios), that a click picks one and closes the list, and that clicking
+     into the LRCLIB search box reopens it.
   1. Pick `夜に駆ける`, then its pre-selected LRCLIB match. Confirm the lyrics
      fill the field as a read-only list and it can't be edited.
   2. Play the video. Confirm the highlighted line follows the singing, and a
