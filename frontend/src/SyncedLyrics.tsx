@@ -6,7 +6,7 @@ import { useHighlightSettings } from './useHighlightSettings'
 
 // LRCLIB's lyrics, read-only, as the document page shows its own: a play
 // button before each timed line, and the line being sung at `playingLine`
-// highlighted. Any other props go on the lyrics box.
+// highlighted. `id` and `aria-labelledby` go on the lyrics box.
 export function SyncedLyrics({
   lyrics,
   playingLine,
@@ -16,7 +16,7 @@ export function SyncedLyrics({
   lyrics: LrclibLyrics
   playingLine: number | null
   onPlayLine: (start: number) => void
-} & ComponentProps<'p'>) {
+} & Pick<ComponentProps<'p'>, 'id' | 'aria-labelledby'>) {
   const highlight = useHighlightSettings()
   return (
     <p

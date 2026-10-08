@@ -1,14 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import {
-  LRCLIB_URI_PLACEHOLDER,
-  createDocument,
-  errorMessage,
-  fetchLrclibLyrics,
-} from './api'
-import type { LrclibCandidate, LrclibLyrics, SongResult } from './api'
+import { useCallback, useRef, useState } from 'react'
+import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
+import type { LrclibCandidate, SongResult } from './api'
 import { LrclibMatches } from './LrclibMatches'
 import { SongSearch } from './SongSearch'
 import { SyncedLyrics } from './SyncedLyrics'
+import { useLrclibChoice } from './useLrclibChoice'
 import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import { usePlayingLine } from './usePlayingLine'
 import { YouTubePlayer } from './YouTubePlayer'
@@ -24,17 +20,15 @@ export function NewDocumentForm() {
   // later pick may replace it; once it's edited, it never is.
   const [pickedTitle, setPickedTitle] = useState('')
   const [pickedSong, setPickedSong] = useState<SongResult | null>(null)
-  // The LRCLIB match chosen for the picked song, null for none, or undefined
-  // before a choice (or after one is undone). Its track is set as lrclibUri
-  // only once its lyrics have loaded.
-  const [choice, setChoice] = useState<LrclibCandidate | null>()
-  // The last chosen track's lyrics, by its id, so they're never shown for
-  // another choice.
-  const [loaded, setLoaded] = useState<{
-    id: number
-    lyrics: LrclibLyrics
-  } | null>(null)
-  const [lyricsError, setLyricsError] = useState<string | null>(null)
+  // The LRCLIB match chosen for the picked song. Its track is set as
+  // lrclibUri only once its lyrics have loaded.
+  const {
+    choice,
+    choose,
+    lyrics: choiceLyrics,
+    loading: loadingLyrics,
+    error: lyricsError,
+  } = useLrclibChoice((id) => setLrclibUri(String(id)))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
@@ -49,43 +43,17 @@ export function NewDocumentForm() {
 
   const usingLrclib = lrclibUri.trim() !== ''
   const hasVideo = youtubeVideoId.trim() !== ''
-  const choiceLyrics = choice && loaded?.id === choice.id ? loaded.lyrics : null
-  const loadingLyrics = Boolean(choice) && choiceLyrics === null
   const { playingLine, onSeek } = usePlayingLine(
     playerRef,
     hasVideo ? (choiceLyrics?.lines ?? null) : null,
   )
-
-  const choiceId = choice?.id
-  useEffect(() => {
-    if (choiceId === undefined) return
-    let cancelled = false
-
-    fetchLrclibLyrics(choiceId)
-      .then((result) => {
-        if (cancelled) return
-        setLoaded({ id: choiceId, lyrics: result })
-        setLrclibUri(String(choiceId))
-      })
-      .catch((err) => {
-        if (cancelled) return
-        setLyricsError(errorMessage(err, "Couldn't load the lyrics."))
-        // So the form can't be saved with a track whose lyrics didn't load.
-        setChoice(undefined)
-      })
-
-    return () => {
-      cancelled = true
-    }
-  }, [choiceId])
 
   function handlePick(song: SongResult) {
     // Picking the song already shown keeps its matches and the choice made.
     if (song.video_id === pickedSong?.video_id) return
     setPickedSong(song)
     // The previous song's track doesn't belong to this one.
-    setChoice(undefined)
-    setLyricsError(null)
+    choose(undefined)
     setLrclibUri('')
     setYoutubeVideoId(song.video_id)
     if (title === '' || title === pickedTitle) {
@@ -97,8 +65,7 @@ export function NewDocumentForm() {
   function handleChoose(candidate: LrclibCandidate | null) {
     // The same objects as before, from LrclibMatches' own list.
     if (candidate === choice) return
-    setChoice(candidate)
-    setLyricsError(null)
+    choose(candidate)
     // Set again once the new track's lyrics load.
     setLrclibUri('')
   }
@@ -125,7 +92,7 @@ export function NewDocumentForm() {
       setYoutubeVideoId('')
       setPickedTitle('')
       setPickedSong(null)
-      setChoice(undefined)
+      choose(undefined)
     } catch (err) {
       setError(errorMessage(err, 'Something went wrong.'))
     } finally {
@@ -223,7 +190,7 @@ export function NewDocumentForm() {
           onChange={(e) => {
             setLrclibUri(e.target.value)
             // A typed track isn't the chosen match any more.
-            setChoice(undefined)
+            choose(undefined)
           }}
           placeholder={LRCLIB_URI_PLACEHOLDER}
         />

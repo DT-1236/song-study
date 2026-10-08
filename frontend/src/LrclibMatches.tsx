@@ -41,7 +41,7 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
 // front; otherwise the results open. `chosen` is the choice the parent kept,
 // or undefined while there's none, and shows below the search box as the
 // video shows the picked song. A last row, labelled `noneLabel`, chooses null,
-// and is left out without one. The parent remounts it (by key) for each newly
+// and is left out without one, so `chosen` is never null without it. The parent remounts it (by key) for each newly
 // picked song.
 export function LrclibMatches({
   song,
