@@ -1,10 +1,12 @@
 #root {
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .app-layout {
   display: flex;
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
 }
 
@@ -14,6 +16,7 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-elevated);
@@ -109,10 +112,123 @@
   position: sticky;
   top: 0;
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   background-color: var(--bg-elevated);
   border-left: 1px solid var(--border);
+}
+
+.top-bar,
+.drawer-backdrop {
+  display: none;
+}
+
+/* Narrow screens: the top bar replaces both side columns, which become
+   drawers. The query is NARROW_SCREEN in media.ts; keep them in step. */
+@media (max-width: 900px), (max-height: 500px) {
+  :root {
+    --top-bar-height: 3rem;
+  }
+
+  .app-layout {
+    flex-direction: column;
+  }
+
+  .top-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-shrink: 0;
+    box-sizing: border-box;
+    height: var(--top-bar-height);
+    padding: 0 0.5rem;
+    background-color: var(--bg-elevated);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .top-bar button {
+    min-width: 44px;
+    min-height: 44px;
+  }
+
+  .top-bar-title {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-weight: 600;
+    text-align: center;
+  }
+
+  .drawer-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background-color: rgba(0, 0, 0, 0.5);
+  }
+
+  .sidebar,
+  .right-panel {
+    position: fixed;
+    top: 0;
+    z-index: 50;
+    max-width: 85vw;
+    /* Hidden only once the slide-out ends, so closing animates. */
+    transition:
+      transform 0.2s ease,
+      visibility 0s 0.2s;
+    visibility: hidden;
+  }
+
+  .sidebar {
+    left: 0;
+    transform: translateX(-100%);
+  }
+
+  .right-panel {
+    right: 0;
+    transform: translateX(100%);
+  }
+
+  .sidebar.drawer-open,
+  .right-panel.drawer-open {
+    transform: none;
+    visibility: visible;
+    /* Visible at once, so opening the lookup can focus its input. */
+    transition: transform 0.2s ease;
+  }
+
+  .sidebar a,
+  .sidebar-references button {
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+  }
+
+  .content {
+    height: auto;
+    min-height: 0;
+  }
+
+  .content-inner {
+    padding: 1rem;
+  }
+}
+
+/* iOS zooms in on focusing a text field under 16px. */
+@media (hover: none) {
+  input:not([type]),
+  input[type='text'],
+  input[type='search'],
+  input[type='number'],
+  textarea,
+  select {
+    font-size: 16px;
+  }
 }
 
 .pos-legend-dialog {
