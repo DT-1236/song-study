@@ -20,3 +20,13 @@ so it can be picked up without re-deriving the reasoning.
   `None`, which also lets that test drop its exact-type assertion. Linking a
   missing track must still be a 422. *Sonnet 5, low*: the shape is decided,
   and the existing 404/422 tests catch a slip.
+
+## `/simplify` on the LRCLIB matches form (song search step 3)
+
+- **Use `useApiResource` in `LrclibMatches`.** `frontend/src/LrclibMatches.tsx`
+  hand-rolls the cancelled flag, `.then`/`.catch` and `errorMessage` that
+  `useApiResource(() => searchLrclib(…), [song], 'LRCLIB search failed.')`
+  already gives. The pre-selection of a synced in-tolerance first match then
+  needs its own small effect on `data`, since the hook exposes no completion
+  callback. Worth it only if that effect stays small. *Sonnet 5, low*: the
+  browser check on the New document page catches a missed pre-selection.

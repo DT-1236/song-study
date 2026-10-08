@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
-import type { SongResult } from './api'
+import type { LrclibCandidate, SongResult } from './api'
+import { LrclibMatches } from './LrclibMatches'
 import { SongSearch } from './SongSearch'
 import { YouTubePlayer } from './YouTubePlayer'
 
@@ -12,6 +13,7 @@ export function NewDocumentForm() {
   // The title a song pick last filled in. While the title still equals it, a
   // later pick may replace it; once it's edited, it never is.
   const [pickedTitle, setPickedTitle] = useState('')
+  const [pickedSong, setPickedSong] = useState<SongResult | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
@@ -19,11 +21,20 @@ export function NewDocumentForm() {
   const usingLrclib = lrclibUri.trim() !== ''
 
   function handlePick(song: SongResult) {
+    // Picking the song already shown keeps its matches and the choice made.
+    if (song.video_id === pickedSong?.video_id) return
+    setPickedSong(song)
+    // The previous song's track doesn't belong to this one.
+    setLrclibUri('')
     setYoutubeVideoId(song.video_id)
     if (title === '' || title === pickedTitle) {
       setTitle(song.title)
       setPickedTitle(song.title)
     }
+  }
+
+  function handleChoose(candidate: LrclibCandidate | null) {
+    setLrclibUri(candidate ? String(candidate.id) : '')
   }
 
   async function handleSubmit(event: React.FormEvent) {
@@ -46,6 +57,8 @@ export function NewDocumentForm() {
       setLyrics('')
       setLrclibUri('')
       setYoutubeVideoId('')
+      setPickedTitle('')
+      setPickedSong(null)
     } catch (err) {
       setError(errorMessage(err, 'Something went wrong.'))
     } finally {
@@ -71,40 +84,53 @@ export function NewDocumentForm() {
         required
       />
 
-      <label htmlFor="lrclib-uri">LRCLIB track (optional)</label>
-      <input
-        id="lrclib-uri"
-        type="text"
-        value={lrclibUri}
-        onChange={(e) => setLrclibUri(e.target.value)}
-        placeholder={LRCLIB_URI_PLACEHOLDER}
-      />
-      <p className="lyrics-editor-note">
-        When set, the lyrics and their timing are loaded from LRCLIB instead of
-        pasted below.
-      </p>
+      {pickedSong && (
+        <LrclibMatches
+          key={pickedSong.video_id}
+          song={pickedSong}
+          onChoose={handleChoose}
+        />
+      )}
 
-      <label htmlFor="lyrics">Lyrics</label>
-      <textarea
-        id="lyrics"
-        value={usingLrclib ? '' : lyrics}
-        onChange={(e) => setLyrics(e.target.value)}
-        rows={16}
-        placeholder={
-          usingLrclib ? 'Loaded from LRCLIB' : 'Paste the full lyrics here'
-        }
-        required={!usingLrclib}
-        disabled={usingLrclib}
-      />
+      {!usingLrclib && (
+        <>
+          <label htmlFor="lyrics">Lyrics</label>
+          <textarea
+            id="lyrics"
+            value={lyrics}
+            onChange={(e) => setLyrics(e.target.value)}
+            rows={16}
+            placeholder="Paste the full lyrics here"
+            required
+          />
+        </>
+      )}
 
-      <label htmlFor="youtube-video-id">YouTube video ID (optional)</label>
-      <input
-        id="youtube-video-id"
-        type="text"
-        value={youtubeVideoId}
-        onChange={(e) => setYoutubeVideoId(e.target.value)}
-        placeholder="e.g. dQw4w9WgXcQ"
-      />
+      <details className="manual-ids">
+        <summary>Enter IDs manually</summary>
+
+        <label htmlFor="lrclib-uri">LRCLIB track (optional)</label>
+        <input
+          id="lrclib-uri"
+          type="text"
+          value={lrclibUri}
+          onChange={(e) => setLrclibUri(e.target.value)}
+          placeholder={LRCLIB_URI_PLACEHOLDER}
+        />
+        <p className="lyrics-editor-note">
+          When set, the lyrics and their timing are loaded from LRCLIB instead
+          of pasted.
+        </p>
+
+        <label htmlFor="youtube-video-id">YouTube video ID (optional)</label>
+        <input
+          id="youtube-video-id"
+          type="text"
+          value={youtubeVideoId}
+          onChange={(e) => setYoutubeVideoId(e.target.value)}
+          placeholder="e.g. dQw4w9WgXcQ"
+        />
+      </details>
 
       <button type="submit" disabled={submitting}>
         {submitting ? 'Saving…' : 'Save'}
