@@ -96,9 +96,13 @@
   `frontend/browser/harness.mjs`.
 - Don't hand-roll servers, Vite configs or Playwright setup in a scratchpad.
   If the harness lacks something a check needs, add it to the harness.
-- When a session hits a harness bug or a new browser gotcha, fix the harness
-  or record it in `docs/browser-checks.md` in the same PR, so the next
-  session doesn't rediscover it.
+- When a check errors, hangs or is blocked by the harness rather than by
+  the change under test, a Sonnet- or Opus-class model should consider
+  updating the harness itself (`harness.mjs`, `servers.sh`,
+  `browser_server.py`) rather than working around it in the check. Either
+  way, record the fix or the new gotcha in `docs/browser-checks.md` in the
+  same PR, so the next session doesn't rediscover it. A Haiku-class model
+  doesn't change the harness: it reports the problem in its summary instead.
 
 ## Skipped review findings
 
