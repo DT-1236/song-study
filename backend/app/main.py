@@ -702,6 +702,20 @@ def lrclib_search(
     return search_tracks(title, artist, duration)
 
 
+class LrclibTrackLyrics(BaseModel):
+    text: str
+    # One per line of `text`, or None when the track's lyrics aren't synced.
+    lines: list[LineTiming] | None
+
+
+@api.get("/lrclib/tracks/{track_id}", response_model=LrclibTrackLyrics)
+def lrclib_track_lyrics(track_id: int, user_id: CurrentUser) -> LrclibTrackLyrics:
+    """The lyrics LRCLIB's track `track_id` has now, as linking it would
+    load them — or a 422 if LRCLIB refuses it."""
+    _, lyrics = _fetch_lrclib_for_link(str(track_id))
+    return LrclibTrackLyrics(text=lyrics.text, lines=lyrics.lines)
+
+
 class GlossSense(JmdictSense):
     entry_idseq: int
 

@@ -569,6 +569,27 @@ export async function searchLrclib(params: {
   return response.json()
 }
 
+export interface LrclibLyrics {
+  text: string
+  // One per line of `text`, or null when the track's lyrics aren't synced.
+  lines: LineTiming[] | null
+}
+
+export async function fetchLrclibLyrics(
+  trackId: number,
+): Promise<LrclibLyrics> {
+  const url = new URL(
+    `${API_URL}/lrclib/tracks/${trackId}`,
+    window.location.origin,
+  )
+
+  const response = await fetch(url)
+
+  await assertOk(response)
+
+  return response.json()
+}
+
 export async function fetchDocuments(params: {
   page: number
   pageSize: number

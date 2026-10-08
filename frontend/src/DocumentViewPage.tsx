@@ -51,7 +51,6 @@ import { SenseList } from './SenseList'
 import { useTabs } from './TabsContext'
 import {
   formatTimestamp,
-  lastStartedBy,
   lineToStamp,
   linesOf,
   nudgedStart,
@@ -63,6 +62,8 @@ import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
 import { useSave } from './useSave'
 import { usePersistentState } from './usePersistentState'
+import { useHighlightSettings } from './useHighlightSettings'
+import { usePlayingLine } from './usePlayingLine'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
@@ -79,10 +80,6 @@ const NO_WORDS: DocumentWord[] = []
 // (typing targets are handled separately, in isTypingTarget) — the global
 // play/pause listener must not override this.
 const SPACE_HANDLED_NATIVELY = new Set(['BUTTON', 'SELECT', 'A'])
-
-// The IFrame API has no time-update event, so playback is followed by
-// polling its current time.
-const PLAYBACK_POLL_MS = 100
 
 const LRCLIB_LINK_NOTE =
   "Linking replaces these lyrics with LRCLIB's. If they differ, furigana and glosses are re-processed from " +
@@ -2468,7 +2465,6 @@ export function DocumentViewPage() {
   const [tokens, setTokens] = useState<Token[] | null>(null)
   const [tokensLoading, setTokensLoading] = useState(true)
   const [tokensError, setTokensError] = useState<string | null>(null)
-  const [playingLine, setPlayingLine] = useState<number | null>(null)
   // Counts the player's seeks. The playing-line effect depends on it, so a
   // seek re-runs it at once rather than waiting for the next poll, and after
   // any other state the same keypress changed (a nudge's new timings).
@@ -2479,18 +2475,7 @@ export function DocumentViewPage() {
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
   const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
   const [seekSeconds, setSeekSeconds] = usePersistentState('seekSeconds', 3)
-  // Defaults to the theme's accent, which is hex, as a color input needs.
-  const [highlightColor, setHighlightColor] = usePersistentState(
-    'highlightColor',
-    () =>
-      getComputedStyle(document.documentElement)
-        .getPropertyValue('--accent')
-        .trim(),
-  )
-  const [highlightOpacity, setHighlightOpacity] = usePersistentState(
-    'highlightOpacity',
-    25,
-  )
+  const highlight = useHighlightSettings()
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
   const [editingLyrics, setEditingLyrics] = useState(false)
@@ -2725,29 +2710,11 @@ export function DocumentViewPage() {
     )
   }, [timingDraft, lineTimings])
 
-  useEffect(() => {
-    if (!shownTimings || !hasVideo) return
-    // The line last found, which the next search starts from. A seek or new
-    // timings re-run this effect, which starts the search over.
-    let found = -1
-    const update = () => {
-      const time = youtubePlayerRef.current?.getCurrentTime() ?? null
-      if (time === null) return setPlayingLine(null)
-      found = lastStartedBy(shownTimings, time, found)
-      const line = shownTimings[found]
-      // An index, so React skips the re-render while the line is unchanged.
-      setPlayingLine(line && time < line.end ? found : null)
-    }
-    // Right away as well, so a seek or a nudge moves the highlight at once
-    // rather than at the next poll.
-    update()
-    const interval = window.setInterval(update, PLAYBACK_POLL_MS)
-    return () => {
-      window.clearInterval(interval)
-      // Whatever lines come next, this index isn't into them.
-      setPlayingLine(null)
-    }
-  }, [shownTimings, hasVideo, seeks])
+  const playingLine = usePlayingLine(
+    youtubePlayerRef,
+    hasVideo ? shownTimings : null,
+    seeks,
+  )
 
   useEffect(() => {
     if (!headerEl) return
@@ -2971,16 +2938,16 @@ export function DocumentViewPage() {
                   <input
                     id="highlight-color"
                     type="color"
-                    value={highlightColor}
-                    onChange={(e) => setHighlightColor(e.target.value)}
+                    value={highlight.color}
+                    onChange={(e) => highlight.setColor(e.target.value)}
                   />
                 </div>
                 <RangeControl
                   id="highlight-opacity"
                   label="Highlight opacity"
                   unit="%"
-                  value={highlightOpacity}
-                  onChange={setHighlightOpacity}
+                  value={highlight.opacity}
+                  onChange={highlight.setOpacity}
                   min={5}
                   max={100}
                 />
@@ -3038,10 +3005,9 @@ export function DocumentViewPage() {
           id="lyrics"
           style={
             {
+              ...highlight.style,
               '--lyrics-font-size': `${fontSize}px`,
               '--furigana-font-size': `${furiganaSize}px`,
-              '--highlight-color': highlightColor,
-              '--highlight-opacity': `${highlightOpacity}%`,
               '--header-height': `${headerHeight}px`,
             } as React.CSSProperties
           }
