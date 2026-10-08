@@ -448,10 +448,12 @@ playback. A preview is for a quick look.
 
 - `cd frontend && npm run lint && npm run build && npm test && npm run
   format:check` for every step. No step changes the backend.
-- **Browser check** with headless Brave via playwright-core, using a test-DB
-  backend on :8001 and a second Vite proxying `/api` to it (never the app
-  DB). Most of each step's check is measured in the page rather than judged
-  by eye, so the per-step checks below are assertions a script makes.
+- **Browser check** with the browser harness (`docs/browser-checks.md`):
+  headless Brave against a test-database backend, never the app DB. Most of
+  each step's check is measured in the page rather than judged by eye, so
+  the per-step checks below are assertions a script makes. Each step commits
+  its checks as `frontend/browser/checks/mobile-<step>.mjs`; step 1's are
+  `mobile-shell.mjs`.
 
 ### What headless Brave emulates (checked 2026-10-08)
 
@@ -473,34 +475,37 @@ button, the computed font size).
 
 ### The phone harness
 
-Each step's session writes this in its scratchpad (scratchpads don't carry
-over between sessions), then adds that step's checks to it:
+`frontend/browser/harness.mjs` provides these; the helper doing each is
+named in brackets.
 
 - **Contexts:** the iPhone 13 descriptor as the main phone, a 320×640 phone
   context for the narrowest width the app supports (`body`'s `min-width`),
   and the 1280×800 desktop context. Every check runs in all three; the
-  desktop run is the regression check.
+  desktop run is the regression check. (`PHONE`, `NARROW`, `DESKTOP`)
 - **Rotation:** `page.setViewportSize()` mid-test (390×664 ↔ 664×390). It
   keeps the page, so it can check that playback survives a rotation.
+  (`rotate`)
 - **No sideways scroll:** `document.documentElement.scrollWidth <=
   innerWidth`, and on failure list the elements whose
   `getBoundingClientRect().right` passes `innerWidth`, so the cause is named.
+  (`sidewaysOverflow`)
 - **Tap targets:** on phone contexts, every visible `button`, `a`, `input`
   and `summary` measures at least 44×44 CSS px, counting a pseudo-element
   hit area by `document.elementFromPoint` at the target's edges. Report the
   failures, and fix them or name them as exceptions in the PR.
+  (`smallTapTargets`)
 - **No iOS zoom:** every visible text `input`, `textarea` and `select` has a
-  computed `font-size` of at least 16px.
+  computed `font-size` of at least 16px. (`smallInputFonts`)
 - **Screenshots:** a full-page phone screenshot of every page the step
-  touches, saved to the scratchpad and looked at (Read the PNG). Take one on
-  `main` before starting the step too, so the change can be compared.
+  touches, saved and looked at (Read the PNG). Take one on `main` before
+  starting the step too, so the change can be compared. (`h.screenshot`)
 - **Reproduce first:** where a step fixes a behavior that's broken today
   (step 5a's gloss that won't close), the script shows it failing on `main`
   before the fix, so a pass means the fix worked and not that the test
   missed it.
 - **Video:** wait for the iframe's `<video>` before playing. Playwright can
   evaluate inside the YouTube iframe, so read `currentTime` there to confirm
-  playback and seeks.
+  playback and seeks. (`videoFrame`, `videoTime`)
 
 ### Per step
 

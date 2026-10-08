@@ -88,6 +88,18 @@
   exactly the rows a case reads instead of pointing the test at the app
   database.
 
+## Browser checks
+
+- Check UI changes in headless Brave with the committed harness, following
+  `docs/browser-checks.md`: `make browser-up`, then `make browser-check` (the
+  smoke check) before a check of your own built on
+  `frontend/browser/harness.mjs`.
+- Don't hand-roll servers, Vite configs or Playwright setup in a scratchpad.
+  If the harness lacks something a check needs, add it to the harness.
+- When a session hits a harness bug or a new browser gotcha, fix the harness
+  or record it in `docs/browser-checks.md` in the same PR, so the next
+  session doesn't rediscover it.
+
 ## Skipped review findings
 
 - When a `/simplify` run finds something it decides not to fix — because the

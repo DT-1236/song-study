@@ -1,4 +1,5 @@
-.PHONY: test format format-check lint test-backend test-frontend frontend-install
+.PHONY: test format format-check lint test-backend test-frontend frontend-install \
+	browser-up browser-down browser-status browser-check
 
 # Read-only: checks formatting and lint, then runs both test suites.
 # `make format` rewrites files to fix what format-check reports.
@@ -27,3 +28,21 @@ frontend-install: frontend/node_modules/.package-lock.json
 
 frontend/node_modules/.package-lock.json: frontend/package-lock.json
 	cd frontend && npm ci
+
+# Headless browser checks against a test-database backend (docs/browser-checks.md).
+# `make browser-up FRESH=1` restarts and re-seeds; `make browser-check
+# CHECK=mobile-shell` runs frontend/browser/checks/mobile-shell.mjs.
+CHECK ?= smoke
+
+browser-up: frontend-install
+	$(MAKE) -C backend install
+	frontend/browser/servers.sh up $(if $(FRESH),--fresh)
+
+browser-down:
+	frontend/browser/servers.sh down
+
+browser-status:
+	frontend/browser/servers.sh status
+
+browser-check: browser-up
+	cd frontend && node browser/checks/$(CHECK).mjs
