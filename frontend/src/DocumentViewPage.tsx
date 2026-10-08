@@ -2507,7 +2507,6 @@ export function DocumentViewPage() {
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
   const [mode, setMode] = useState<EditMode>(VIEWING)
-  const editingLyrics = mode.kind === 'lyrics'
   const timingDraft = mode.kind === 'timings' ? mode.draft : null
   const lrclibSong = mode.kind === 'lrclib' ? mode.song : null
 
@@ -2809,7 +2808,6 @@ export function DocumentViewPage() {
     stopChoosingLrclib()
   }
 
-  const editingTimings = timingDraft !== null
   const editing = mode.kind !== 'view'
   // Timings need the lyrics to show them against, and a video to play them
   // in.
@@ -2903,9 +2901,9 @@ export function DocumentViewPage() {
           )}
         </div>
 
-        {!editingLyrics && (
+        {mode.kind !== 'lyrics' && (
           <div className="text-size-controls">
-            {!editingTimings && (
+            {mode.kind !== 'timings' && (
               <>
                 <RangeControl
                   id="font-size"
@@ -2944,7 +2942,7 @@ export function DocumentViewPage() {
                 </>
               }
             />
-            {editingTimings ? (
+            {mode.kind === 'timings' ? (
               <>
                 <RangeControl
                   id="nudge-ms"
