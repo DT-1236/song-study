@@ -88,6 +88,33 @@
   exactly the rows a case reads instead of pointing the test at the app
   database.
 
+## Browser checks
+
+- Check UI changes in headless Brave with the committed harness, following
+  `docs/browser-checks.md`: `make browser-up`, then `make browser-check` (the
+  smoke check) before a check of your own built on
+  `frontend/browser/harness.mjs`.
+- Don't hand-roll servers, Vite configs or Playwright setup in a scratchpad.
+  If the harness lacks something a check needs, add it to the harness.
+- When a check errors, hangs or is blocked by the harness rather than by
+  the change under test, a model at Sonnet's tier or above should consider
+  updating the harness itself (`harness.mjs`, `servers.sh`,
+  `browser_server.py`) rather than working around it in the check. Either
+  way, record the fix or the new gotcha in `docs/browser-checks.md` in the
+  same PR, so the next session doesn't rediscover it. A Haiku-class model
+  doesn't change the harness: it reports the problem in its summary instead.
+
+## Token usage
+
+- A plan that gives each step a model and effort also gives it a size: the
+  expected token use of its initial pass, as a bucket (S, M, L, XL) from
+  `docs/token-usage.md`.
+- Record what the work actually used in that doc's ledger, measured with
+  `python3 scripts/token_usage.py`: after the initial pass, and again after
+  each `/simplify` or backlog sweep. Commit the rows with the PR.
+- When a phase lands two or more buckets above its estimate, write the
+  post-mortem `docs/token-usage.md` describes before closing the session.
+
 ## Skipped review findings
 
 - When a `/simplify` run finds something it decides not to fix — because the

@@ -76,21 +76,26 @@ There are eight steps after this doc, each on its own branch and PR. Step 1
 comes first. Steps 2, 3, 4 and 5a each need only step 1. Step 5b needs step
 5a, step 6 needs step 5b, and step 7 needs steps 3 and 5b.
 
-| Step | Status | Ships | Model | Effort | Why |
-|---|---|---|---|---|---|
-| 0 — Doc | Done | This plan committed as `docs/mobile.md` | Opus 5 | medium, reviewed at high | Planning |
-| 1 — Responsive shell | Done | `media.ts`; top bar + nav and lookup drawers in `Layout`; `dvh` heights; narrow-screen padding; 16px inputs on touch | Sonnet 5 | medium | Conventional drawer work against a clear spec. The traps (a drawer left open after navigating, focus inside a closed drawer) show up in the browser check |
-| 2 — New document form and documents list | | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
-| 3 — Document page layout and pinnable video | | Pin button and unpin overlay; the pinned video across the top or on the right, without remounting; `playsinline`; scroll offsets that clear it | **Opus 5** | medium | The playing line's `scrollIntoView`, `revealBelowPanel` and `.selection-anchor`'s `--header-height` all assume nothing is pinned at the top. Getting one wrong fails *silently*: the playing line scrolls under the video |
-| 4 — Settings page | | `/settings`, account name in the sidebar links to it, the view settings move there; the page's own actions move to the lyrics header | Sonnet 5 | medium | Extracting the settings grid has to keep each mode's controls and the page's actions where they work, but each value already persists through `usePersistentState` |
-| 5a — Mouse-only hover and the Pinned marker | | Hover only from a real mouse, so a second tap closes a gloss; no sticky `:hover`; a "Pinned" marker in the gloss on every device | Sonnet 5 | medium | Each change has one clear answer, and the 1280px run checks that desktop hover, the grace period and click-to-pin are unchanged. The marker is one primitive prop through the memoized `TokenSpan` |
-| 5b — Tap to preview, long-press to pin; gloss as a bottom sheet | | On touch, a tap previews and a long press (with a countdown outline) pins; dismissal on a tap or scroll elsewhere; the gloss opens as a sheet at the bottom of the screen | **Opus 5** | **high** | The click that may or may not follow a long press, the memoized `TokenSpan`, `GlossPopup`'s reposition, the document-level dismiss listener and the playing line's auto-scroll interact in ways that only show up as a gloss that won't close, or closes on its own |
-| 6 — Select on touch | | Select button in the gloss; selection panel as a bottom sheet on touch | **Opus 5** | low | Little is left to decide once 5b exists: a button into `toggleSelected`, a hint, the sheet reused. Opus because the one new rule (a scroll doesn't end a selection) runs against 5b's dismiss listener, and getting it wrong just looks like a selection that won't stick |
-| 7 — Touch control bar | | One-row bar on touch: play/pause and seek always, nudge and stamp in timing mode | Sonnet 5 | medium | `nudge` and `timeNextLine` already exist as functions and the player handle already has `togglePlay` and `seekBy`. What needs care, focus and the bar's place under the sheet and toast, is measured by the checks |
+| Step | Status | Ships | Model | Effort | Size | Actual | Why |
+|---|---|---|---|---|---|---|---|
+| 0 — Doc | Done | This plan committed as `docs/mobile.md` | Opus 5 | medium, reviewed at high | — | — | Planning |
+| 1 — Responsive shell | Done | `media.ts`; top bar + nav and lookup drawers in `Layout`; `dvh` heights; narrow-screen padding; 16px inputs on touch | Sonnet 5 | medium | — | M; simplify S | Conventional drawer work against a clear spec. The traps (a drawer left open after navigating, focus inside a closed drawer) show up in the browser check |
+| 2 — New document form and documents list | | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | M | | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
+| 3 — Document page layout and pinnable video | | Pin button and unpin overlay; the pinned video across the top or on the right, without remounting; `playsinline`; scroll offsets that clear it | **Opus 5** | medium | L | | The playing line's `scrollIntoView`, `revealBelowPanel` and `.selection-anchor`'s `--header-height` all assume nothing is pinned at the top. Getting one wrong fails *silently*: the playing line scrolls under the video |
+| 4 — Settings page | | `/settings`, account name in the sidebar links to it, the view settings move there; the page's own actions move to the lyrics header | Sonnet 5 | medium | M | | Extracting the settings grid has to keep each mode's controls and the page's actions where they work, but each value already persists through `usePersistentState` |
+| 5a — Mouse-only hover and the Pinned marker | | Hover only from a real mouse, so a second tap closes a gloss; no sticky `:hover`; a "Pinned" marker in the gloss on every device | Sonnet 5 | medium | M | | Each change has one clear answer, and the 1280px run checks that desktop hover, the grace period and click-to-pin are unchanged. The marker is one primitive prop through the memoized `TokenSpan` |
+| 5b — Tap to preview, long-press to pin; gloss as a bottom sheet | | On touch, a tap previews and a long press (with a countdown outline) pins; dismissal on a tap or scroll elsewhere; the gloss opens as a sheet at the bottom of the screen | **Opus 5** | **high** | L | | The click that may or may not follow a long press, the memoized `TokenSpan`, `GlossPopup`'s reposition, the document-level dismiss listener and the playing line's auto-scroll interact in ways that only show up as a gloss that won't close, or closes on its own |
+| 6 — Select on touch | | Select button in the gloss; selection panel as a bottom sheet on touch | **Opus 5** | low | M | | Little is left to decide once 5b exists: a button into `toggleSelected`, a hint, the sheet reused. Opus because the one new rule (a scroll doesn't end a selection) runs against 5b's dismiss listener, and getting it wrong just looks like a selection that won't stick |
+| 7 — Touch control bar | | One-row bar on touch: play/pause and seek always, nudge and stamp in timing mode | Sonnet 5 | medium | M | | `nudge` and `timeNextLine` already exist as functions and the player handle already has `togglePlay` and `seekBy`. What needs care, focus and the bar's place under the sheet and toast, is measured by the checks |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Escalate a step that stalls rather
 than starting higher.
+
+Size is the expected token use of a step's initial pass, before
+`/simplify`, as a bucket from `docs/token-usage.md`. Actual is what the
+pass and its `/simplify` measured, recorded in that ledger when the step's
+PR opens.
 
 ## Step 1 — Responsive shell
 
@@ -448,10 +453,12 @@ playback. A preview is for a quick look.
 
 - `cd frontend && npm run lint && npm run build && npm test && npm run
   format:check` for every step. No step changes the backend.
-- **Browser check** with headless Brave via playwright-core, using a test-DB
-  backend on :8001 and a second Vite proxying `/api` to it (never the app
-  DB). Most of each step's check is measured in the page rather than judged
-  by eye, so the per-step checks below are assertions a script makes.
+- **Browser check** with the browser harness (`docs/browser-checks.md`):
+  headless Brave against a test-database backend, never the app DB. Most of
+  each step's check is measured in the page rather than judged by eye, so
+  the per-step checks below are assertions a script makes. Each step commits
+  its checks as `frontend/browser/checks/mobile-<step>.mjs`; step 1's are
+  `mobile-shell.mjs`.
 
 ### What headless Brave emulates (checked 2026-10-08)
 
@@ -473,34 +480,37 @@ button, the computed font size).
 
 ### The phone harness
 
-Each step's session writes this in its scratchpad (scratchpads don't carry
-over between sessions), then adds that step's checks to it:
+`frontend/browser/harness.mjs` provides these; the helper doing each is
+named in brackets.
 
 - **Contexts:** the iPhone 13 descriptor as the main phone, a 320×640 phone
   context for the narrowest width the app supports (`body`'s `min-width`),
   and the 1280×800 desktop context. Every check runs in all three; the
-  desktop run is the regression check.
+  desktop run is the regression check. (`PHONE`, `NARROW`, `DESKTOP`)
 - **Rotation:** `page.setViewportSize()` mid-test (390×664 ↔ 664×390). It
   keeps the page, so it can check that playback survives a rotation.
+  (`rotate`)
 - **No sideways scroll:** `document.documentElement.scrollWidth <=
   innerWidth`, and on failure list the elements whose
   `getBoundingClientRect().right` passes `innerWidth`, so the cause is named.
+  (`sidewaysOverflow`)
 - **Tap targets:** on phone contexts, every visible `button`, `a`, `input`
   and `summary` measures at least 44×44 CSS px, counting a pseudo-element
   hit area by `document.elementFromPoint` at the target's edges. Report the
   failures, and fix them or name them as exceptions in the PR.
+  (`smallTapTargets`)
 - **No iOS zoom:** every visible text `input`, `textarea` and `select` has a
-  computed `font-size` of at least 16px.
+  computed `font-size` of at least 16px. (`smallInputFonts`)
 - **Screenshots:** a full-page phone screenshot of every page the step
-  touches, saved to the scratchpad and looked at (Read the PNG). Take one on
-  `main` before starting the step too, so the change can be compared.
+  touches, saved and looked at (Read the PNG). Take one on `main` before
+  starting the step too, so the change can be compared. (`h.screenshot`)
 - **Reproduce first:** where a step fixes a behavior that's broken today
   (step 5a's gloss that won't close), the script shows it failing on `main`
   before the fix, so a pass means the fix worked and not that the test
   missed it.
 - **Video:** wait for the iframe's `<video>` before playing. Playwright can
   evaluate inside the YouTube iframe, so read `currentTime` there to confirm
-  playback and seeks.
+  playback and seeks. (`videoFrame`, `videoTime`)
 
 ### Per step
 
