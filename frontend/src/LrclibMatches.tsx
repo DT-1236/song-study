@@ -4,7 +4,11 @@ import type { LrclibCandidate, SongResult } from './api'
 import { SearchDropdown, SearchResult } from './SearchDropdown'
 import { formatDuration } from './timing'
 
-const NONE_LABEL = "None — I'll paste the lyrics"
+// What LRCLIB is searched for: a picked song, or a document's.
+export type LrclibSong = Pick<
+  SongResult,
+  'title' | 'artists' | 'duration_seconds'
+>
 
 function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
   const { duration, duration_delta: delta } = candidate
@@ -36,16 +40,19 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
 // length sit behind a toggle. A synced match of the right length is chosen up
 // front; otherwise the results open. `chosen` is the choice the parent kept,
 // or undefined while there's none, and shows below the search box as the
-// video shows the picked song. The parent remounts it (by key) for each newly
+// video shows the picked song. A last row, labelled `noneLabel`, chooses null,
+// and is left out without one. The parent remounts it (by key) for each newly
 // picked song.
 export function LrclibMatches({
   song,
   chosen,
   onChoose,
+  noneLabel,
 }: {
-  song: SongResult
+  song: LrclibSong
   chosen: LrclibCandidate | null | undefined
   onChoose: (candidate: LrclibCandidate | null) => void
+  noneLabel?: string
 }) {
   const [showOthers, setShowOthers] = useState(false)
 
@@ -83,12 +90,14 @@ export function LrclibMatches({
               <CandidateText candidate={c} />
             </SearchResult>
           ))}
-          <SearchResult
-            chosen={chosen === null}
-            onClick={() => choose(null, close)}
-          >
-            <span className="search-result-text">{NONE_LABEL}</span>
-          </SearchResult>
+          {noneLabel && (
+            <SearchResult
+              chosen={chosen === null}
+              onClick={() => choose(null, close)}
+            >
+              <span className="search-result-text">{noneLabel}</span>
+            </SearchResult>
+          )}
         </ul>
         {hiddenCount > 0 && (
           <button
@@ -127,7 +136,7 @@ export function LrclibMatches({
           {chosen ? (
             <CandidateText candidate={chosen} />
           ) : (
-            <span className="search-result-text">{NONE_LABEL}</span>
+            <span className="search-result-text">{noneLabel}</span>
           )}
         </div>
       )}

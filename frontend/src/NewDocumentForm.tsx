@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   LRCLIB_URI_PLACEHOLDER,
   createDocument,
@@ -6,52 +6,13 @@ import {
   fetchLrclibLyrics,
 } from './api'
 import type { LrclibCandidate, LrclibLyrics, SongResult } from './api'
-import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import { SongSearch } from './SongSearch'
-import { useHighlightSettings } from './useHighlightSettings'
+import { SyncedLyrics } from './SyncedLyrics'
 import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import { usePlayingLine } from './usePlayingLine'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
-
-// LRCLIB's lyrics, read-only, as the document page shows them: a play
-// button before each timed line, and the line being sung at `playingLine`
-// highlighted.
-function SyncedLyrics({
-  lyrics,
-  playingLine,
-  onPlayLine,
-}: {
-  lyrics: LrclibLyrics
-  playingLine: number | null
-  onPlayLine: (start: number) => void
-}) {
-  const highlight = useHighlightSettings()
-  return (
-    <p
-      id="lyrics"
-      className="lyrics-box has-line-play synced-lyrics"
-      aria-labelledby="lyrics-label"
-      style={highlight.style}
-    >
-      {lyrics.text.split('\n').map((line, index) => {
-        const start = lyrics.lines?.[index]?.start
-        return (
-          <Fragment key={index}>
-            {index > 0 && '\n'}
-            {line.trim() !== '' && start !== undefined && (
-              <LinePlayButton start={start} onPlayLine={onPlayLine} />
-            )}
-            <span className={index === playingLine ? 'token playing' : 'token'}>
-              {line}
-            </span>
-          </Fragment>
-        )
-      })}
-    </p>
-  )
-}
 
 export function NewDocumentForm() {
   const [title, setTitle] = useState('')
@@ -176,6 +137,8 @@ export function NewDocumentForm() {
   if (choiceLyrics?.lines) {
     lyricsField = (
       <SyncedLyrics
+        id="lyrics"
+        aria-labelledby="lyrics-label"
         lyrics={choiceLyrics}
         playingLine={playingLine}
         onPlayLine={handlePlayLine}
@@ -239,6 +202,7 @@ export function NewDocumentForm() {
           song={pickedSong}
           chosen={choice}
           onChoose={handleChoose}
+          noneLabel="None — I'll paste the lyrics"
         />
       )}
 

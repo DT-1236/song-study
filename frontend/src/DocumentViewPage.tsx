@@ -20,6 +20,7 @@ import {
   fetchAlternateReadings,
   fetchDocument,
   fetchDocumentWords,
+  fetchLrclibLyrics,
   fetchPieceWords,
   linkLrclib,
   pickPieceWord,
@@ -38,6 +39,8 @@ import type {
   DocumentWord,
   FuriganaSpan,
   LineTiming,
+  LrclibCandidate,
+  LrclibLyrics,
   PhraseConflictValue,
   PhraseFuriganaValue,
   PredicateGroupValue,
@@ -47,8 +50,11 @@ import type {
 } from './api'
 import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
+import { LrclibMatches } from './LrclibMatches'
+import type { LrclibSong } from './LrclibMatches'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
+import { SyncedLyrics } from './SyncedLyrics'
 import { useTabs } from './TabsContext'
 import {
   formatTimestamp,
@@ -1964,45 +1970,164 @@ const TokenizedText = memo(function TokenizedText({
   )
 })
 
+// Chooses an LRCLIB track to link `doc` to, from a search for `song` or by
+// its ID, and links it on Save. A chosen match's lyrics go to `onPreview` once
+// loaded (null while there are none), so their timing can be checked against
+// the video first: nothing changes until Save.
+function LrclibPicker({
+  doc,
+  song,
+  onLinked,
+  onCancel,
+  onPreview,
+}: {
+  doc: Document
+  song: LrclibSong
+  onLinked: (doc: Document) => void
+  onCancel: () => void
+  onPreview: (lyrics: LrclibLyrics | null) => void
+}) {
+  const [choice, setChoice] = useState<LrclibCandidate>()
+  // The id of the last chosen match whose lyrics loaded.
+  const [loadedId, setLoadedId] = useState<number | null>(null)
+  const [loadError, setLoadError] = useState<string | null>(null)
+  // A track typed in by hand, in place of a chosen match.
+  const [draft, setDraft] = useState('')
+  // Keeping the lyrics loses nothing, so it's the default.
+  const [replaceText, setReplaceText] = useState(
+    doc.lrclib_replaces_text ?? false,
+  )
+  const { saving, error, save } = useSave()
+
+  const loading = choice !== undefined && loadedId !== choice.id
+  const uri = choice ? choice.uri : draft.trim()
+
+  const choiceId = choice?.id
+  useEffect(() => {
+    if (choiceId === undefined) return
+    let cancelled = false
+
+    fetchLrclibLyrics(choiceId)
+      .then((lyrics) => {
+        if (cancelled) return
+        setLoadedId(choiceId)
+        onPreview(lyrics)
+      })
+      .catch((err) => {
+        if (cancelled) return
+        setLoadError(errorMessage(err, "Couldn't load the lyrics."))
+        // So a track whose lyrics didn't load isn't linked unseen.
+        setChoice(undefined)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [choiceId, onPreview])
+
+  function handleChoose(candidate: LrclibCandidate | null) {
+    // The same objects as before, from LrclibMatches' own list.
+    if (candidate === choice) return
+    setChoice(candidate ?? undefined)
+    setLoadError(null)
+    setDraft('')
+    onPreview(null)
+  }
+
+  return (
+    <form
+      className="lyrics-editor"
+      onSubmit={(e) => {
+        e.preventDefault()
+        if (uri) save(() => linkLrclib(doc.id, uri, replaceText), onLinked)
+      }}
+    >
+      <LrclibMatches song={song} chosen={choice} onChoose={handleChoose} />
+      {loading && <p className="lyrics-editor-note">Loading lyrics…</p>}
+      {loadError && <p className="form-error">{loadError}</p>}
+      <p className="lyrics-editor-note">
+        A chosen track's lyrics show in place of these, with a play button on
+        each timed line to check it against the video.
+      </p>
+
+      <details className="manual-ids">
+        <summary>Enter the track manually</summary>
+        <input
+          id="lrclib-uri"
+          type="text"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value)
+            // A typed track isn't the chosen match any more.
+            setChoice(undefined)
+            onPreview(null)
+          }}
+          placeholder={LRCLIB_URI_PLACEHOLDER}
+          disabled={saving}
+        />
+      </details>
+
+      <label className="checkbox-option">
+        <input
+          type="checkbox"
+          checked={replaceText}
+          onChange={(e) => setReplaceText(e.target.checked)}
+          disabled={saving}
+        />
+        Replace these lyrics with LRCLIB's
+      </label>
+      <div className="lyrics-editor-actions">
+        <button type="submit" disabled={saving || loading || !uri}>
+          {saving ? 'Loading…' : 'Save'}
+        </button>
+        <button type="button" disabled={saving} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      <p className="lyrics-editor-note">
+        {replaceText ? LRCLIB_LINK_NOTE : LRCLIB_KEEP_NOTE}
+      </p>
+      {error && <p className="form-error">{error}</p>}
+    </form>
+  )
+}
+
 function LrclibSource({
   doc,
   onDocumentUpdated,
   locked,
+  song,
+  onChoose,
+  onCancelChoosing,
+  onPreview,
 }: {
   doc: Document
   onDocumentUpdated: (doc: Document) => void
-  // Hides linking and unlinking, while timings are being edited that either
-  // could change the lyrics under.
+  // Hides linking and unlinking, while the lyrics or their timings are being
+  // edited that either could change the lyrics under.
   locked: boolean
+  // The song LRCLIB is searched for while a track is being chosen, and null
+  // otherwise.
+  song: LrclibSong | null
+  onChoose: () => void
+  onCancelChoosing: () => void
+  onPreview: (lyrics: LrclibLyrics | null) => void
 }) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  const [replaceText, setReplaceText] = useState(false)
-  const { saving, error, setError, save: run } = useSave()
-
-  function save(request: () => Promise<Document>) {
-    run(request, (updated) => {
-      onDocumentUpdated(updated)
-      setEditing(false)
-    })
-  }
+  const { saving, error, setError, save } = useSave()
 
   return (
     <>
       <div className="lyrics-header">
         <label htmlFor="lrclib-uri">LRCLIB</label>
-        {!editing && !locked && (
+        {!song && !locked && (
           <div className="lyrics-editor-actions">
             <button
               type="button"
               className="lyrics-edit-toggle"
               disabled={saving}
               onClick={() => {
-                setDraft(doc.lrclib_uri ?? '')
-                // Keeping the lyrics loses nothing, so it's the default.
-                setReplaceText(doc.lrclib_replaces_text ?? false)
                 setError(null)
-                setEditing(true)
+                onChoose()
               }}
             >
               {doc.lrclib_uri ? 'Change' : 'Link to LRCLIB'}
@@ -2012,7 +2137,9 @@ function LrclibSource({
                 type="button"
                 className="lyrics-edit-toggle"
                 disabled={saving}
-                onClick={() => save(() => unlinkLrclib(doc.id))}
+                onClick={() =>
+                  save(() => unlinkLrclib(doc.id), onDocumentUpdated)
+                }
               >
                 Unlink
               </button>
@@ -2021,48 +2148,14 @@ function LrclibSource({
         )}
       </div>
 
-      {editing ? (
-        <form
-          className="lyrics-editor"
-          onSubmit={(e) => {
-            e.preventDefault()
-            const uri = draft.trim()
-            if (uri) save(() => linkLrclib(doc.id, uri, replaceText))
-          }}
-        >
-          <input
-            id="lrclib-uri"
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            placeholder={LRCLIB_URI_PLACEHOLDER}
-            disabled={saving}
-          />
-          <label className="checkbox-option">
-            <input
-              type="checkbox"
-              checked={replaceText}
-              onChange={(e) => setReplaceText(e.target.checked)}
-              disabled={saving}
-            />
-            Replace these lyrics with LRCLIB's
-          </label>
-          <div className="lyrics-editor-actions">
-            <button type="submit" disabled={saving || !draft.trim()}>
-              {saving ? 'Loading…' : 'Save'}
-            </button>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => setEditing(false)}
-            >
-              Cancel
-            </button>
-          </div>
-          <p className="lyrics-editor-note">
-            {replaceText ? LRCLIB_LINK_NOTE : LRCLIB_KEEP_NOTE}
-          </p>
-        </form>
+      {song ? (
+        <LrclibPicker
+          doc={doc}
+          song={song}
+          onLinked={onDocumentUpdated}
+          onCancel={onCancelChoosing}
+          onPreview={onPreview}
+        />
       ) : (
         <>
           <p id="lrclib-uri" className="readonly-text">
@@ -2438,6 +2531,10 @@ export function DocumentViewPage() {
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
   const [editingLyrics, setEditingLyrics] = useState(false)
+  // The song LRCLIB is searched for while a track to link is being chosen,
+  // and the chosen track's lyrics, shown in place of the document's.
+  const [lrclibSong, setLrclibSong] = useState<LrclibSong | null>(null)
+  const [lrclibPreview, setLrclibPreview] = useState<LrclibLyrics | null>(null)
   const [lyricsDraft, setLyricsDraft] = useState('')
   const {
     saving: savingLyrics,
@@ -2641,7 +2738,7 @@ export function DocumentViewPage() {
 
   const { playingLine, onSeek: handleSeek } = usePlayingLine(
     youtubePlayerRef,
-    hasVideo ? shownTimings : null,
+    hasVideo ? (lrclibPreview ? lrclibPreview.lines : shownTimings) : null,
   )
 
   useEffect(() => {
@@ -2699,8 +2796,29 @@ export function DocumentViewPage() {
     )
   }
 
+  function startChoosingLrclib() {
+    if (!doc) return
+    const player = youtubePlayerRef.current
+    // The video's channel stands in for the artist: a song picked on the New
+    // document page is played from its artist's "… - Topic" channel.
+    const channel = player?.getVideoData()?.author ?? ''
+    // 0 until the video has loaded.
+    const duration = Math.round(player?.getDuration() ?? 0)
+    setLrclibSong({
+      title: doc.title,
+      artists: channel.replace(/ - Topic$/, ''),
+      duration_seconds: duration || null,
+    })
+  }
+
+  function stopChoosingLrclib() {
+    setLrclibSong(null)
+    setLrclibPreview(null)
+  }
+
   function handleDocumentLinked(updated: Document) {
     setDoc(updated)
+    stopChoosingLrclib()
     // Its lyrics are LRCLIB's now, so there's nothing left to edit.
     if (updated.lrclib_replaces_text) setEditingLyrics(false)
   }
@@ -2764,24 +2882,31 @@ export function DocumentViewPage() {
         <LrclibSource
           doc={doc}
           onDocumentUpdated={handleDocumentLinked}
-          locked={editingTimings}
+          locked={editingTimings || editingLyrics}
+          song={lrclibSong}
+          onChoose={startChoosingLrclib}
+          onCancelChoosing={stopChoosingLrclib}
+          onPreview={setLrclibPreview}
         />
 
         <div className="lyrics-header">
           <label htmlFor="lyrics">Lyrics</label>
-          {!editingLyrics && !doc.lrclib_replaces_text && !editingTimings && (
-            <button
-              type="button"
-              className="lyrics-edit-toggle"
-              onClick={() => {
-                setLyricsDraft(doc.text)
-                setLyricsSaveError(null)
-                setEditingLyrics(true)
-              }}
-            >
-              Edit lyrics
-            </button>
-          )}
+          {!editingLyrics &&
+            !doc.lrclib_replaces_text &&
+            !editingTimings &&
+            !lrclibSong && (
+              <button
+                type="button"
+                className="lyrics-edit-toggle"
+                onClick={() => {
+                  setLyricsDraft(doc.text)
+                  setLyricsSaveError(null)
+                  setEditingLyrics(true)
+                }}
+              >
+                Edit lyrics
+              </button>
+            )}
         </div>
 
         {!editingLyrics && (
@@ -2879,16 +3004,18 @@ export function DocumentViewPage() {
                   min={5}
                   max={100}
                 />
-                <div className="control-actions">
-                  <button
-                    type="button"
-                    disabled={!canEditTimings}
-                    title={canEditTimings ? undefined : 'Needs a video'}
-                    onClick={startEditingTimings}
-                  >
-                    Edit timings
-                  </button>
-                </div>
+                {!lrclibSong && (
+                  <div className="control-actions">
+                    <button
+                      type="button"
+                      disabled={!canEditTimings}
+                      title={canEditTimings ? undefined : 'Needs a video'}
+                      onClick={startEditingTimings}
+                    >
+                      Edit timings
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -2940,8 +3067,16 @@ export function DocumentViewPage() {
             } as React.CSSProperties
           }
         >
-          {tokensLoading && <p>Processing…</p>}
-          {tokens &&
+          {lrclibPreview && (
+            <SyncedLyrics
+              lyrics={lrclibPreview}
+              playingLine={playingLine}
+              onPlayLine={handlePlayLine}
+            />
+          )}
+          {!lrclibPreview && tokensLoading && <p>Processing…</p>}
+          {!lrclibPreview &&
+            tokens &&
             (timingDraft && lyricsLines ? (
               <TimingEditor
                 lines={lyricsLines}
@@ -2966,7 +3101,7 @@ export function DocumentViewPage() {
                 onPlayLine={handlePlayLine}
               />
             ))}
-          {tokensError && (
+          {!lrclibPreview && tokensError && (
             <>
               <p className="form-error">
                 {tokensError} Showing plain lyrics instead.
