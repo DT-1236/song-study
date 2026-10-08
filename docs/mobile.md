@@ -39,6 +39,11 @@ plan once the desktop version is settled.
   Taps on the outlined instances then add to the selection, as clicks
   already do once a selection exists.
 - The timing editor gets on-screen controls, after the display work.
+- On touch, a **tap previews** a gloss and a **long press pins** it. While
+  you hold, the token's green outline draws itself in as a countdown. A tap
+  or a scroll elsewhere dismisses a preview, but not a pin.
+- A pinned gloss says so **in the gloss itself**, on every device including
+  desktop. The token's outline stays the same for preview and pin.
 
 ### Two kinds of "mobile", kept apart
 
@@ -66,7 +71,7 @@ step 6 needs step 5, and step 7 needs step 3.
 | 2 — New document form and documents list | | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
 | 3 — Document page layout and sticky video | | Header reflow; video above the lyrics and sticky on narrow screens without remounting; `playsinline`; scroll offsets that clear the video | **Opus 5** | medium | The playing-line `scrollIntoView`, `revealBelowPanel` and `.selection-anchor`'s `--header-height` all assume nothing is pinned at the top. Getting one wrong fails *silently*: the playing line scrolls under the video |
 | 4 — Settings page | | `/settings`, account name in the sidebar links to it, "Video on narrow screens" setting | Sonnet 5 | low | A small page and one persisted value, following `usePersistentState` |
-| 5 — Tapping tokens; gloss as a bottom sheet | | Hover only from a real mouse; on touch, the gloss opens as a sheet at the bottom of the screen | **Opus 5** | **high** | Compatibility mouse events, the memoized `TokenSpan`, `GlossPopup`'s reposition, and the document-level dismiss listener interact in ways that only show up as a popup that won't close, or closes on its own |
+| 5 — Tap to preview, long-press to pin; gloss as a bottom sheet | | Hover only from a real mouse; on touch, a tap previews and a long press (with a countdown outline) pins; the gloss opens as a sheet at the bottom of the screen; a "Pinned" marker in the gloss on every device | **Opus 5** | **high** | Compatibility mouse events, the click that follows a long press, the memoized `TokenSpan`, `GlossPopup`'s reposition, the document-level dismiss listener and the playing line's auto-scroll interact in ways that only show up as a gloss that won't close, or closes on its own |
 | 6 — Select on touch | | Select button in the gloss; selection panel as a bottom sheet on touch | **Opus 5** | medium | The selection logic exists and is reused, but `TokenizedText`'s pinned, hovered and selected state is delicate |
 | 7 — Timing editor and seeking on touch | | On-screen seek, pick, nudge and stamp controls, sharing the keyboard handlers' actions | **Opus 5** | medium | Splitting `handleKeyDown` into shared actions must leave every key's behavior unchanged, and a control that takes focus can silently stop the keys working |
 
@@ -182,21 +187,89 @@ with a pseudo-element.
   no UI belong on this page too, but they're part of the flashcard work, not
   this plan.
 
-## Step 5 — Tapping tokens; gloss as a bottom sheet
+## Step 5 — Tap to preview, long-press to pin; gloss as a bottom sheet
 
 **Hover only from a mouse:**
 - In `TokenSpan` and `GlossPopup`, switch `onMouseEnter`/`onMouseLeave` to
   `onPointerEnter`/`onPointerLeave`, and ignore any event whose
-  `pointerType` isn't `'mouse'`. A tap then only pins and unpins, so a
-  second tap on the token closes its gloss.
+  `pointerType` isn't `'mouse'`. Taps then go only through the gestures
+  below, never through the hover state by accident.
 - Desktop hover, including the 150ms grace period for crossing into the
-  popup, is unchanged.
+  popup, is unchanged. So is click to pin and click again to unpin.
 - Keep the handlers stable so `TokenSpan`'s memo holds.
 
+**Gestures on touch** (`pointerType === 'touch'`):
+
+| Gesture | Effect |
+|---|---|
+| Tap a token | Preview its gloss: the token's green outline, and the gloss in the sheet. It replaces any preview or pin already showing. |
+| Tap the previewed token again | Close the preview. |
+| Tap or scroll anywhere else (outside the sheet) | Close a preview. A pin stays. |
+| Long press a token (about 500ms) | Pin its gloss, replacing any other preview or pin. |
+| Close button in the sheet | Close the gloss, preview or pin. |
+
+A pin is for keeping a gloss up while you scroll the lyrics or follow
+playback. A preview is for a quick look.
+
+**The long press:**
+- Start a timer on `pointerdown`. Cancel it on `pointerup` before it fires,
+  on movement past about 10px, and on `pointercancel`, which the browser
+  sends when it takes the touch over for a scroll.
+- When it fires, it pins. The `click` the browser sends on release must then
+  be swallowed. Otherwise `handleClick` sees a tap and, by the table above,
+  replaces the pin with a preview or closes it.
+- **Countdown:** the same green outline a highlighted or pinned token
+  already gets (`.phrase-outline`), drawing itself in around the pressed
+  token over the press duration.
+  - `.phrase-outline` is inset box-shadows, which can't be drawn partway.
+    So the countdown is a ring on the token's `::after` (`::before` already
+    paints its highlight background).
+  - The ring is a `conic-gradient` in `--success` from 0° to an animated
+    angle, masked to a 2px ring with the outline's corner radius. The angle
+    is an `@property`-registered custom property animated over the press
+    duration (Chrome, and Safari 16.4+).
+  - It runs on the pressed token alone, even when the token is in a phrase
+    or group, since a ring on each token would read as several boxes. When
+    the pin lands, the ring goes away and the usual group outline is there,
+    so the border looks finished rather than replaced.
+  - A cancelled press removes the ring at once, without rewinding.
+- **The platform's own long press:** on touch, lyric tokens get
+  `user-select: none` and `-webkit-touch-callout: none`, and
+  `contextmenu` is prevented on them. Otherwise iOS and Android start text
+  selection or their copy / Look Up menu over the countdown. The cost is
+  that lyrics can't be copied on a phone; say so in the PR.
+- **Discoverability:** nothing on screen says "long-press to pin". The
+  preview sheet carries a short muted hint, "Hold a word to pin its gloss",
+  until the first pin. Remember that with `usePersistentState`.
+
+**Dismissing a preview on a scroll elsewhere:** three ways this goes wrong
+silently, each of which closes a gloss the person is still reading.
+- **Scroll chaining:** when the sheet's own scroll hits its end, the rest of
+  the swipe scrolls the lyrics behind it. Give the sheet
+  `overscroll-behavior: contain`.
+- **The playing line's auto-scroll:** `TokenizedText` scrolls `.content` to
+  keep the line being sung on screen. If dismissal listens for `scroll`
+  events, every new line closes the preview. Dismiss on the person's own
+  input on `.content` instead (a `touchmove` or `wheel` that starts outside
+  the sheet), never on `scroll`.
+- **The on-screen keyboard:** focusing the reading-fix input inside the
+  gloss opens the keyboard, which resizes the viewport and can scroll
+  `.content`. Keying off input rather than `scroll` covers this too, and
+  the check below confirms it.
+
+**"Pinned" marker, on every device:**
+- `GlossPopup` takes a `pinned` boolean (a primitive, so `TokenSpan`'s memo
+  holds). When it's true, the gloss shows a small pin icon and "Pinned" at
+  its top, beside the study-list icon on desktop and beside Close in the
+  sheet.
+- The token's outline stays the same for hover, preview and pin.
+- On desktop a hovered popup has no marker, and a clicked one does, which
+  shows for the first time whether a click has pinned it.
+
 **Bottom sheet on touch:**
-- When `NO_HOVER` matches, the pinned gloss renders as a sheet fixed to the
-  bottom of the screen (full width, `max-height` about 60dvh, scrolling
-  inside), not hanging under its token.
+- When `NO_HOVER` matches, the previewed or pinned gloss renders as a sheet
+  fixed to the bottom of the screen (full width, `max-height` about 60dvh,
+  scrolling inside), not hanging under its token.
 - Render it through a portal into a sheet host in `Layout`. That keeps it
   clear of `.token`'s stacking context, and of the `transform` that would
   otherwise make `position: fixed` relative to the token.
@@ -208,8 +281,8 @@ with a pseudo-element.
   listener. `GlossPopup`'s `stopPropagation` has to hold across the portal.
 - The lyrics box gets bottom padding equal to the open sheet's height, so
   the last lines can still be scrolled above it.
-- The pinned token stays highlighted (`.pinned`) while its sheet is open,
-  and is scrolled into view above the sheet when it would be covered.
+- The token whose gloss is open keeps its outline while its sheet is
+  open. It's scrolled into view above the sheet when it would be covered.
 
 ## Step 6 — Select on touch
 
@@ -343,14 +416,32 @@ over between sessions), then adds that step's checks to it:
    setting changes nothing. The account-name link is the active link on
    `/settings`.
 5. On `main` first: tap a token twice and confirm its popup stays open (the
-   bug). After the fix: one tap opens the sheet (fixed to the bottom, inside
-   the viewport, full width), a second tap closes it, tapping another token
-   switches it, and the Close button closes it. Tapping inside the sheet (an
-   option, Show more) leaves it open. With the sheet open, the pinned token
-   isn't covered by it, and the last lyric line can still be scrolled above
-   it. At 1280px with the mouse, hover opens a popup under its token, moving
-   from the token into the popup keeps it open, and a click pins it, as
-   before.
+   bug). After the fix:
+   - **Preview:** one tap opens the sheet (fixed to the bottom, inside the
+     viewport, full width) with no "Pinned" marker. A second tap on the
+     token closes it. A tap on another token switches to it. A tap on blank
+     lyrics space closes it, and so does a swipe on the lyrics
+     (`page.touchscreen` / CDP `Input.dispatchTouchEvent` moves).
+   - **Not dismissed:** playing the video until the playing line auto-scrolls
+     `.content` leaves the preview open. So do scrolling inside a long gloss
+     (Show more on a common word) past its end, and focusing the reading-fix
+     input.
+   - **Long press:** hold with `touchscreen` down, wait, then up. At about
+     half the duration the token's `::after` ring is visible
+     (`getComputedStyle(token, '::after')`). After release the gloss is
+     pinned, with the marker shown, so the release's click didn't undo it.
+     A swipe on the lyrics and a tap on blank space leave it open. Close
+     closes it.
+   - **Cancelled press:** a press that moves 20px, or is released early,
+     pins nothing and leaves no ring.
+   - **Sheet:** taps inside it (an option, Show more) leave it open. With it
+     open, the outlined token isn't covered by it, and the last lyric line
+     can still be scrolled above it. The "Hold a word" hint shows until the
+     first pin and not after a reload.
+   - **Desktop, at 1280px with the mouse:** hover opens a popup under its
+     token with no marker. Moving from the token into the popup keeps it
+     open. A click pins it and the marker appears, and a second click
+     unpins it.
 6. Tap a token, tap Select, then tap two outlined instances: the sheet's
    title reads "3 × … selected", and a decision applied there changes all
    three tokens. Clear empties the selection. At 1280px, shift-click still
@@ -365,8 +456,9 @@ over between sessions), then adds that step's checks to it:
 ### On a real phone
 
 What Chromium can't show is checked on the user's iPhone after steps 3, 5
-and 7. Those steps check that the video plays in the page and that a tap on
-the lyrics closes an open gloss. Step 2 checks that focusing an input
+and 7. Those steps check that the video plays in the page, that a tap on
+the lyrics closes a preview, and that a long press pins without iOS's
+text selection or callout menu appearing. Step 2 checks that focusing an input
 doesn't zoom. That needs only configuration: the frontend reachable from
 the phone (`vite --host`), and, since Google sign-in doesn't accept a LAN IP
 as a redirect, an HTTPS tunnel hostname set as `APP_URL` and registered as a
