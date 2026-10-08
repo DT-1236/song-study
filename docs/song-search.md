@@ -50,7 +50,7 @@ Verification.
 | 1 — YouTube Music song search | Done | `ytmusicapi` dep, `app/youtube_music.py`, `GET /api/songs/search`, `SongSearch.tsx`; a pick fills Title + YouTube video ID. Usable on its own | Sonnet 5 | medium | Wrapping a library against a clear spec. Its result shape is loose (missing album/duration), but that's visible, not silent |
 | 2 — LRCLIB track search | Done | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail *silently*: the right track just never shows up |
 | 3 — LRCLIB matches in the form | Done | `LrclibMatches.tsx`, NewDocumentForm wiring, manual fields under `<details>`, CSS | Sonnet 5 | medium | Conventional React. The traps are a typed title being overwritten and a required lyrics box hidden in `<details>`, and the browser check catches both |
-| 4 — LRCLIB lyrics and playback highlight | Not started | `GET /api/lrclib/tracks/{id}`; picking an LRCLIB option fills a disabled lyrics field, and timed lyrics highlight the playing line beside the video; `usePlayingLine` and the highlight settings shared with `DocumentViewPage` | **Opus 5** | medium | The shared hook is lifted out of `DocumentViewPage`'s playback effect, whose seek and nudge handling fails silently (a highlight a line late, or stuck). The rest is conventional React |
+| 4 — LRCLIB lyrics and playback highlight | Done | `GET /api/lrclib/tracks/{id}`; picking an LRCLIB option fills a disabled lyrics field, and timed lyrics highlight the playing line beside the video; `usePlayingLine` and the highlight settings shared with `DocumentViewPage` | **Opus 5** | medium | The shared hook is lifted out of `DocumentViewPage`'s playback effect, whose seek and nudge handling fails silently (a highlight a line late, or stuck). The rest is conventional React |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Steps fully specified here can run at
@@ -222,11 +222,17 @@ shown the way the YouTube results are.
   - Each row shows the track name, then artist · album, the duration with ±Δs,
     a "synced" badge, and the two-line preview. There's no thumbnail, since
     LRCLIB has none.
-  - Clicking a row picks it and collapses the list to that one row, as a
-    YouTube pick closes its list. The row carries a "Change" button that
-    reopens the list. A pre-selected match starts collapsed the same way.
+  - Clicking a row picks it and closes the list, as a YouTube pick does. A
+    pre-selected match leaves the list closed.
   - The other-length matches stay behind "Show N with other lengths", and
     "None — I'll paste the lyrics" stays as the last row.
+  - The LRCLIB matches sit in a search box of their own, as the songs do,
+    searched by track title (the song's to start with; the song's artist and
+    length still rank the results). Both lists drop down from their search
+    box: after a search, or on clicking back into it, with the picked row
+    marked. A pick, a click elsewhere or Escape closes them. The chosen match
+    shows in a box below its search, as the video does below the song
+    search.
 - **Highlighted lyrics:** a textarea can't highlight a line, so when the
   track is synced the disabled field is shown as a read-only list of lines
   (`.lyrics-box` with `.timing-row` rows, classes the timing editor already
@@ -261,8 +267,8 @@ shown the way the YouTube results are.
   they live in `timing.ts` beside `lastStartedBy`.
 - Browser check, extending the Verification flow above:
   0. Confirm the LRCLIB matches look like the song results (rows, not
-     radios), that a click collapses the list to the picked row, and that
-     "Change" reopens it.
+     radios), that a click picks one and closes the list, and that clicking
+     into the LRCLIB search box reopens it.
   1. Pick `夜に駆ける`, then its pre-selected LRCLIB match. Confirm the lyrics
      fill the field as a read-only list and it can't be edited.
   2. Play the video. Confirm the highlighted line follows the singing, and a

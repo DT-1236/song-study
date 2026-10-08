@@ -42,6 +42,7 @@ from tests.support import (
     get_document_tokens,
     link_lrclib,
     lrclib_search,
+    lrclib_track_lyrics,
     pick_reading,
     unlink_lrclib,
     update_document_text,
@@ -703,5 +704,48 @@ def test_search_endpoint_maps_unavailable_to_502(fake_lrclib):
 def test_search_endpoint_requires_login(fake_lrclib):
     with as_session_user(), pytest.raises(HTTPException) as rejected:
         lrclib_search(title=SONG)
+    assert rejected.value.status_code == 401
+    assert fake_lrclib.requests == []
+
+
+def test_track_lyrics_endpoint_returns_synced_lines(fake_lrclib):
+    fake_lrclib.publish(URI, [(1.0, FIRST_SENTENCE), (4.5, SECOND_SENTENCE)], 10.0)
+
+    lyrics = lrclib_track_lyrics(track_id=1)
+
+    assert lyrics.text == f"{FIRST_SENTENCE}\n{SECOND_SENTENCE}"
+    assert lyrics.lines == [
+        LineTiming(start=1.0, end=4.5),
+        LineTiming(start=4.5, end=10.0),
+    ]
+
+
+def test_track_lyrics_endpoint_returns_plain_lyrics_untimed(fake_lrclib):
+    fake_lrclib.records[URI] = {"syncedLyrics": None, "plainLyrics": WEATHER}
+
+    lyrics = lrclib_track_lyrics(track_id=1)
+
+    assert (lyrics.text, lyrics.lines) == (WEATHER, None)
+
+
+def test_track_lyrics_endpoint_rejects_a_missing_track(fake_lrclib):
+    with pytest.raises(HTTPException) as rejected:
+        lrclib_track_lyrics(track_id=2)
+    assert rejected.value.status_code == 422
+
+
+def test_track_lyrics_endpoint_maps_unavailable_to_502(fake_lrclib):
+    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+
+    with pytest.raises(HTTPException) as rejected:
+        lrclib_track_lyrics(track_id=1)
+    assert rejected.value.status_code == 502
+
+
+def test_track_lyrics_endpoint_requires_login(fake_lrclib):
+    fake_lrclib.publish(URI, [(1.0, FIRST_SENTENCE)])
+
+    with as_session_user(), pytest.raises(HTTPException) as rejected:
+        lrclib_track_lyrics(track_id=1)
     assert rejected.value.status_code == 401
     assert fake_lrclib.requests == []

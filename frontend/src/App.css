@@ -475,22 +475,22 @@ li.grammar-legend-item {
   cursor: pointer;
 }
 
-.song-search-row {
+.search-dropdown-row {
   display: flex;
   gap: 0.5rem;
   align-items: flex-start;
 }
 
-.song-search-row input {
+.search-dropdown-row input {
   flex: 1;
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
-.new-document-form .song-search-button {
+.new-document-form .search-dropdown-button {
   margin-top: 0;
 }
 
-.song-results {
+.search-results {
   list-style: none;
   margin: 0.5rem 0 0;
   padding: 0;
@@ -500,7 +500,7 @@ li.grammar-legend-item {
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
-.new-document-form .song-result {
+.new-document-form .search-result {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -513,64 +513,29 @@ li.grammar-legend-item {
   text-align: left;
 }
 
-.new-document-form .song-result:hover {
+.new-document-form .search-result:hover {
   background-color: var(--border);
 }
 
-.song-result img {
+/* The song or LRCLIB match picked last. */
+.new-document-form .search-result.chosen {
+  background-color: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.search-result img {
   object-fit: cover;
   border-radius: 4px;
 }
 
-.song-result-text {
+.search-result-text {
   display: flex;
   flex-direction: column;
   flex: 1;
   min-width: 0;
 }
 
-.song-result-meta,
-.song-result-duration {
-  color: var(--text-muted);
-  font-size: 0.85em;
-}
-
-.lrclib-matches {
-  margin: 0.75rem 0 0;
-  padding: 0.5rem 0.75rem;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background-color: var(--bg-elevated);
-}
-
-.lrclib-matches ul {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-/* Qualified to outrank .new-document-form label's weight and margin. */
-.new-document-form .lrclib-match {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  margin-top: 0;
-  padding: 0.35rem 0;
-  font-weight: normal;
-  cursor: pointer;
-}
-
-.lrclib-match input {
-  margin-top: 0.25rem;
-}
-
-.lrclib-match-text {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.lrclib-match-meta {
+.search-result-meta,
+.search-result-duration {
   color: var(--text-muted);
   font-size: 0.85em;
 }
@@ -578,6 +543,12 @@ li.grammar-legend-item {
 .lrclib-match-badge {
   margin-left: 0.5rem;
   color: var(--accent);
+}
+
+/* The LRCLIB match chosen, shown under its search box as the video is
+   under the song search: in the results' frame, padded as a row is. */
+.lrclib-choice {
+  padding: 0.4rem 0.6rem;
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
@@ -838,6 +809,12 @@ li.grammar-legend-item {
   gap: 0.75rem;
   border-radius: 4px;
   cursor: pointer;
+}
+
+/* LRCLIB's lyrics on the new-document form: the document page's lyrics box,
+   with no furigana to make room for. */
+.synced-lyrics {
+  --lyrics-line-height: 1.8;
 }
 
 /* A blank line between stanzas, kept as tall as a line of text. */

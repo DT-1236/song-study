@@ -46,12 +46,12 @@ import type {
   WordOption,
 } from './api'
 import { ConfirmDialog } from './ConfirmDialog'
+import { LinePlayButton } from './LinePlayButton'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { useTabs } from './TabsContext'
 import {
   formatTimestamp,
-  lastStartedBy,
   lineToStamp,
   linesOf,
   nudgedStart,
@@ -63,6 +63,13 @@ import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
 import { useSave } from './useSave'
 import { usePersistentState } from './usePersistentState'
+import { useHighlightSettings } from './useHighlightSettings'
+import { usePlayingLine } from './usePlayingLine'
+import {
+  isTypingTarget,
+  usePlayerShortcuts,
+  useSeekSeconds,
+} from './usePlayerShortcuts'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
@@ -74,15 +81,6 @@ const REVIEW_REASON_LABELS: Record<string, string> = {
 // Stable empty lists, for props that must keep one identity.
 const NO_TOKENS: Token[] = []
 const NO_WORDS: DocumentWord[] = []
-
-// Elements where a focused Space already activates the control natively
-// (typing targets are handled separately, in isTypingTarget) — the global
-// play/pause listener must not override this.
-const SPACE_HANDLED_NATIVELY = new Set(['BUTTON', 'SELECT', 'A'])
-
-// The IFrame API has no time-update event, so playback is followed by
-// polling its current time.
-const PLAYBACK_POLL_MS = 100
 
 const LRCLIB_LINK_NOTE =
   "Linking replaces these lyrics with LRCLIB's. If they differ, furigana and glosses are re-processed from " +
@@ -97,16 +95,6 @@ const LRCLIB_SYNC_NOTE =
   'Lyrics load from LRCLIB each time this page opens. If they change there (say, someone uploads a corrected ' +
   "version), they replace these and any readings you've manually selected are reset — a timing-only update " +
   'keeps them.'
-
-// Whether keys pressed while `element` has focus type into it.
-function isTypingTarget(element: Element | null): boolean {
-  return (
-    element instanceof HTMLElement &&
-    (element.tagName === 'INPUT' ||
-      element.tagName === 'TEXTAREA' ||
-      element.isContentEditable)
-  )
-}
 
 // True when a composite gloss (a compound with no JMDict entry of its own,
 // shown broken into parts instead — see gloss.source) has a piece whose own
@@ -1552,33 +1540,6 @@ function SelectionPanel({
   )
 }
 
-// Plays the song from `start`, the start of the line it's placed before.
-// Memoized like TokenSpan, so the playing line moving doesn't re-render it.
-const LinePlayButton = memo(function LinePlayButton({
-  start,
-  onPlayLine,
-}: {
-  start: number
-  onPlayLine: (start: number) => void
-}) {
-  return (
-    <button
-      type="button"
-      className="icon-button line-play"
-      aria-label="Play from this line"
-      title="Play from this line"
-      // Leaves focus where it was, so Space keeps playing and pausing rather
-      // than pressing this again.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => onPlayLine(start)}
-    >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2 1 9 5 2 9Z" />
-      </svg>
-    </button>
-  )
-})
-
 // One token of the lyrics. Memoized, with every prop either a primitive or
 // stable across renders, so a change that doesn't touch this token (the
 // playing line moving elsewhere, another token hovered) doesn't re-render it.
@@ -2468,29 +2429,12 @@ export function DocumentViewPage() {
   const [tokens, setTokens] = useState<Token[] | null>(null)
   const [tokensLoading, setTokensLoading] = useState(true)
   const [tokensError, setTokensError] = useState<string | null>(null)
-  const [playingLine, setPlayingLine] = useState<number | null>(null)
-  // Counts the player's seeks. The playing-line effect depends on it, so a
-  // seek re-runs it at once rather than waiting for the next poll, and after
-  // any other state the same keypress changed (a nudge's new timings).
-  const [seeks, setSeeks] = useState(0)
-  const handleSeek = useCallback(() => setSeeks((count) => count + 1), [])
 
   // Viewing settings: the same for every document, and kept across reloads.
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
   const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
-  const [seekSeconds, setSeekSeconds] = usePersistentState('seekSeconds', 3)
-  // Defaults to the theme's accent, which is hex, as a color input needs.
-  const [highlightColor, setHighlightColor] = usePersistentState(
-    'highlightColor',
-    () =>
-      getComputedStyle(document.documentElement)
-        .getPropertyValue('--accent')
-        .trim(),
-  )
-  const [highlightOpacity, setHighlightOpacity] = usePersistentState(
-    'highlightOpacity',
-    25,
-  )
+  const [seekSeconds, setSeekSeconds] = useSeekSeconds()
+  const highlight = useHighlightSettings()
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
   const [editingLyrics, setEditingLyrics] = useState(false)
@@ -2532,37 +2476,7 @@ export function DocumentViewPage() {
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
 
-  // Spacebar play/pause and ,/. seek by seekSeconds, same as YouTube's own
-  // page — but only when focus isn't on something these keys already have
-  // a native meaning for: typing (the lyrics textarea, a reading-correction
-  // input) for all three, or activating a focused button/link for Space
-  // specifically, which would otherwise get silently overridden.
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      const active = document.activeElement
-
-      if (event.code === 'Space') {
-        const isNativeSpaceTarget =
-          active instanceof HTMLElement &&
-          SPACE_HANDLED_NATIVELY.has(active.tagName)
-        if (isNativeSpaceTarget || isTypingTarget(active)) return
-        event.preventDefault()
-        youtubePlayerRef.current?.togglePlay()
-        return
-      }
-
-      if (event.code === 'Comma' || event.code === 'Period') {
-        if (isTypingTarget(active)) return
-        event.preventDefault()
-        youtubePlayerRef.current?.seekBy(
-          event.code === 'Comma' ? -seekSeconds : seekSeconds,
-        )
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [seekSeconds])
+  usePlayerShortcuts(youtubePlayerRef, seekSeconds)
 
   useEffect(() => {
     let cancelled = false
@@ -2725,29 +2639,10 @@ export function DocumentViewPage() {
     )
   }, [timingDraft, lineTimings])
 
-  useEffect(() => {
-    if (!shownTimings || !hasVideo) return
-    // The line last found, which the next search starts from. A seek or new
-    // timings re-run this effect, which starts the search over.
-    let found = -1
-    const update = () => {
-      const time = youtubePlayerRef.current?.getCurrentTime() ?? null
-      if (time === null) return setPlayingLine(null)
-      found = lastStartedBy(shownTimings, time, found)
-      const line = shownTimings[found]
-      // An index, so React skips the re-render while the line is unchanged.
-      setPlayingLine(line && time < line.end ? found : null)
-    }
-    // Right away as well, so a seek or a nudge moves the highlight at once
-    // rather than at the next poll.
-    update()
-    const interval = window.setInterval(update, PLAYBACK_POLL_MS)
-    return () => {
-      window.clearInterval(interval)
-      // Whatever lines come next, this index isn't into them.
-      setPlayingLine(null)
-    }
-  }, [shownTimings, hasVideo, seeks])
+  const { playingLine, onSeek: handleSeek } = usePlayingLine(
+    youtubePlayerRef,
+    hasVideo ? shownTimings : null,
+  )
 
   useEffect(() => {
     if (!headerEl) return
@@ -2971,16 +2866,16 @@ export function DocumentViewPage() {
                   <input
                     id="highlight-color"
                     type="color"
-                    value={highlightColor}
-                    onChange={(e) => setHighlightColor(e.target.value)}
+                    value={highlight.color}
+                    onChange={(e) => highlight.setColor(e.target.value)}
                   />
                 </div>
                 <RangeControl
                   id="highlight-opacity"
                   label="Highlight opacity"
                   unit="%"
-                  value={highlightOpacity}
-                  onChange={setHighlightOpacity}
+                  value={highlight.opacity}
+                  onChange={highlight.setOpacity}
                   min={5}
                   max={100}
                 />
@@ -3038,10 +2933,9 @@ export function DocumentViewPage() {
           id="lyrics"
           style={
             {
+              ...highlight.style,
               '--lyrics-font-size': `${fontSize}px`,
               '--furigana-font-size': `${furiganaSize}px`,
-              '--highlight-color': highlightColor,
-              '--highlight-opacity': `${highlightOpacity}%`,
               '--header-height': `${headerHeight}px`,
             } as React.CSSProperties
           }

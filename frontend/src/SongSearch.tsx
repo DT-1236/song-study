@@ -1,94 +1,58 @@
-import { useState } from 'react'
-import { errorMessage, searchSongs } from './api'
+import { searchSongs } from './api'
 import type { SongResult } from './api'
+import { SearchDropdown, SearchResult } from './SearchDropdown'
 import { formatDuration } from './timing'
 
-// Searches YouTube Music's songs and reports the one picked. It runs on Enter
-// or a click rather than per keystroke, since each search hits an unofficial
-// YouTube endpoint. A div rather than a form, as it sits inside one.
-export function SongSearch({ onPick }: { onPick: (song: SongResult) => void }) {
-  const [query, setQuery] = useState('')
-  const [results, setResults] = useState<SongResult[] | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-
-  async function search() {
-    const trimmed = query.trim()
-    if (!trimmed || loading) return
-    setLoading(true)
-    setError(null)
-    try {
-      setResults(await searchSongs(trimmed))
-    } catch (err) {
-      setResults(null)
-      setError(errorMessage(err, 'Search failed.'))
-    } finally {
-      setLoading(false)
-    }
-  }
-
+// Searches YouTube Music's songs and reports the one picked. `pickedId` marks
+// the song picked last.
+export function SongSearch({
+  pickedId,
+  onPick,
+}: {
+  pickedId: string | null
+  onPick: (song: SongResult) => void
+}) {
   return (
-    <div className="song-search">
-      <label htmlFor="song-search-query">Search for a song</label>
-      <div className="song-search-row">
-        <input
-          id="song-search-query"
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => {
-            // Enter would otherwise submit the surrounding form. Enter that
-            // confirms an IME conversion isn't a search.
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              void search()
-            }
-          }}
-          placeholder="e.g. 夜に駆ける YOASOBI"
-        />
-        <button
-          type="button"
-          className="song-search-button"
-          onClick={() => void search()}
-          disabled={loading || query.trim() === ''}
-        >
-          {loading ? 'Searching…' : 'Search'}
-        </button>
-      </div>
-
-      {error && <p className="form-error">{error}</p>}
-      {results && results.length === 0 && <p>No songs found.</p>}
-      {results && results.length > 0 && (
-        <ul className="song-results">
-          {results.map((song) => (
-            <li key={song.video_id}>
-              <button
-                type="button"
-                className="song-result"
+    <SearchDropdown
+      id="song-search-query"
+      label="Search for a song"
+      placeholder="e.g. 夜に駆ける YOASOBI"
+      search={searchSongs}
+      failureMessage="Search failed."
+    >
+      {(songs, close) =>
+        songs.length === 0 ? (
+          <p>No songs found.</p>
+        ) : (
+          <ul className="search-results">
+            {songs.map((song) => (
+              <SearchResult
+                key={song.video_id}
+                chosen={song.video_id === pickedId}
                 onClick={() => {
                   onPick(song)
-                  setResults(null)
+                  close()
                 }}
               >
                 {song.thumbnail_url && (
                   <img src={song.thumbnail_url} alt="" width={40} height={40} />
                 )}
-                <span className="song-result-text">
-                  <span className="song-result-title">{song.title}</span>
-                  <span className="song-result-meta">
+                <span className="search-result-text">
+                  <span className="search-result-title">{song.title}</span>
+                  <span className="search-result-meta">
                     {[song.artists, song.album].filter(Boolean).join(' · ')}
                   </span>
                 </span>
                 {song.duration_seconds !== null && (
-                  <span className="song-result-duration">
+                  <span className="search-result-duration">
                     {formatDuration(song.duration_seconds)}
                   </span>
                 )}
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
+              </SearchResult>
+            ))}
+          </ul>
+        )
+      }
+    </SearchDropdown>
   )
 }
