@@ -2474,6 +2474,17 @@ function RangeControl({
   )
 }
 
+// What the document page is editing, which it does one thing at a time.
+type EditMode =
+  | { kind: 'view' }
+  | { kind: 'lyrics'; draft: string }
+  // Each line's start as edited, null once its timing is deleted.
+  | { kind: 'timings'; draft: (number | null)[] }
+  // The song LRCLIB is searched for while a track to link is being chosen.
+  | { kind: 'lrclib'; song: LrclibSong }
+
+const VIEWING: EditMode = { kind: 'view' }
+
 export function DocumentViewPage() {
   const { id } = useParams<{ id: string }>()
   const documentId = Number(id)
@@ -2495,13 +2506,14 @@ export function DocumentViewPage() {
   const highlight = useHighlightSettings()
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
-  const [editingLyrics, setEditingLyrics] = useState(false)
-  // The song LRCLIB is searched for while a track to link is being chosen,
-  // and the match chosen, whose lyrics show in place of the document's.
-  const [lrclibSong, setLrclibSong] = useState<LrclibSong | null>(null)
+  const [mode, setMode] = useState<EditMode>(VIEWING)
+  const timingDraft = mode.kind === 'timings' ? mode.draft : null
+  const lrclibSong = mode.kind === 'lrclib' ? mode.song : null
+
+  // The LRCLIB match chosen while choosing one, whose lyrics show in place
+  // of the document's.
   const lrclibChoice = useLrclibChoice()
-  const lrclibPreview = lrclibChoice.lyrics
-  const [lyricsDraft, setLyricsDraft] = useState('')
+  const lrclibPreview = lrclibSong ? lrclibChoice.lyrics : null
   const {
     saving: savingLyrics,
     error: lyricsSaveError,
@@ -2512,9 +2524,6 @@ export function DocumentViewPage() {
   // comes back unchanged, so they're loaded again.
   const [lyricsSaves, setLyricsSaves] = useState(0)
 
-  // While timings are being edited, each line's start as edited, null once
-  // its timing is deleted; null the rest of the time.
-  const [timingDraft, setTimingDraft] = useState<(number | null)[] | null>(null)
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const {
     saving: savingTimings,
@@ -2545,9 +2554,9 @@ export function DocumentViewPage() {
     let cancelled = false
     setDoc(null)
     setLoading(true)
-    // Another document's timings, if they were being edited when it was
-    // left: this page stays mounted from one document to the next.
-    setTimingDraft(null)
+    // Whatever of another document was being edited when it was left: this
+    // page stays mounted from one document to the next.
+    setMode(VIEWING)
     setError(null)
 
     fetchDocument(documentId)
@@ -2676,8 +2685,13 @@ export function DocumentViewPage() {
   // untimed.
   const handleStartChange = useCallback(
     (line: number, start: number | null) =>
-      setTimingDraft(
-        (draft) => draft && draft.map((s, i) => (i === line ? start : s)),
+      setMode((mode) =>
+        mode.kind === 'timings'
+          ? {
+              ...mode,
+              draft: mode.draft.map((s, i) => (i === line ? start : s)),
+            }
+          : mode,
       ),
     [],
   )
@@ -2749,7 +2763,8 @@ export function DocumentViewPage() {
   if (!doc) return null
 
   function handleSaveLyrics() {
-    const trimmed = lyricsDraft.trim()
+    if (mode.kind !== 'lyrics') return
+    const trimmed = mode.draft.trim()
     if (!trimmed) return
     saveLyrics(
       () => updateDocumentText(documentId, trimmed),
@@ -2759,7 +2774,7 @@ export function DocumentViewPage() {
         // on save, so loading them again regenerates everything from
         // scratch, same as a never-before-processed document.
         setLyricsSaves((count) => count + 1)
-        setEditingLyrics(false)
+        setMode(VIEWING)
       },
     )
   }
@@ -2772,16 +2787,20 @@ export function DocumentViewPage() {
     const channel = player?.getVideoData()?.author ?? ''
     // 0 until the video has loaded.
     const duration = Math.round(player?.getDuration() ?? 0)
-    setLrclibSong({
-      title: doc.title,
-      artists: channel.replace(/ - Topic$/, ''),
-      duration_seconds: duration || null,
+    // The last choosing's match, which outlives it, even across documents.
+    lrclibChoice.choose(undefined)
+    setMode({
+      kind: 'lrclib',
+      song: {
+        title: doc.title,
+        artists: channel.replace(/ - Topic$/, ''),
+        duration_seconds: duration || null,
+      },
     })
   }
 
   function stopChoosingLrclib() {
-    setLrclibSong(null)
-    lrclibChoice.choose(undefined)
+    setMode(VIEWING)
   }
 
   function handleDocumentLinked(updated: Document) {
@@ -2789,9 +2808,7 @@ export function DocumentViewPage() {
     stopChoosingLrclib()
   }
 
-  const editingTimings = timingDraft !== null
-  // Whether anything is being edited, which the page does one at a time.
-  const editing = editingLyrics || editingTimings || lrclibSong !== null
+  const editing = mode.kind !== 'view'
   // Timings need the lyrics to show them against, and a video to play them
   // in.
   const canEditTimings = hasVideo && tokens !== null
@@ -2800,11 +2817,12 @@ export function DocumentViewPage() {
     if (!lyricsLines) return
     setTimingsSaveError(null)
     // From the document's timings, or without any, every line untimed.
-    setTimingDraft(
-      lineTimings
+    setMode({
+      kind: 'timings',
+      draft: lineTimings
         ? lineTimings.map((timing) => timing?.start ?? null)
         : lyricsLines.map(() => null),
-    )
+    })
   }
 
   function handleSaveTimings() {
@@ -2824,14 +2842,14 @@ export function DocumentViewPage() {
       () => saveLineTimings(doc.id, doc.text, shownTimings),
       (updated) => {
         setDoc(updated)
-        setTimingDraft(null)
+        setMode(VIEWING)
       },
     )
   }
 
   function handleCancelTimings() {
     if (timingsChanged) setConfirmingDiscard(true)
-    else setTimingDraft(null)
+    else setMode(VIEWING)
   }
 
   return (
@@ -2874,9 +2892,8 @@ export function DocumentViewPage() {
               type="button"
               className="lyrics-edit-toggle"
               onClick={() => {
-                setLyricsDraft(doc.text)
                 setLyricsSaveError(null)
-                setEditingLyrics(true)
+                setMode({ kind: 'lyrics', draft: doc.text })
               }}
             >
               Edit lyrics
@@ -2884,9 +2901,9 @@ export function DocumentViewPage() {
           )}
         </div>
 
-        {!editingLyrics && (
+        {mode.kind !== 'lyrics' && (
           <div className="text-size-controls">
-            {!editingTimings && (
+            {mode.kind !== 'timings' && (
               <>
                 <RangeControl
                   id="font-size"
@@ -2897,15 +2914,18 @@ export function DocumentViewPage() {
                   min={14}
                   max={32}
                 />
-                <RangeControl
-                  id="furigana-size"
-                  label="Furigana size"
-                  unit="px"
-                  value={furiganaSize}
-                  onChange={setFuriganaSize}
-                  min={6}
-                  max={20}
-                />
+                {/* An LRCLIB track being previewed has no furigana. */}
+                {!lrclibPreview && (
+                  <RangeControl
+                    id="furigana-size"
+                    label="Furigana size"
+                    unit="px"
+                    value={furiganaSize}
+                    onChange={setFuriganaSize}
+                    min={6}
+                    max={20}
+                  />
+                )}
               </>
             )}
             <RangeControl
@@ -2922,7 +2942,7 @@ export function DocumentViewPage() {
                 </>
               }
             />
-            {editingTimings ? (
+            {mode.kind === 'timings' ? (
               <>
                 <RangeControl
                   id="nudge-ms"
@@ -2998,12 +3018,12 @@ export function DocumentViewPage() {
         {timingsSaveError && <p className="form-error">{timingsSaveError}</p>}
       </div>
 
-      {editingLyrics ? (
+      {mode.kind === 'lyrics' ? (
         <div className="lyrics-editor">
           <textarea
             id="lyrics"
-            value={lyricsDraft}
-            onChange={(e) => setLyricsDraft(e.target.value)}
+            value={mode.draft}
+            onChange={(e) => setMode({ kind: 'lyrics', draft: e.target.value })}
             rows={16}
             disabled={savingLyrics}
           />
@@ -3011,7 +3031,7 @@ export function DocumentViewPage() {
           <div className="lyrics-editor-actions">
             <button
               type="button"
-              disabled={savingLyrics || !lyricsDraft.trim()}
+              disabled={savingLyrics || !mode.draft.trim()}
               onClick={handleSaveLyrics}
             >
               {savingLyrics ? 'Saving…' : 'Save'}
@@ -3019,7 +3039,7 @@ export function DocumentViewPage() {
             <button
               type="button"
               disabled={savingLyrics}
-              onClick={() => setEditingLyrics(false)}
+              onClick={() => setMode(VIEWING)}
             >
               Cancel
             </button>
@@ -3106,7 +3126,7 @@ export function DocumentViewPage() {
         confirmLabel="Discard"
         onConfirm={() => {
           setConfirmingDiscard(false)
-          setTimingDraft(null)
+          setMode(VIEWING)
         }}
         onCancel={() => setConfirmingDiscard(false)}
       />

@@ -47,11 +47,6 @@ class LrclibUnavailable(Exception):
     request."""
 
 
-class _NotFound(LrclibUnavailable):
-    """LRCLIB answered 404. Only a lookup of one track treats that as a
-    refusal; anywhere else it's LRCLIB failing."""
-
-
 _TRACK_ID_RE = re.compile(r"\d+")
 _GET_BY_ID_PATH_RE = re.compile(r"/api/get/(\d+)/?")
 
@@ -137,7 +132,8 @@ def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
     )
 
 
-def _get_json(uri: str) -> Any:
+def _get_json(uri: str) -> Any | None:
+    """The JSON at `uri`, or None when LRCLIB answers 404."""
     request = urllib.request.Request(
         uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
     )
@@ -147,7 +143,7 @@ def _get_json(uri: str) -> Any:
     # HTTPError is a URLError, so it has to be caught first.
     except urllib.error.HTTPError as exc:
         if exc.code == 404:
-            raise _NotFound("LRCLIB has no track at that address.") from exc
+            return None
         if exc.code == 429:
             retry_after = exc.headers.get("Retry-After")
             wait = f" in {retry_after} seconds" if retry_after else " later"
@@ -165,10 +161,9 @@ def fetch_lyrics(uri: str) -> LrclibLyrics:
     """The lyrics the LRCLIB record at `uri` (as normalize_lrclib_uri
     returns it) currently has: its synced lyrics if any, else its plain
     ones."""
-    try:
-        record = _get_json(uri)
-    except _NotFound as exc:
-        raise LrclibError(str(exc)) from exc
+    record = _get_json(uri)
+    if record is None:
+        raise LrclibError("LRCLIB has no track at that address.")
     return _record_lyrics(record)
 
 
@@ -229,9 +224,14 @@ def search_tracks(
     responses, errors = [], []
     for future in futures:
         try:
-            responses.append(future.result())
+            result = future.result()
         except LrclibUnavailable as exc:
             errors.append(exc)
+            continue
+        if result is None:
+            errors.append(LrclibUnavailable("Couldn't search LRCLIB."))
+        else:
+            responses.append(result)
     # A failed variant only means fewer matches, so it's only an error when
     # every variant failed.
     if not responses:
