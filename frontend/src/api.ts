@@ -536,6 +536,39 @@ export async function searchSongs(q: string): Promise<SongResult[]> {
   return response.json()
 }
 
+export interface LrclibCandidate {
+  id: number
+  uri: string
+  track_name: string
+  artist_name: string
+  album_name: string | null
+  duration: number | null
+  synced: boolean
+  title_match: 'whole' | 'partial'
+  duration_delta: number | null
+  within_tolerance: boolean
+  preview: string[]
+}
+
+export async function searchLrclib(params: {
+  title: string
+  artist: string
+  durationSeconds: number | null
+}): Promise<LrclibCandidate[]> {
+  const url = new URL(`${API_URL}/lrclib/search`, window.location.origin)
+  url.searchParams.set('title', params.title)
+  url.searchParams.set('artist', params.artist)
+  if (params.durationSeconds !== null) {
+    url.searchParams.set('duration', String(params.durationSeconds))
+  }
+
+  const response = await fetch(url)
+
+  await assertOk(response)
+
+  return response.json()
+}
+
 export async function fetchDocuments(params: {
   page: number
   pageSize: number

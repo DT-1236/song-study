@@ -535,6 +535,70 @@ li.grammar-legend-item {
   font-size: 0.85em;
 }
 
+.lrclib-matches {
+  margin: 0.75rem 0 0;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background-color: var(--bg-elevated);
+}
+
+.lrclib-matches ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* Qualified to outrank .new-document-form label's weight and margin. */
+.new-document-form .lrclib-match {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  margin-top: 0;
+  padding: 0.35rem 0;
+  font-weight: normal;
+  cursor: pointer;
+}
+
+.lrclib-match input {
+  margin-top: 0.25rem;
+}
+
+.lrclib-match-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.lrclib-match-meta {
+  color: var(--text-muted);
+  font-size: 0.85em;
+}
+
+.lrclib-match-badge {
+  margin-left: 0.5rem;
+  color: var(--accent);
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.new-document-form .lrclib-matches-toggle {
+  margin-top: 0.25rem;
+  padding: 0.2rem 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+}
+
+.manual-ids {
+  margin-top: 0.75rem;
+}
+
+.manual-ids[open] {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .new-document-form button:disabled {
   cursor: default;
   opacity: 0.6;
