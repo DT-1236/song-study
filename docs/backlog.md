@@ -30,3 +30,11 @@ so it can be picked up without re-deriving the reasoning.
   needs its own small effect on `data`, since the hook exposes no completion
   callback. Worth it only if that effect stays small. *Sonnet 5, low*: the
   browser check on the New document page catches a missed pre-selection.
+
+## `/simplify` on song search step 4 (LRCLIB lyrics and playback highlight)
+
+- **One way to mark the chosen result row.** `frontend/src/LrclibMatches.tsx`
+  (twice) and `frontend/src/SongSearch.tsx` each spell
+  `x ? 'song-result chosen' : 'song-result'`. Replace them with a shared
+  helper (or a `chosen` prop on a small `ResultRow` component) so the marker
+  changes in one place. *Haiku 4.5, low*: mechanical, one obvious answer.

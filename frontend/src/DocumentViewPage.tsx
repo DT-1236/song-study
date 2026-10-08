@@ -2465,11 +2465,6 @@ export function DocumentViewPage() {
   const [tokens, setTokens] = useState<Token[] | null>(null)
   const [tokensLoading, setTokensLoading] = useState(true)
   const [tokensError, setTokensError] = useState<string | null>(null)
-  // Counts the player's seeks. The playing-line effect depends on it, so a
-  // seek re-runs it at once rather than waiting for the next poll, and after
-  // any other state the same keypress changed (a nudge's new timings).
-  const [seeks, setSeeks] = useState(0)
-  const handleSeek = useCallback(() => setSeeks((count) => count + 1), [])
 
   // Viewing settings: the same for every document, and kept across reloads.
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
@@ -2710,10 +2705,9 @@ export function DocumentViewPage() {
     )
   }, [timingDraft, lineTimings])
 
-  const playingLine = usePlayingLine(
+  const { playingLine, onSeek: handleSeek } = usePlayingLine(
     youtubePlayerRef,
     hasVideo ? shownTimings : null,
-    seeks,
   )
 
   useEffect(() => {

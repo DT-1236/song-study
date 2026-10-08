@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   LRCLIB_URI_PLACEHOLDER,
   createDocument,
@@ -31,14 +31,12 @@ function SyncedLyrics({
       style={highlight.style}
     >
       {text.split('\n').map((line, index) => {
-        const classNames = ['timing-row']
+        const classNames = ['lyrics-line']
         if (line.trim() === '') classNames.push('blank')
         if (index === playingLine) classNames.push('playing')
         return (
           <div key={index} className={classNames.join(' ')}>
-            <div className="timing-text">
-              <span>{line}</span>
-            </div>
+            <span>{line}</span>
           </div>
         )
       })}
@@ -56,9 +54,10 @@ export function NewDocumentForm() {
   // later pick may replace it; once it's edited, it never is.
   const [pickedTitle, setPickedTitle] = useState('')
   const [pickedSong, setPickedSong] = useState<SongResult | null>(null)
-  // The LRCLIB match chosen for the picked song. Its track is set as
-  // lrclibUri only once its lyrics have loaded.
-  const [choice, setChoice] = useState<LrclibCandidate | null>(null)
+  // The LRCLIB match chosen for the picked song, null for none, or undefined
+  // before a choice (or after one is undone). Its track is set as lrclibUri
+  // only once its lyrics have loaded.
+  const [choice, setChoice] = useState<LrclibCandidate | null>()
   // The last chosen track's lyrics, by its id, so they're never shown for
   // another choice.
   const [loaded, setLoaded] = useState<{
@@ -71,17 +70,14 @@ export function NewDocumentForm() {
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
-  // Counts the player's seeks, so the highlight follows one at once.
-  const [seeks, setSeeks] = useState(0)
-  const handleSeek = useCallback(() => setSeeks((count) => count + 1), [])
 
   const usingLrclib = lrclibUri.trim() !== ''
+  const hasVideo = youtubeVideoId.trim() !== ''
   const choiceLyrics = choice && loaded?.id === choice.id ? loaded.lyrics : null
-  const loadingLyrics = choice !== null && choiceLyrics === null
-  const playingLine = usePlayingLine(
+  const loadingLyrics = Boolean(choice) && choiceLyrics === null
+  const { playingLine, onSeek } = usePlayingLine(
     playerRef,
-    choiceLyrics?.lines ?? null,
-    seeks,
+    hasVideo ? (choiceLyrics?.lines ?? null) : null,
   )
 
   const choiceId = choice?.id
@@ -99,7 +95,7 @@ export function NewDocumentForm() {
         if (cancelled) return
         setLyricsError(errorMessage(err, "Couldn't load the lyrics."))
         // So the form can't be saved with a track whose lyrics didn't load.
-        setChoice(null)
+        setChoice(undefined)
       })
 
     return () => {
@@ -112,7 +108,7 @@ export function NewDocumentForm() {
     if (song.video_id === pickedSong?.video_id) return
     setPickedSong(song)
     // The previous song's track doesn't belong to this one.
-    setChoice(null)
+    setChoice(undefined)
     setLyricsError(null)
     setLrclibUri('')
     setYoutubeVideoId(song.video_id)
@@ -123,7 +119,8 @@ export function NewDocumentForm() {
   }
 
   function handleChoose(candidate: LrclibCandidate | null) {
-    if (candidate?.id === choice?.id) return
+    // The same objects as before, from LrclibMatches' own list.
+    if (candidate === choice) return
     setChoice(candidate)
     setLyricsError(null)
     // Set again once the new track's lyrics load.
@@ -152,7 +149,7 @@ export function NewDocumentForm() {
       setYoutubeVideoId('')
       setPickedTitle('')
       setPickedSong(null)
-      setChoice(null)
+      setChoice(undefined)
     } catch (err) {
       setError(errorMessage(err, 'Something went wrong.'))
     } finally {
@@ -165,7 +162,7 @@ export function NewDocumentForm() {
     lyricsField = (
       <SyncedLyrics text={choiceLyrics.text} playingLine={playingLine} />
     )
-  } else if (loadingLyrics || choiceLyrics || usingLrclib) {
+  } else if (loadingLyrics || usingLrclib) {
     lyricsField = (
       <textarea
         id="lyrics"
@@ -194,11 +191,11 @@ export function NewDocumentForm() {
       <h1>New document</h1>
 
       <SongSearch pickedId={pickedSong?.video_id ?? null} onPick={handlePick} />
-      {youtubeVideoId.trim() !== '' && (
+      {hasVideo && (
         <YouTubePlayer
           ref={playerRef}
           videoId={youtubeVideoId.trim()}
-          onSeek={handleSeek}
+          onSeek={onSeek}
         />
       )}
 
@@ -215,7 +212,7 @@ export function NewDocumentForm() {
         <LrclibMatches
           key={pickedSong.video_id}
           song={pickedSong}
-          chosenId={choice?.id ?? null}
+          chosen={choice}
           onChoose={handleChoose}
         />
       )}
@@ -237,7 +234,7 @@ export function NewDocumentForm() {
           onChange={(e) => {
             setLrclibUri(e.target.value)
             // A typed track isn't the chosen match any more.
-            setChoice(null)
+            setChoice(undefined)
           }}
           placeholder={LRCLIB_URI_PLACEHOLDER}
         />

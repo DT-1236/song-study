@@ -31,25 +31,23 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
 }
 
 // Lists the LRCLIB tracks matching the picked song, and reports the one
-// chosen (or null for "none"); `chosenId` is the choice the parent kept. A
-// choice collapses the list to its row, which reopens it when clicked.
-// Matches whose length differs from the song's sit behind a toggle. A synced
-// match within tolerance is chosen up front. The parent remounts it (by key)
-// for each newly picked song.
+// chosen (or null for "none"). `chosen` is the choice the parent kept, or
+// undefined while there's none: a choice collapses the list to its row, which
+// reopens it when clicked. Matches whose length differs from the song's sit
+// behind a toggle. A synced match within tolerance is chosen up front. The
+// parent remounts it (by key) for each newly picked song.
 export function LrclibMatches({
   song,
-  chosenId,
+  chosen,
   onChoose,
 }: {
   song: SongResult
-  chosenId: number | null
+  chosen: LrclibCandidate | null | undefined
   onChoose: (candidate: LrclibCandidate | null) => void
 }) {
   const [candidates, setCandidates] = useState<LrclibCandidate[] | null>(null)
-  // The choice the list last collapsed on, undefined while it's open. Once
-  // the parent's choice moves off it (the lyrics failed to load, say), the
-  // list opens again.
-  const [collapsedOn, setCollapsedOn] = useState<number | null | undefined>()
+  // Whether the list was reopened on a choice, until the next one.
+  const [reopened, setReopened] = useState(false)
   const [showOthers, setShowOthers] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const onChooseRef = useLatest(onChoose)
@@ -66,10 +64,7 @@ export function LrclibMatches({
         if (cancelled) return
         setCandidates(found)
         const first = found[0]
-        if (first?.within_tolerance && first.synced) {
-          setCollapsedOn(first.id)
-          onChooseRef.current(first)
-        }
+        if (first?.within_tolerance && first.synced) onChooseRef.current(first)
       })
       .catch((err) => {
         if (cancelled) return
@@ -82,39 +77,39 @@ export function LrclibMatches({
   }, [song, onChooseRef])
 
   function choose(candidate: LrclibCandidate | null) {
-    setCollapsedOn(candidate?.id ?? null)
+    setReopened(false)
     onChoose(candidate)
   }
 
   if (error) return <p className="form-error">{error}</p>
   if (candidates === null) return <p>Searching LRCLIB…</p>
 
-  const chosen = candidates.find((c) => c.id === chosenId) ?? null
-
-  if (collapsedOn !== undefined && collapsedOn === chosenId) {
+  if (chosen !== undefined && !reopened) {
     return (
       <fieldset className="lrclib-matches">
         <legend>Lyrics from LRCLIB</legend>
-        <button
-          type="button"
-          className="song-result chosen"
-          onClick={() => setCollapsedOn(undefined)}
-        >
-          {chosen ? (
-            <CandidateText candidate={chosen} />
-          ) : (
-            <span className="song-result-text">{NONE_LABEL}</span>
-          )}
-          <span className="lrclib-match-change">Change</span>
-        </button>
+        <ul className="song-results">
+          <li>
+            <button
+              type="button"
+              className="song-result chosen"
+              onClick={() => setReopened(true)}
+            >
+              {chosen ? (
+                <CandidateText candidate={chosen} />
+              ) : (
+                <span className="song-result-text">{NONE_LABEL}</span>
+              )}
+              <span className="lrclib-match-change">Change</span>
+            </button>
+          </li>
+        </ul>
       </fieldset>
     )
   }
 
   // The chosen match stays listed, even if it's one of the others.
-  const matching = candidates.filter(
-    (c) => c.within_tolerance || c.id === chosenId,
-  )
+  const matching = candidates.filter((c) => c.within_tolerance || c === chosen)
   const hiddenCount = candidates.length - matching.length
   const shown = showOthers ? candidates : matching
 
@@ -126,9 +121,7 @@ export function LrclibMatches({
           <li key={c.id}>
             <button
               type="button"
-              className={
-                c.id === chosenId ? 'song-result chosen' : 'song-result'
-              }
+              className={c === chosen ? 'song-result chosen' : 'song-result'}
               onClick={() => choose(c)}
             >
               <CandidateText candidate={c} />
@@ -138,7 +131,7 @@ export function LrclibMatches({
         <li>
           <button
             type="button"
-            className={chosenId === null ? 'song-result chosen' : 'song-result'}
+            className={chosen === null ? 'song-result chosen' : 'song-result'}
             onClick={() => choose(null)}
           >
             <span className="song-result-text">{NONE_LABEL}</span>
