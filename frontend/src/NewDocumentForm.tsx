@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useState } from 'react'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { LrclibMatches } from './LrclibMatches'
@@ -21,7 +21,11 @@ export function NewDocumentForm() {
   const usingLrclib = lrclibUri.trim() !== ''
 
   function handlePick(song: SongResult) {
+    // Picking the song already shown keeps its matches and the choice made.
+    if (song.video_id === pickedSong?.video_id) return
     setPickedSong(song)
+    // The previous song's track doesn't belong to this one.
+    setLrclibUri('')
     setYoutubeVideoId(song.video_id)
     if (title === '' || title === pickedTitle) {
       setTitle(song.title)
@@ -29,9 +33,9 @@ export function NewDocumentForm() {
     }
   }
 
-  const handleChoose = useCallback((candidate: LrclibCandidate | null) => {
+  function handleChoose(candidate: LrclibCandidate | null) {
     setLrclibUri(candidate ? String(candidate.id) : '')
-  }, [])
+  }
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -81,7 +85,11 @@ export function NewDocumentForm() {
       />
 
       {pickedSong && (
-        <LrclibMatches song={pickedSong} onChoose={handleChoose} />
+        <LrclibMatches
+          key={pickedSong.video_id}
+          song={pickedSong}
+          onChoose={handleChoose}
+        />
       )}
 
       {!usingLrclib && (

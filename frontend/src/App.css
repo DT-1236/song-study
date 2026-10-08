@@ -593,6 +593,16 @@ li.grammar-legend-item {
   margin-top: 0.75rem;
 }
 
+.manual-ids > summary {
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.manual-ids > summary:hover {
+  color: var(--text);
+}
+
 .manual-ids[open] {
   display: flex;
   flex-direction: column;

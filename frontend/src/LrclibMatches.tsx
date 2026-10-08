@@ -50,7 +50,8 @@ function CandidateOption({
 
 // Lists the LRCLIB tracks matching the picked song, and reports the chosen one
 // (or null for "none"). Matches whose length differs from the song's sit behind
-// a toggle. A synced match within tolerance is chosen up front.
+// a toggle. A synced match within tolerance is chosen up front. The parent
+// remounts it (by key) for each newly picked song.
 export function LrclibMatches({
   song,
   onChoose,
@@ -66,11 +67,6 @@ export function LrclibMatches({
 
   useEffect(() => {
     let cancelled = false
-    setCandidates(null)
-    setChosenId(null)
-    setShowOthers(false)
-    setError(null)
-    onChooseRef.current(null)
 
     searchLrclib({
       title: song.title,
@@ -105,13 +101,13 @@ export function LrclibMatches({
   if (candidates === null) return <p>Searching LRCLIB…</p>
 
   const matching = candidates.filter((c) => c.within_tolerance)
-  const others = candidates.filter((c) => !c.within_tolerance)
+  const hiddenCount = candidates.length - matching.length
 
   return (
     <fieldset className="lrclib-matches">
       <legend>Lyrics from LRCLIB</legend>
       <ul>
-        {matching.map((c) => (
+        {(showOthers ? candidates : matching).map((c) => (
           <CandidateOption
             key={c.id}
             candidate={c}
@@ -119,15 +115,6 @@ export function LrclibMatches({
             onSelect={() => choose(c)}
           />
         ))}
-        {showOthers &&
-          others.map((c) => (
-            <CandidateOption
-              key={c.id}
-              candidate={c}
-              checked={chosenId === c.id}
-              onSelect={() => choose(c)}
-            />
-          ))}
         <li>
           <label className="lrclib-match">
             <input
@@ -140,13 +127,13 @@ export function LrclibMatches({
           </label>
         </li>
       </ul>
-      {others.length > 0 && (
+      {hiddenCount > 0 && (
         <button
           type="button"
           className="lrclib-matches-toggle"
           onClick={() => setShowOthers((shown) => !shown)}
         >
-          {showOthers ? 'Hide' : `Show ${others.length} with other lengths`}
+          {showOthers ? 'Hide' : `Show ${hiddenCount} with other lengths`}
         </button>
       )}
     </fieldset>
