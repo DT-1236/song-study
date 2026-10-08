@@ -34,9 +34,10 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
 // Lists the LRCLIB tracks matching the picked song, and reports the one
 // chosen (or null for "none"). `chosen` is the choice the parent kept, or
 // undefined while there's none: a choice collapses the list to its row, which
-// reopens it when clicked, and a click elsewhere collapses it again. Matches whose length differs from the song's sit
-// behind a toggle. A synced match within tolerance is chosen up front. The
-// parent remounts it (by key) for each newly picked song.
+// reopens it when clicked, and a click elsewhere collapses it again. Matches
+// whose length differs from the song's sit behind a toggle. A synced match
+// within tolerance is chosen up front. The parent remounts it (by key) for
+// each newly picked song.
 export function LrclibMatches({
   song,
   chosen,
@@ -53,7 +54,8 @@ export function LrclibMatches({
   const [error, setError] = useState<string | null>(null)
   const onChooseRef = useLatest(onChoose)
   const rootRef = useRef<HTMLFieldSetElement>(null)
-  // Without a choice, the list is all there is to show.
+  // Only a list reopened on a choice closes: without one, the list is all
+  // there is to show.
   useClickOutside(rootRef, reopened, () => setReopened(false))
 
   useEffect(() => {
