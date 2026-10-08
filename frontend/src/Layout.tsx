@@ -28,7 +28,9 @@ export function Layout() {
   const [showGrammarLegend, setShowGrammarLegend] = useState(false)
 
   // Navigating closes whichever drawer is open.
-  useEffect(() => setDrawer(null), [pathname])
+  useEffect(() => {
+    setDrawer(null)
+  }, [pathname])
 
   useEffect(() => {
     if (drawer === null) return

@@ -1,4 +1,4 @@
-import { useSyncExternalStore } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
 // Below this the nav and the lookup become drawers. Must match the query
 // repeated in each narrow-screen @media block in App.css, since CSS media
@@ -10,12 +10,14 @@ export const NO_HOVER = '(hover: none)'
 
 /** Whether `query` currently matches, re-rendering when that changes. */
 export function useMediaQuery(query: string): boolean {
-  return useSyncExternalStore(
-    (onChange) => {
+  // Stable per query, so a re-render doesn't unsubscribe and resubscribe.
+  const subscribe = useCallback(
+    (onChange: () => void) => {
       const list = window.matchMedia(query)
       list.addEventListener('change', onChange)
       return () => list.removeEventListener('change', onChange)
     },
-    () => window.matchMedia(query).matches,
+    [query],
   )
+  return useSyncExternalStore(subscribe, () => window.matchMedia(query).matches)
 }
