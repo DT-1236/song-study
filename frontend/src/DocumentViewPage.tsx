@@ -46,6 +46,7 @@ import type {
   WordOption,
 } from './api'
 import { ConfirmDialog } from './ConfirmDialog'
+import { LinePlayButton } from './LinePlayButton'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { useTabs } from './TabsContext'
@@ -64,6 +65,11 @@ import { useSave } from './useSave'
 import { usePersistentState } from './usePersistentState'
 import { useHighlightSettings } from './useHighlightSettings'
 import { usePlayingLine } from './usePlayingLine'
+import {
+  isTypingTarget,
+  usePlayerShortcuts,
+  useSeekSeconds,
+} from './usePlayerShortcuts'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
@@ -75,11 +81,6 @@ const REVIEW_REASON_LABELS: Record<string, string> = {
 // Stable empty lists, for props that must keep one identity.
 const NO_TOKENS: Token[] = []
 const NO_WORDS: DocumentWord[] = []
-
-// Elements where a focused Space already activates the control natively
-// (typing targets are handled separately, in isTypingTarget) — the global
-// play/pause listener must not override this.
-const SPACE_HANDLED_NATIVELY = new Set(['BUTTON', 'SELECT', 'A'])
 
 const LRCLIB_LINK_NOTE =
   "Linking replaces these lyrics with LRCLIB's. If they differ, furigana and glosses are re-processed from " +
@@ -94,16 +95,6 @@ const LRCLIB_SYNC_NOTE =
   'Lyrics load from LRCLIB each time this page opens. If they change there (say, someone uploads a corrected ' +
   "version), they replace these and any readings you've manually selected are reset — a timing-only update " +
   'keeps them.'
-
-// Whether keys pressed while `element` has focus type into it.
-function isTypingTarget(element: Element | null): boolean {
-  return (
-    element instanceof HTMLElement &&
-    (element.tagName === 'INPUT' ||
-      element.tagName === 'TEXTAREA' ||
-      element.isContentEditable)
-  )
-}
 
 // True when a composite gloss (a compound with no JMDict entry of its own,
 // shown broken into parts instead — see gloss.source) has a piece whose own
@@ -1549,33 +1540,6 @@ function SelectionPanel({
   )
 }
 
-// Plays the song from `start`, the start of the line it's placed before.
-// Memoized like TokenSpan, so the playing line moving doesn't re-render it.
-const LinePlayButton = memo(function LinePlayButton({
-  start,
-  onPlayLine,
-}: {
-  start: number
-  onPlayLine: (start: number) => void
-}) {
-  return (
-    <button
-      type="button"
-      className="icon-button line-play"
-      aria-label="Play from this line"
-      title="Play from this line"
-      // Leaves focus where it was, so Space keeps playing and pausing rather
-      // than pressing this again.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={() => onPlayLine(start)}
-    >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2 1 9 5 2 9Z" />
-      </svg>
-    </button>
-  )
-})
-
 // One token of the lyrics. Memoized, with every prop either a primitive or
 // stable across renders, so a change that doesn't touch this token (the
 // playing line moving elsewhere, another token hovered) doesn't re-render it.
@@ -2469,7 +2433,7 @@ export function DocumentViewPage() {
   // Viewing settings: the same for every document, and kept across reloads.
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
   const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
-  const [seekSeconds, setSeekSeconds] = usePersistentState('seekSeconds', 3)
+  const [seekSeconds, setSeekSeconds] = useSeekSeconds()
   const highlight = useHighlightSettings()
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
 
@@ -2512,37 +2476,7 @@ export function DocumentViewPage() {
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
   const [headerHeight, setHeaderHeight] = useState(0)
 
-  // Spacebar play/pause and ,/. seek by seekSeconds, same as YouTube's own
-  // page — but only when focus isn't on something these keys already have
-  // a native meaning for: typing (the lyrics textarea, a reading-correction
-  // input) for all three, or activating a focused button/link for Space
-  // specifically, which would otherwise get silently overridden.
-  useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      const active = document.activeElement
-
-      if (event.code === 'Space') {
-        const isNativeSpaceTarget =
-          active instanceof HTMLElement &&
-          SPACE_HANDLED_NATIVELY.has(active.tagName)
-        if (isNativeSpaceTarget || isTypingTarget(active)) return
-        event.preventDefault()
-        youtubePlayerRef.current?.togglePlay()
-        return
-      }
-
-      if (event.code === 'Comma' || event.code === 'Period') {
-        if (isTypingTarget(active)) return
-        event.preventDefault()
-        youtubePlayerRef.current?.seekBy(
-          event.code === 'Comma' ? -seekSeconds : seekSeconds,
-        )
-      }
-    }
-
-    window.addEventListener('keydown', handleKeyDown)
-    return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [seekSeconds])
+  usePlayerShortcuts(youtubePlayerRef, seekSeconds)
 
   useEffect(() => {
     let cancelled = false

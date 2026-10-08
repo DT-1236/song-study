@@ -823,15 +823,14 @@ li.grammar-legend-item {
   cursor: pointer;
 }
 
-/* LRCLIB's lyrics on the new-document form, a line per row, with no
-   furigana to make room for. */
+/* LRCLIB's lyrics on the new-document form: the document page's lyrics box,
+   with no furigana to make room for. */
 .synced-lyrics {
   --lyrics-line-height: 1.8;
 }
 
 /* A blank line between stanzas, kept as tall as a line of text. */
-.timing-row.blank,
-.lyrics-line.blank {
+.timing-row.blank {
   height: calc(1em * var(--lyrics-line-height));
 }
 
@@ -1317,20 +1316,17 @@ label.apply-to-all {
 }
 
 /* The line being sung, in the color and opacity chosen on the document
-   page: on the text's inline pieces (tokens, the timing editor's, or the
-   new-document form's lines of LRCLIB lyrics), so
+   page: on the text's inline pieces (tokens, or the timing editor's), so
    the furigana above them stays clear, as the line's box wouldn't.
    Painted on ::before rather than the piece itself for the same reason as
    .token.group-looked-at above: a piece's own background-color affects
    ruby overhang from its neighbors, which would shift the line. */
-.timing-text > span,
-.lyrics-line > span {
+.timing-text > span {
   position: relative;
   z-index: 0;
 }
 
-.timing-text > span::before,
-.lyrics-line > span::before {
+.timing-text > span::before {
   content: '';
   position: absolute;
   inset: 0;
@@ -1338,8 +1334,7 @@ label.apply-to-all {
 }
 
 .token.playing::before,
-.timing-row.playing .timing-text > span::before,
-.lyrics-line.playing > span::before {
+.timing-row.playing .timing-text > span::before {
   background-color: color-mix(
     in srgb,
     var(--highlight-color) var(--highlight-opacity),

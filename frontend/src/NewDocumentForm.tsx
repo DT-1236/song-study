@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 import {
   LRCLIB_URI_PLACEHOLDER,
   createDocument,
@@ -6,41 +6,50 @@ import {
   fetchLrclibLyrics,
 } from './api'
 import type { LrclibCandidate, LrclibLyrics, SongResult } from './api'
+import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import { SongSearch } from './SongSearch'
 import { useHighlightSettings } from './useHighlightSettings'
+import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import { usePlayingLine } from './usePlayingLine'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
-// LRCLIB's lyrics as a read-only list of lines, the one being sung at
-// `playingLine` highlighted.
+// LRCLIB's lyrics, read-only, as the document page shows them: a play
+// button before each timed line, and the line being sung at `playingLine`
+// highlighted.
 function SyncedLyrics({
-  text,
+  lyrics,
   playingLine,
+  onPlayLine,
 }: {
-  text: string
+  lyrics: LrclibLyrics
   playingLine: number | null
+  onPlayLine: (start: number) => void
 }) {
   const highlight = useHighlightSettings()
   return (
-    <div
+    <p
       id="lyrics"
-      className="lyrics-box synced-lyrics"
+      className="lyrics-box has-line-play synced-lyrics"
       aria-labelledby="lyrics-label"
       style={highlight.style}
     >
-      {text.split('\n').map((line, index) => {
-        const classNames = ['lyrics-line']
-        if (line.trim() === '') classNames.push('blank')
-        if (index === playingLine) classNames.push('playing')
+      {lyrics.text.split('\n').map((line, index) => {
+        const start = lyrics.lines?.[index]?.start
         return (
-          <div key={index} className={classNames.join(' ')}>
-            <span>{line}</span>
-          </div>
+          <Fragment key={index}>
+            {index > 0 && '\n'}
+            {line.trim() !== '' && start !== undefined && (
+              <LinePlayButton start={start} onPlayLine={onPlayLine} />
+            )}
+            <span className={index === playingLine ? 'token playing' : 'token'}>
+              {line}
+            </span>
+          </Fragment>
         )
       })}
-    </div>
+    </p>
   )
 }
 
@@ -70,6 +79,12 @@ export function NewDocumentForm() {
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
+  const [seekSeconds] = useSeekSeconds()
+  usePlayerShortcuts(playerRef, seekSeconds)
+  const handlePlayLine = useCallback(
+    (start: number) => playerRef.current?.playFrom(start),
+    [],
+  )
 
   const usingLrclib = lrclibUri.trim() !== ''
   const hasVideo = youtubeVideoId.trim() !== ''
@@ -160,7 +175,11 @@ export function NewDocumentForm() {
   let lyricsField
   if (choiceLyrics?.lines) {
     lyricsField = (
-      <SyncedLyrics text={choiceLyrics.text} playingLine={playingLine} />
+      <SyncedLyrics
+        lyrics={choiceLyrics}
+        playingLine={playingLine}
+        onPlayLine={handlePlayLine}
+      />
     )
   } else if (loadingLyrics || usingLrclib) {
     lyricsField = (
@@ -197,6 +216,12 @@ export function NewDocumentForm() {
           videoId={youtubeVideoId.trim()}
           onSeek={onSeek}
         />
+      )}
+      {hasVideo && (
+        <p className="lyrics-editor-note">
+          <kbd>Space</kbd> plays and pauses, and <kbd>,</kbd> / <kbd>.</kbd>{' '}
+          seek {seekSeconds}s (set on a document page).
+        </p>
       )}
 
       <label htmlFor="title">Title</label>
