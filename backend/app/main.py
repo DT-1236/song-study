@@ -245,14 +245,10 @@ class Document(BaseModel):
 
 def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
     """The canonical address of the LRCLIB track `value` names, and its
-    lyrics — or the HTTP error a request to link it should fail with."""
+    lyrics — or a 422 if LRCLIB refuses it."""
     try:
         uri = normalize_lrclib_uri(value)
         return uri, fetch_lyrics(uri)
-    except LrclibUnavailable:
-        # Left to the 502 handler; it's an LrclibError too, so it has to be
-        # let through before the 422 below catches it.
-        raise
     except LrclibError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -330,7 +326,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     # answer.
     try:
         lyrics = fetch_lyrics(document.lrclib_uri)
-    except LrclibError as exc:
+    except (LrclibError, LrclibUnavailable) as exc:
         return document.model_copy(
             update={
                 "lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."

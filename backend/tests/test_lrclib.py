@@ -227,10 +227,8 @@ def test_record_without_lyrics_is_an_error(fake_lrclib):
 
 
 def test_a_missing_track_is_a_refusal_not_an_outage(fake_lrclib):
-    with pytest.raises(LrclibError) as raised:
+    with pytest.raises(LrclibError):
         fetch_lyrics(URI)
-    # Exactly, since LrclibUnavailable is an LrclibError too.
-    assert raised.type is LrclibError
 
 
 def test_requests_identify_the_app(monkeypatch):
@@ -272,7 +270,7 @@ def test_request_failures(monkeypatch, error, expected):
 
     with pytest.raises(expected) as raised:
         lrclib._get_json(URI)
-    # Exactly, since LrclibUnavailable is an LrclibError too.
+    # Exactly, since _NotFound is an LrclibUnavailable too.
     assert raised.type is expected
 
 

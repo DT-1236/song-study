@@ -38,11 +38,11 @@ _TIMEOUT_SECONDS = 5
 
 
 class LrclibError(Exception):
-    """A failure to get lyrics from LRCLIB — a bad address, no such track,
-    or no lyrics — whose message is shown to the user."""
+    """LRCLIB refusing a request for lyrics — a bad address, no such track,
+    or no lyrics — with a message that's shown to the user."""
 
 
-class LrclibUnavailable(LrclibError):
+class LrclibUnavailable(Exception):
     """LRCLIB couldn't be reached or failed, rather than refusing the
     request."""
 
