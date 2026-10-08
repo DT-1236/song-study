@@ -104,6 +104,17 @@
   same PR, so the next session doesn't rediscover it. A Haiku-class model
   doesn't change the harness: it reports the problem in its summary instead.
 
+## Token usage
+
+- A plan that gives each step a model and effort also gives it a size: the
+  expected token use of its initial pass, as a bucket (S, M, L, XL) from
+  `docs/token-usage.md`.
+- Record what the work actually used in that doc's ledger, measured with
+  `python3 scripts/token_usage.py`: after the initial pass, and again after
+  each `/simplify` or backlog sweep. Commit the rows with the PR.
+- When a phase lands two or more buckets above its estimate, write the
+  post-mortem `docs/token-usage.md` describes before closing the session.
+
 ## Skipped review findings
 
 - When a `/simplify` run finds something it decides not to fix — because the

@@ -76,21 +76,26 @@ There are eight steps after this doc, each on its own branch and PR. Step 1
 comes first. Steps 2, 3, 4 and 5a each need only step 1. Step 5b needs step
 5a, step 6 needs step 5b, and step 7 needs steps 3 and 5b.
 
-| Step | Status | Ships | Model | Effort | Why |
-|---|---|---|---|---|---|
-| 0 — Doc | Done | This plan committed as `docs/mobile.md` | Opus 5 | medium, reviewed at high | Planning |
-| 1 — Responsive shell | Done | `media.ts`; top bar + nav and lookup drawers in `Layout`; `dvh` heights; narrow-screen padding; 16px inputs on touch | Sonnet 5 | medium | Conventional drawer work against a clear spec. The traps (a drawer left open after navigating, focus inside a closed drawer) show up in the browser check |
-| 2 — New document form and documents list | | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
-| 3 — Document page layout and pinnable video | | Pin button and unpin overlay; the pinned video across the top or on the right, without remounting; `playsinline`; scroll offsets that clear it | **Opus 5** | medium | The playing line's `scrollIntoView`, `revealBelowPanel` and `.selection-anchor`'s `--header-height` all assume nothing is pinned at the top. Getting one wrong fails *silently*: the playing line scrolls under the video |
-| 4 — Settings page | | `/settings`, account name in the sidebar links to it, the view settings move there; the page's own actions move to the lyrics header | Sonnet 5 | medium | Extracting the settings grid has to keep each mode's controls and the page's actions where they work, but each value already persists through `usePersistentState` |
-| 5a — Mouse-only hover and the Pinned marker | | Hover only from a real mouse, so a second tap closes a gloss; no sticky `:hover`; a "Pinned" marker in the gloss on every device | Sonnet 5 | medium | Each change has one clear answer, and the 1280px run checks that desktop hover, the grace period and click-to-pin are unchanged. The marker is one primitive prop through the memoized `TokenSpan` |
-| 5b — Tap to preview, long-press to pin; gloss as a bottom sheet | | On touch, a tap previews and a long press (with a countdown outline) pins; dismissal on a tap or scroll elsewhere; the gloss opens as a sheet at the bottom of the screen | **Opus 5** | **high** | The click that may or may not follow a long press, the memoized `TokenSpan`, `GlossPopup`'s reposition, the document-level dismiss listener and the playing line's auto-scroll interact in ways that only show up as a gloss that won't close, or closes on its own |
-| 6 — Select on touch | | Select button in the gloss; selection panel as a bottom sheet on touch | **Opus 5** | low | Little is left to decide once 5b exists: a button into `toggleSelected`, a hint, the sheet reused. Opus because the one new rule (a scroll doesn't end a selection) runs against 5b's dismiss listener, and getting it wrong just looks like a selection that won't stick |
-| 7 — Touch control bar | | One-row bar on touch: play/pause and seek always, nudge and stamp in timing mode | Sonnet 5 | medium | `nudge` and `timeNextLine` already exist as functions and the player handle already has `togglePlay` and `seekBy`. What needs care, focus and the bar's place under the sheet and toast, is measured by the checks |
+| Step | Status | Ships | Model | Effort | Size | Actual | Why |
+|---|---|---|---|---|---|---|---|
+| 0 — Doc | Done | This plan committed as `docs/mobile.md` | Opus 5 | medium, reviewed at high | — | — | Planning |
+| 1 — Responsive shell | Done | `media.ts`; top bar + nav and lookup drawers in `Layout`; `dvh` heights; narrow-screen padding; 16px inputs on touch | Sonnet 5 | medium | — | M; simplify S | Conventional drawer work against a clear spec. The traps (a drawer left open after navigating, focus inside a closed drawer) show up in the browser check |
+| 2 — New document form and documents list | | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | M | | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
+| 3 — Document page layout and pinnable video | | Pin button and unpin overlay; the pinned video across the top or on the right, without remounting; `playsinline`; scroll offsets that clear it | **Opus 5** | medium | L | | The playing line's `scrollIntoView`, `revealBelowPanel` and `.selection-anchor`'s `--header-height` all assume nothing is pinned at the top. Getting one wrong fails *silently*: the playing line scrolls under the video |
+| 4 — Settings page | | `/settings`, account name in the sidebar links to it, the view settings move there; the page's own actions move to the lyrics header | Sonnet 5 | medium | M | | Extracting the settings grid has to keep each mode's controls and the page's actions where they work, but each value already persists through `usePersistentState` |
+| 5a — Mouse-only hover and the Pinned marker | | Hover only from a real mouse, so a second tap closes a gloss; no sticky `:hover`; a "Pinned" marker in the gloss on every device | Sonnet 5 | medium | M | | Each change has one clear answer, and the 1280px run checks that desktop hover, the grace period and click-to-pin are unchanged. The marker is one primitive prop through the memoized `TokenSpan` |
+| 5b — Tap to preview, long-press to pin; gloss as a bottom sheet | | On touch, a tap previews and a long press (with a countdown outline) pins; dismissal on a tap or scroll elsewhere; the gloss opens as a sheet at the bottom of the screen | **Opus 5** | **high** | L | | The click that may or may not follow a long press, the memoized `TokenSpan`, `GlossPopup`'s reposition, the document-level dismiss listener and the playing line's auto-scroll interact in ways that only show up as a gloss that won't close, or closes on its own |
+| 6 — Select on touch | | Select button in the gloss; selection panel as a bottom sheet on touch | **Opus 5** | low | M | | Little is left to decide once 5b exists: a button into `toggleSelected`, a hint, the sheet reused. Opus because the one new rule (a scroll doesn't end a selection) runs against 5b's dismiss listener, and getting it wrong just looks like a selection that won't stick |
+| 7 — Touch control bar | | One-row bar on touch: play/pause and seek always, nudge and stamp in timing mode | Sonnet 5 | medium | M | | `nudge` and `timeNextLine` already exist as functions and the player handle already has `togglePlay` and `seekBy`. What needs care, focus and the bar's place under the sheet and toast, is measured by the checks |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Escalate a step that stalls rather
 than starting higher.
+
+Size is the expected token use of a step's initial pass, before
+`/simplify`, as a bucket from `docs/token-usage.md`. Actual is what the
+pass and its `/simplify` measured, recorded in that ledger when the step's
+PR opens.
 
 ## Step 1 — Responsive shell
 
