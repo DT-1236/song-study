@@ -8,16 +8,15 @@ type Props<T> = {
   id: string
   label: string
   placeholder: string
+  // Searched for on mount, when given.
   initialQuery?: string
-  // Searches for `query` on mount too, rather than only once asked.
-  searchOnMount?: boolean
   search: (query: string) => Promise<T>
-  // Takes what a search found (`initial` for the one on mount), and says
-  // whether to show the results for it.
-  onResults: (results: T, initial: boolean) => boolean
+  // Takes what the search on mount found, and says whether to show it. The
+  // results of a search asked for are always shown.
+  onMountResults?: (results: T) => boolean
   failureMessage: string
-  // The results list, given a function that closes it.
-  children: (close: () => void) => ReactNode
+  // The results list, given the latest results and a function that closes it.
+  children: (results: T, close: () => void) => ReactNode
 }
 
 // A search box whose results drop down below it. It searches on Enter or a
@@ -30,39 +29,42 @@ export function SearchDropdown<T>({
   label,
   placeholder,
   initialQuery = '',
-  searchOnMount = false,
   search,
-  onResults,
+  onMountResults,
   failureMessage,
   children,
 }: Props<T>) {
   const [query, setQuery] = useState(initialQuery)
+  // Null until a search has found something.
+  const [results, setResults] = useState<T | null>(null)
   const [showResults, setShowResults] = useState(false)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const rootRef = useRef<HTMLDivElement>(null)
   useClickOutside(rootRef, showResults, () => setShowResults(false))
-  const close = useCallback(() => setShowResults(false), [])
 
   // Read when a search settles, so only the latest search's results land,
   // and none once this is gone (a newly picked song's remounts it).
   const searchRef = useLatest(search)
-  const onResultsRef = useLatest(onResults)
+  const onMountResultsRef = useLatest(onMountResults)
   const latestSearch = useRef(0)
-  // Leaves whatever's in flight to settle for nobody.
+  // Leaves whatever's in flight to settle for nobody. A named callback, since
+  // the linter can't tell that the cleanup means to read the ref's latest
+  // value.
   const dropPending = useCallback(() => {
     latestSearch.current++
   }, [])
 
   const runSearch = useCallback(
-    async (text: string, initial: boolean) => {
+    async (text: string, onMount: boolean) => {
       const searchId = ++latestSearch.current
       setSearching(true)
       setError(null)
       try {
-        const results = await searchRef.current(text)
+        const found = await searchRef.current(text)
         if (searchId !== latestSearch.current) return
-        setShowResults(onResultsRef.current(results, initial))
+        setResults(found)
+        setShowResults(!onMount || (onMountResultsRef.current?.(found) ?? true))
       } catch (err) {
         if (searchId !== latestSearch.current) return
         setShowResults(false)
@@ -71,13 +73,13 @@ export function SearchDropdown<T>({
         if (searchId === latestSearch.current) setSearching(false)
       }
     },
-    [searchRef, onResultsRef, failureMessage],
+    [searchRef, onMountResultsRef, failureMessage],
   )
 
   useEffect(() => {
-    if (searchOnMount) void runSearch(initialQuery, true)
+    if (initialQuery) void runSearch(initialQuery, true)
     return dropPending
-  }, [searchOnMount, initialQuery, runSearch, dropPending])
+  }, [initialQuery, runSearch, dropPending])
 
   function submit() {
     const trimmed = query.trim()
@@ -85,9 +87,9 @@ export function SearchDropdown<T>({
   }
 
   return (
-    <div ref={rootRef} className="song-search">
+    <div ref={rootRef} className="search-dropdown">
       <label htmlFor={id}>{label}</label>
-      <div className="song-search-row">
+      <div className="search-dropdown-row">
         <input
           id={id}
           type="text"
@@ -110,7 +112,7 @@ export function SearchDropdown<T>({
         />
         <button
           type="button"
-          className="song-search-button"
+          className="search-dropdown-button"
           onClick={submit}
           disabled={searching || query.trim() === ''}
         >
@@ -119,7 +121,32 @@ export function SearchDropdown<T>({
       </div>
 
       {error && <p className="form-error">{error}</p>}
-      {showResults && children(close)}
+      {showResults &&
+        results !== null &&
+        children(results, () => setShowResults(false))}
     </div>
+  )
+}
+
+// A row of a SearchDropdown's results, marked when `chosen`.
+export function SearchResult({
+  chosen,
+  onClick,
+  children,
+}: {
+  chosen: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        className={chosen ? 'search-result chosen' : 'search-result'}
+        onClick={onClick}
+      >
+        {children}
+      </button>
+    </li>
   )
 }

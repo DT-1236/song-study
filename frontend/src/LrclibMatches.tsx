@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { searchLrclib } from './api'
 import type { LrclibCandidate, SongResult } from './api'
-import { SearchDropdown } from './SearchDropdown'
+import { SearchDropdown, SearchResult } from './SearchDropdown'
 import { formatDuration } from './timing'
 
 const NONE_LABEL = "None — I'll paste the lyrics"
@@ -9,20 +9,20 @@ const NONE_LABEL = "None — I'll paste the lyrics"
 function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
   const { duration, duration_delta: delta } = candidate
   return (
-    <span className="song-result-text">
-      <span className="song-result-title">{candidate.track_name}</span>
-      <span className="song-result-meta">
+    <span className="search-result-text">
+      <span className="search-result-title">{candidate.track_name}</span>
+      <span className="search-result-meta">
         {[candidate.artist_name, candidate.album_name]
           .filter(Boolean)
           .join(' · ')}
       </span>
-      <span className="song-result-meta">
+      <span className="search-result-meta">
         {duration !== null && formatDuration(duration)}
         {delta !== null && ` (${delta > 0 ? '+' : ''}${Math.round(delta)}s)`}
         {candidate.synced && <span className="lrclib-match-badge">synced</span>}
       </span>
       {candidate.preview.length > 0 && (
-        <span className="song-result-meta">
+        <span className="search-result-meta">
           {candidate.preview.join(' / ')}
         </span>
       )}
@@ -47,27 +47,23 @@ export function LrclibMatches({
   chosen: LrclibCandidate | null | undefined
   onChoose: (candidate: LrclibCandidate | null) => void
 }) {
-  // Null until a search has found something to show.
-  const [candidates, setCandidates] = useState<LrclibCandidate[] | null>(null)
   const [showOthers, setShowOthers] = useState(false)
 
-  function handleResults(found: LrclibCandidate[], initial: boolean) {
-    setCandidates(found)
-    setShowOthers(false)
+  // Chooses up front a synced match of the right length, the first one found
+  // when there is any, and shows the results otherwise.
+  function handleMountResults(found: LrclibCandidate[]) {
     const first = found[0]
-    if (initial && first?.within_tolerance && first.synced) {
-      onChoose(first)
-      return false
-    }
-    return true
+    if (!first?.within_tolerance || !first.synced) return true
+    onChoose(first)
+    return false
   }
 
-  function renderResults(close: () => void) {
-    if (candidates === null) return null
-    const choose = (candidate: LrclibCandidate | null) => {
-      onChoose(candidate)
-      close()
-    }
+  function choose(candidate: LrclibCandidate | null, close: () => void) {
+    onChoose(candidate)
+    close()
+  }
+
+  function renderResults(candidates: LrclibCandidate[], close: () => void) {
     // The chosen match stays listed, even if it's one of the others.
     const matching = candidates.filter(
       (c) => c.within_tolerance || c === chosen,
@@ -77,27 +73,22 @@ export function LrclibMatches({
 
     return (
       <>
-        <ul className="song-results">
+        <ul className="search-results">
           {shown.map((c) => (
-            <li key={c.id}>
-              <button
-                type="button"
-                className={c === chosen ? 'song-result chosen' : 'song-result'}
-                onClick={() => choose(c)}
-              >
-                <CandidateText candidate={c} />
-              </button>
-            </li>
-          ))}
-          <li>
-            <button
-              type="button"
-              className={chosen === null ? 'song-result chosen' : 'song-result'}
-              onClick={() => choose(null)}
+            <SearchResult
+              key={c.id}
+              chosen={c === chosen}
+              onClick={() => choose(c, close)}
             >
-              <span className="song-result-text">{NONE_LABEL}</span>
-            </button>
-          </li>
+              <CandidateText candidate={c} />
+            </SearchResult>
+          ))}
+          <SearchResult
+            chosen={chosen === null}
+            onClick={() => choose(null, close)}
+          >
+            <span className="search-result-text">{NONE_LABEL}</span>
+          </SearchResult>
         </ul>
         {hiddenCount > 0 && (
           <button
@@ -119,7 +110,6 @@ export function LrclibMatches({
         label="Lyrics from LRCLIB"
         placeholder="Track title"
         initialQuery={song.title}
-        searchOnMount
         search={(title) =>
           searchLrclib({
             title,
@@ -127,17 +117,17 @@ export function LrclibMatches({
             durationSeconds: song.duration_seconds,
           })
         }
-        onResults={handleResults}
+        onMountResults={handleMountResults}
         failureMessage="LRCLIB search failed."
       >
         {renderResults}
       </SearchDropdown>
       {chosen !== undefined && (
-        <div className="lrclib-choice">
+        <div className="search-results lrclib-choice">
           {chosen ? (
             <CandidateText candidate={chosen} />
           ) : (
-            <span className="song-result-text">{NONE_LABEL}</span>
+            <span className="search-result-text">{NONE_LABEL}</span>
           )}
         </div>
       )}
