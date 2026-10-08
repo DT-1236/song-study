@@ -4,28 +4,19 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## `/simplify` on PR #91 (LRCLIB track search)
+## `/simplify` on PR #92 (LRCLIB error handling)
 
-- **Keep `_get_json` to transport errors.** `backend/app/lrclib.py`'s
-  `_get_json` turns a 404 into `LrclibError("LRCLIB has no track at that
-  address.")`, a message only `/api/get` should give. Instead, have it raise
-  `LrclibUnavailable` for every HTTP, network or JSON failure, and give a 404
-  its own subclass of that (or a `None` return). `fetch_lyrics` then raises the
-  "no track" `LrclibError` itself. `search_tracks`' all-variants-failed branch
-  shrinks to `raise errors[0]`, and the `LrclibError` case of
-  `test_search_fails_when_every_variant_does` goes away. Update the 404 case of
-  `test_request_failures` and `FakeLrclib.__call__`'s unknown-record branch to
-  match. Linking a missing track must still be a 422. *Sonnet 5, medium*:
-  the target shape is decided, and the existing 404/422 tests catch a slip.
-- **Map upstream outages to 502 once.** `backend/app/main.py` repeats
-  `except …Unavailable: raise HTTPException(502, str(exc))` in `songs_search`,
-  `lrclib_search` and `_fetch_lrclib_for_link`. Register
-  `app.exception_handler(LrclibUnavailable)` and
-  `app.exception_handler(YouTubeMusicUnavailable)`, each returning a 502
-  `JSONResponse({"detail": str(exc)})`, and drop those try blocks.
-  `_fetch_lrclib_for_link` keeps its 422 for `LrclibError`. Since
-  `LrclibUnavailable` subclasses it, that `except` has to let outages through
-  (`except LrclibUnavailable: raise` ahead of it, or an `isinstance` check), or
-  they turn into 422s. The existing 502 tests in `test_lrclib.py` and
-  `test_youtube_music.py` cover it. *Sonnet 5, low*: mostly mechanical, but
-  the subclass catch is an easy silent slip.
+- **Report a 404 from `_get_json` as `None`.** `backend/app/lrclib.py`'s
+  `_get_json` raises the private `_NotFound(LrclibUnavailable)` with the "no
+  track at that address" message, which `fetch_lyrics` turns back into an
+  `LrclibError`. Have `_get_json` return `None` on a 404 instead (annotate it
+  `Any | None`), and delete `_NotFound`. `fetch_lyrics` raises
+  `LrclibError("LRCLIB has no track at that address.")` on `None`.
+  `search_tracks` counts a `None` result as a failed variant by appending
+  `LrclibUnavailable("Couldn't search LRCLIB.")` to `errors`, so an all-404
+  search is still a 502. In `backend/tests/test_lrclib.py`, `FakeLrclib.__call__`
+  returns `None` for an unknown record. The 404 case leaves
+  `test_request_failures` for its own test asserting `_get_json` returns
+  `None`, which also lets that test drop its exact-type assertion. Linking a
+  missing track must still be a 422. *Sonnet 5, low*: the shape is decided,
+  and the existing 404/422 tests catch a slip.

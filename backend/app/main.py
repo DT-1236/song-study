@@ -171,6 +171,16 @@ def tokens_not_groupable(request: Request, exc: TokensNotGroupable) -> JSONRespo
     )
 
 
+@app.exception_handler(LrclibUnavailable)
+@app.exception_handler(YouTubeMusicUnavailable)
+def upstream_unavailable(
+    request: Request, exc: LrclibUnavailable | YouTubeMusicUnavailable
+) -> JSONResponse:
+    """A 502 for an upstream service (LRCLIB, YouTube Music) that couldn't
+    be reached or understood."""
+    return JSONResponse(status_code=502, content={"detail": str(exc)})
+
+
 api = APIRouter(prefix="/api")
 api.include_router(auth_router)
 
@@ -235,12 +245,10 @@ class Document(BaseModel):
 
 def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
     """The canonical address of the LRCLIB track `value` names, and its
-    lyrics — or the HTTP error a request to link it should fail with."""
+    lyrics — or a 422 if LRCLIB refuses it."""
     try:
         uri = normalize_lrclib_uri(value)
         return uri, fetch_lyrics(uri)
-    except LrclibUnavailable as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
     except LrclibError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -318,7 +326,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     # answer.
     try:
         lyrics = fetch_lyrics(document.lrclib_uri)
-    except LrclibError as exc:
+    except (LrclibError, LrclibUnavailable) as exc:
         return document.model_copy(
             update={
                 "lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."
@@ -680,11 +688,7 @@ def jmdict_search(
 
 @api.get("/songs/search", response_model=list[Song])
 def songs_search(user_id: CurrentUser, q: str = Query(min_length=1)):
-    try:
-        songs = search_songs(q)
-    except YouTubeMusicUnavailable as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return songs
+    return search_songs(q)
 
 
 @api.get("/lrclib/search", response_model=list[LrclibCandidate])
@@ -695,10 +699,7 @@ def lrclib_search(
     # In seconds; left out when the song's length isn't known.
     duration: float | None = Query(default=None, gt=0),
 ):
-    try:
-        return search_tracks(title, artist, duration)
-    except LrclibUnavailable as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return search_tracks(title, artist, duration)
 
 
 class GlossSense(JmdictSense):
