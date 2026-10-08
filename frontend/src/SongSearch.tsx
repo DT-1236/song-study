@@ -1,11 +1,13 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { errorMessage, searchSongs } from './api'
 import type { SongResult } from './api'
 import { formatDuration } from './timing'
+import { useClickOutside } from './useClickOutside'
 
 // Searches YouTube Music's songs and reports the one picked. It runs on Enter
 // or a click rather than per keystroke, since each search hits an unofficial
-// YouTube endpoint. A pick closes the results, and clicking back into the
+// YouTube endpoint. A pick or a click elsewhere closes the results, and
+// clicking back into the
 // search box shows them again. A div rather than a form, as it sits inside
 // one. `pickedId` marks the song picked last.
 export function SongSearch({
@@ -20,6 +22,8 @@ export function SongSearch({
   const [showResults, setShowResults] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const rootRef = useRef<HTMLDivElement>(null)
+  useClickOutside(rootRef, showResults, () => setShowResults(false))
 
   async function search() {
     const trimmed = query.trim()
@@ -38,7 +42,7 @@ export function SongSearch({
   }
 
   return (
-    <div className="song-search">
+    <div ref={rootRef} className="song-search">
       <label htmlFor="song-search-query">Search for a song</label>
       <div className="song-search-row">
         <input

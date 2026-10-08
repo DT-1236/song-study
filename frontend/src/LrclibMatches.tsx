@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { errorMessage, searchLrclib } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { formatDuration } from './timing'
+import { useClickOutside } from './useClickOutside'
 import { useLatest } from './useLatest'
 
 const NONE_LABEL = "None — I'll paste the lyrics"
@@ -33,7 +34,7 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
 // Lists the LRCLIB tracks matching the picked song, and reports the one
 // chosen (or null for "none"). `chosen` is the choice the parent kept, or
 // undefined while there's none: a choice collapses the list to its row, which
-// reopens it when clicked. Matches whose length differs from the song's sit
+// reopens it when clicked, and a click elsewhere collapses it again. Matches whose length differs from the song's sit
 // behind a toggle. A synced match within tolerance is chosen up front. The
 // parent remounts it (by key) for each newly picked song.
 export function LrclibMatches({
@@ -51,6 +52,9 @@ export function LrclibMatches({
   const [showOthers, setShowOthers] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const onChooseRef = useLatest(onChoose)
+  const rootRef = useRef<HTMLFieldSetElement>(null)
+  // Without a choice, the list is all there is to show.
+  useClickOutside(rootRef, reopened, () => setReopened(false))
 
   useEffect(() => {
     let cancelled = false
@@ -86,7 +90,7 @@ export function LrclibMatches({
 
   if (chosen !== undefined && !reopened) {
     return (
-      <fieldset className="lrclib-matches">
+      <fieldset ref={rootRef} className="lrclib-matches">
         <legend>Lyrics from LRCLIB</legend>
         <ul className="song-results">
           <li>
@@ -114,7 +118,7 @@ export function LrclibMatches({
   const shown = showOthers ? candidates : matching
 
   return (
-    <fieldset className="lrclib-matches">
+    <fieldset ref={rootRef} className="lrclib-matches">
       <legend>Lyrics from LRCLIB</legend>
       <ul className="song-results">
         {shown.map((c) => (
