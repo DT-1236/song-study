@@ -1918,3 +1918,53 @@ label.apply-to-all {
 .study-notice {
   color: var(--text-muted);
 }
+
+/* Narrow screens, for the new-document form and the documents list. The
+   query is NARROW_SCREEN in media.ts; keep them in step. Each button rule is
+   qualified to outrank .new-document-form button. */
+@media (max-width: 900px), (max-height: 500px) {
+  .hide-narrow {
+    display: none;
+  }
+
+  .search-dropdown-row input {
+    min-width: 0;
+  }
+
+  .new-document-form .search-dropdown-button {
+    flex-shrink: 0;
+    white-space: nowrap;
+    min-height: 44px;
+  }
+
+  .search-result img {
+    flex-shrink: 0;
+  }
+
+  .search-result-title,
+  .search-result-meta {
+    overflow-wrap: anywhere;
+  }
+
+  .new-document-form button[type='submit'],
+  .new-document-form .lrclib-matches-toggle {
+    min-height: 44px;
+  }
+
+  .synced-lyrics {
+    max-width: 100%;
+    overflow-x: hidden;
+    overflow-wrap: anywhere;
+  }
+
+  /* The documents table gives the title the room that tighter cells and the
+     readiness counts' absence save. */
+  .documents-list .readiness-counts {
+    display: none;
+  }
+
+  .documents-list th,
+  .documents-list td {
+    padding: 0.5rem 0.35rem;
+  }
+}

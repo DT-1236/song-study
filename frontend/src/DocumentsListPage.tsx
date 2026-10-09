@@ -7,10 +7,14 @@ import { useApiResource } from './useApiResource'
 
 const PAGE_SIZE = 20
 
-const COLUMNS: { field: SortField; label: string }[] = [
-  { field: 'id', label: 'ID' },
+const COLUMNS: { field: SortField; label: string; hideNarrow?: boolean }[] = [
+  { field: 'id', label: 'ID', hideNarrow: true },
   { field: 'title', label: 'Title' },
-  { field: 'youtube_video_id', label: 'YouTube Video ID' },
+  {
+    field: 'youtube_video_id',
+    label: 'YouTube Video ID',
+    hideNarrow: true,
+  },
   { field: 'created_at', label: 'Created At' },
   { field: 'readiness', label: 'Readiness' },
 ]
@@ -57,8 +61,11 @@ export function DocumentsListPage() {
         <thead>
           <tr>
             <th aria-label="Open in a tab" />
-            {COLUMNS.map(({ field, label }) => (
-              <th key={field}>
+            {COLUMNS.map(({ field, label, hideNarrow }) => (
+              <th
+                key={field}
+                className={hideNarrow ? 'hide-narrow' : undefined}
+              >
                 <button
                   type="button"
                   className="sort-button"
@@ -100,10 +107,16 @@ export function DocumentsListPage() {
                   ''
                 )}
               </td>
-              <td>{doc.id}</td>
+              <td className="hide-narrow">{doc.id}</td>
               <td>{doc.title}</td>
-              <td>{doc.youtube_video_id ?? '—'}</td>
-              <td>{new Date(doc.created_at).toLocaleString()}</td>
+              <td className="hide-narrow">{doc.youtube_video_id ?? '—'}</td>
+              <td>
+                {new Date(doc.created_at).toLocaleDateString()}
+                <span className="hide-narrow">
+                  {' '}
+                  {new Date(doc.created_at).toLocaleTimeString()}
+                </span>
+              </td>
               <td>
                 <ReadinessMeter readiness={doc.readiness} />
               </td>
