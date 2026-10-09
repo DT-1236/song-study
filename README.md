@@ -107,7 +107,9 @@ Open `http://localhost:5173`. The backend runs at `http://localhost:8000`, but
 the browser only talks to the frontend's origin: the Vite dev server proxies
 `/api` to the backend, and a deployment's reverse proxy should do the same
 (`/api/*` to the backend, everything else to the built frontend). The app's
-public URL is `APP_URL` in `.env`.
+public URL is `APP_URL` in `.env`. To point the dev server's `/api` at another
+backend (such as a deployed one, for debugging), set `API_PROXY_TARGET`, e.g.
+`API_PROXY_TARGET=https://songs.example.com npm run dev`.
 
 ## Running tests
 
