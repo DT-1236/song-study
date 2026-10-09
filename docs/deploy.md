@@ -280,7 +280,9 @@ anyone.
 ### Decide first
 
 - **The hostname,** such as `songs.example.com`, on a domain you control.
-  Steps 3, 6 and 7 all use it.
+  Steps 3, 6 and 7 all use it. It has to be a hostname of its own, not a
+  path like `example.com/song-study`: the app is served from `/`, and Caddy
+  site addresses can't carry a path.
 - **The OAuth client:** reuse the dev client and add the prod redirect URI,
   which is simplest, or create a separate client for prod so its secret
   isn't shared with dev.
@@ -312,7 +314,7 @@ Go to Compute Engine → VM instances → Create instance:
 |---|---|
 | Region | `us-west1`, `us-central1` or `us-east1` (only these are free) |
 | Machine type | E2 → **`e2-micro`** |
-| Boot disk | Debian 12 or Ubuntu 24.04 LTS, disk type **Standard persistent disk** (the default "Balanced" isn't free), 30 GB |
+| Boot disk | Debian 12, Debian 13 (amd64; the first deploy used it, and Docker's install script in step 4 supports it) or Ubuntu 24.04 LTS, disk type **Standard persistent disk** (the default "Balanced" isn't free), 30 GB |
 | Firewall | Tick **Allow HTTP traffic** and **Allow HTTPS traffic** |
 | Access scopes | Set **Storage** to **Read Write** if backups will go to a Cloud Storage bucket. Changing this later means stopping the VM |
 
@@ -395,8 +397,17 @@ docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs -f   # Ctrl-C to stop following
 ```
 
-The first build takes a while on an e2-micro. Watch for the backend's
-migrations finishing and Caddy reporting that it got a certificate.
+The first build took about 30 minutes on an e2-micro, and the output goes
+quiet while the backend's `pip install` unpacks the dictionaries. Watch for
+the backend's migrations finishing and Caddy reporting that it got a
+certificate.
+
+If Caddy's log says `Timeout during connect (likely firewall problem)`, the
+internet can't reach ports 80 and 443. On the VM, `sudo ss -tlnp | grep -E
+':(80|443)\b'` should show Docker listening; if it does, the block is Google's
+firewall. The VM needs the `http-server` and `https-server` network tags,
+and the VPC has to have `default-allow-http` and `default-allow-https` rules
+for them. Caddy retries by itself once they're right.
 
 ### 9. Check it
 
