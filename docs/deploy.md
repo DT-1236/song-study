@@ -59,6 +59,14 @@ VM, secrets. That's covered under "Initial deploy" and "Updating" below.
     through an SSH tunnel as a read-only role.
 
   Neither opens anything to the internet.
+- **Routes that need no sign-in** (checked 2026-10-09) are:
+  - sign-in, sign-out and the OAuth callback;
+  - `GET /api/jmdict/search`, which reads only the public dictionary;
+  - the API schema at `/api/docs` and `/api/openapi.json`.
+
+  Every route that touches documents, cards or users requires a signed-in
+  user and is limited to that user's own data. Leaving the dictionary search
+  and the schema public is accepted for now.
 - **Later, only when asked:** a VM setup script and a GitHub Actions deploy.
   Until then the operator steps below are done by hand.
 
@@ -77,10 +85,26 @@ Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Escalate a step that stalls rather
 than starting higher.
 
+Other sessions may be switching branches in the main checkout at the same
+time. Do each step's git work in its own worktree (`git worktree add
+<dir> -b <branch> origin/main`), and confirm the PR's commits and files
+before opening it.
+
 Size is the expected token use of a step's initial pass, before
 `/simplify`, as a bucket from `docs/token-usage.md`. Actual is what the
 pass and its `/simplify` measured, recorded in that ledger when the step's
 PR opens.
+
+### Before step 1 (operator)
+
+- **Add `http://localhost/api/auth/callback`** to the dev Google OAuth
+  client's authorized redirect URIs. Step 1's local check signs in through
+  Caddy on port 80, not through Vite on 5173.
+- **Have Docker running** on the laptop, with **ports 80 and 5432 free**:
+  the local check publishes Caddy on 80 and Postgres on 127.0.0.1:5432. The
+  dev database on 5544 doesn't conflict.
+- **Pull `main`** before starting the session, so its worktree starts from
+  the merged plan.
 
 ## Step 1 — Deployment files
 
@@ -186,8 +210,10 @@ the existing note about the proxy.
    - a throwaway database password and session secret
    - the dev Google OAuth client's ID and secret
 
-   Add `http://localhost/api/auth/callback` to that OAuth client's redirect
-   URIs. That's an operator step, so ask.
+   The operator adds `http://localhost/api/auth/callback` to that OAuth
+   client's redirect URIs before step 1 starts (see "Before step 1"). If
+   sign-in fails with a redirect URI mismatch, ask rather than working around
+   it.
 2. Run `DEPLOY_ENV_FILE=<that file> docker compose -f docker-compose.prod.yml
    -p song-study-deploycheck up -d --build`, then confirm with `docker volume
    ls` that the volumes are prefixed `song-study-deploycheck_`.
@@ -240,7 +266,24 @@ postgres`.
 ## Initial deploy (operator)
 
 These steps need your accounts, DNS and judgment, so you do them by hand.
-They assume step 1 has merged. Step 2's backup cron comes in at the end.
+Steps 1–7 don't depend on the repo, so they can happen while step 1 is
+being built. Step 8 onward needs step 1 merged, and step 10 needs step 2.
+Step 2 can wait while you're the only user, but merge it before inviting
+anyone.
+
+### Decide first
+
+- **The hostname,** such as `songs.example.com`, on a domain you control.
+  Steps 3, 6 and 7 all use it.
+- **The OAuth client:** reuse the dev client and add the prod redirect URI,
+  which is simplest, or create a separate client for prod so its secret
+  isn't shared with dev.
+- **Where backups go.** A Cloud Storage bucket needs the VM's Storage access
+  scope set to Read Write **when the VM is created** (step 2). Changing it
+  later means stopping the VM.
+- **Whether to copy your local data across** (step 11) or start with an
+  empty database. Copy it before inviting anyone, since the restore
+  replaces the whole database.
 
 The Google Cloud free tier's terms change. Check the current free-tier page
 before creating anything; what's below is how it stood when this was
