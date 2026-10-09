@@ -1,0 +1,51 @@
+# The name differs from the dev compose project's (song-study), so the two
+# never share a volume.
+name: song-study-prod
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - ${DEPLOY_ENV_FILE:-.env}
+    # Loopback only: Docker's published ports bypass the host firewall.
+    ports:
+      - "127.0.0.1:${DEPLOY_PG_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file:
+      - ${DEPLOY_ENV_FILE:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    build: ./frontend
+    restart: unless-stopped
+    environment:
+      APP_URL: ${APP_URL}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      # /data holds the certificates; losing it means a new request on every
+      # rebuild, and Let's Encrypt's rate limits.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

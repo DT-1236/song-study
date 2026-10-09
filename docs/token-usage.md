@@ -59,6 +59,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-08 | Mobile step 1, responsive shell | #100 | initial pass | Sonnet 5.5, medium | — | 18 | 1.2M | 11k | M |
 | 2026-10-08 | Mobile step 1, responsive shell | #100 | /simplify (4 subagents) | Sonnet 5.5, medium | — | 16 | 860k | 4k | S |
 | 2026-10-08 | Browser harness | #101 | initial pass | Opus 5.5, high | — | 52 | 5.6M | 52k | L |
+| 2026-10-09 | Deploy step 1, deployment files | #106 | initial pass | Sonnet 5.5, medium | M | 25 | 1.5M | 12k | M |
+| 2026-10-09 | Deploy step 1, deployment files | #106 | /simplify (4 subagents) | Sonnet 5.5, medium | — | 18 | 735k | 3k | S |
 
 ## Post-mortem log
 

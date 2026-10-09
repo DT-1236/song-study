@@ -78,7 +78,7 @@ needs step 1.
 | Step | Status | Ships | Model | Effort | Size | Actual | Why |
 |---|---|---|---|---|---|---|---|
 | 0 — Doc | Done | This plan as `docs/deploy.md` | Opus 5 | medium | — | — | Planning |
-| 1 — Deployment files | | `backend/Dockerfile`, `frontend/Dockerfile`, `.dockerignore`s, `deploy/Caddyfile`, `docker-compose.prod.yml`, deployment notes in `.env.example`, `API_PROXY_TARGET` in `vite.config.ts`, a local run of the whole stack | Sonnet 5 | medium | M | | Conventional Docker work against a clear spec. The traps (below) are a shared volume name, lost certificates and the SPA fallback, and each one shows up in the local check |
+| 1 — Deployment files | Done | `backend/Dockerfile`, `frontend/Dockerfile`, `.dockerignore`s, `deploy/Caddyfile`, `docker-compose.prod.yml`, deployment notes in `.env.example`, `API_PROXY_TARGET` in `vite.config.ts`, a local run of the whole stack | Sonnet 5 | medium | M | M; simplify S | Conventional Docker work against a clear spec. The traps (below) are a shared volume name, lost certificates and the SPA fallback, and each one shows up in the local check |
 | 2 — Backup script | | `deploy/backup.sh`: a dated `pg_dump`, kept for 14 days locally, copied off the box | Sonnet 5 | medium | S | | Short, but a backup that quietly writes an empty or unrestorable dump is the worst kind of failure, so it's checked by restoring the dump |
 
 Each step runs in its own session at its listed model and effort, and ends
@@ -156,8 +156,10 @@ Router path like `/documents/12` works.
   takes its name from the directory (`song-study`), so its volume is
   `song-study_postgres-data`. A prod file with the same name would reuse
   that volume, and the local check below would run against the dev data.
-- **postgres:** `postgres:16-alpine` with the same healthcheck as dev and a
-  named volume.
+- **postgres:** `postgres:16-alpine` with dev's healthcheck and a named
+  volume. The check is `pg_isready -U $$POSTGRES_USER`: the doubled `$` has
+  the container read its own `env_file`, where `${POSTGRES_USER}` would be
+  read from the host shell.
   - Publishes `127.0.0.1:${DEPLOY_PG_PORT:-5432}:5432` and nothing wider.
     That makes it reachable from the VM itself, and so through an SSH
     tunnel, but not from the internet. The VM uses the default; the local

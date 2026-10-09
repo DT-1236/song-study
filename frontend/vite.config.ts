@@ -11,7 +11,14 @@ export default defineConfig(({ mode }) => {
     server: {
       // The API is reached on the app's own origin under /api, as it is when
       // deployed behind a reverse proxy.
-      proxy: { '/api': API_PROXY_TARGET ?? 'http://localhost:8000' },
+      proxy: {
+        '/api': {
+          target: API_PROXY_TARGET ?? 'http://localhost:8000',
+          // Caddy picks the site by Host, so a remote target needs its own
+          // hostname
+          changeOrigin: true,
+        },
+      },
     },
   }
 })
