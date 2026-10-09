@@ -97,12 +97,14 @@ PR opens.
 
 ### Before step 1 (operator)
 
-- **Add `http://localhost/api/auth/callback`** to the dev Google OAuth
+- **Add `http://localhost/api/auth/callback`** [DONE] to the dev Google OAuth
   client's authorized redirect URIs. Step 1's local check signs in through
   Caddy on port 80, not through Vite on 5173.
-- **Have Docker running** on the laptop, with **ports 80 and 5432 free**:
-  the local check publishes Caddy on 80 and Postgres on 127.0.0.1:5432. The
-  dev database on 5544 doesn't conflict.
+- **Have Docker running** on the laptop, with **port 80 free**: the local
+  check publishes Caddy on 80, because Caddy listens on the port in
+  `APP_URL`. The check publishes Postgres on 127.0.0.1:15433 instead of
+  5432, so a local Postgres doesn't conflict. The dev database on 5544
+  doesn't either.
 - **Pull `main`** before starting the session, so its worktree starts from
   the merged plan.
 
@@ -156,9 +158,11 @@ Router path like `/documents/12` works.
   that volume, and the local check below would run against the dev data.
 - **postgres:** `postgres:16-alpine` with the same healthcheck as dev and a
   named volume.
-  - Publishes `127.0.0.1:5432:5432` and nothing wider. That makes it
-    reachable from the VM itself, and so through an SSH tunnel, but not from
-    the internet.
+  - Publishes `127.0.0.1:${DEPLOY_PG_PORT:-5432}:5432` and nothing wider.
+    That makes it reachable from the VM itself, and so through an SSH
+    tunnel, but not from the internet. The VM uses the default; the local
+    check sets `DEPLOY_PG_PORT=15433`. Compose reads it from the shell, not
+    from `env_file`, so it goes on the command line and not in `.env.example`.
   - Write out the `127.0.0.1`. Docker's published ports bypass the host
     firewall, so a bare `5432:5432` would expose the database to the
     internet.
@@ -214,9 +218,11 @@ the existing note about the proxy.
    client's redirect URIs before step 1 starts (see "Before step 1"). If
    sign-in fails with a redirect URI mismatch, ask rather than working around
    it.
-2. Run `DEPLOY_ENV_FILE=<that file> docker compose -f docker-compose.prod.yml
-   -p song-study-deploycheck up -d --build`, then confirm with `docker volume
-   ls` that the volumes are prefixed `song-study-deploycheck_`.
+2. Run `DEPLOY_PG_PORT=15433 DEPLOY_ENV_FILE=<that file> docker compose -f
+   docker-compose.prod.yml -p song-study-deploycheck up -d --build`, then
+   confirm with `docker volume ls` that the volumes are prefixed
+   `song-study-deploycheck_`. Give every later `docker compose` command in
+   this check the same `-p` and `DEPLOY_PG_PORT`.
 3. Check, using the headless browser from `docs/browser-checks.md`:
    - Sign in with Google.
    - Create a document from the public-domain text in
@@ -231,10 +237,8 @@ the existing note about the proxy.
      session cookie across as described under "Debugging against prod".
      `localhost:5173` should then show the same signed-in user.
    - Create the read-only role as that section describes, then connect with
-     `psql -h 127.0.0.1 -p 5432` as that role. A `SELECT` should work, and
-     an `UPDATE` should be refused. If something on the laptop already uses
-     port 5432, `up` fails on the port. Stop that service for the check
-     rather than changing the port in the file.
+     `psql -h 127.0.0.1 -p 15433` as that role. A `SELECT` should work, and
+     an `UPDATE` should be refused.
 6. Run `docker compose ... down -v` with the same `-p`, which removes only
    the check's volumes.
 
