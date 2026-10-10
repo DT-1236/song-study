@@ -25,11 +25,3 @@ so it can be picked up without re-deriving the reasoning.
 - `NO_HOVER` in `media.ts` is unused until the touch steps import it, and
   `App.css` repeats `(hover: none)` as a literal. Use the constant from
   step 5a on. Haiku 4.5, low.
-
-## `/simplify` on the deployment files (step 1)
-
-- Add BuildKit cache mounts to the installs: `RUN --mount=type=cache,target=/root/.cache/pip
-  pip install -r requirements.txt` in `backend/Dockerfile` (dropping `--no-cache-dir`) and
-  `RUN --mount=type=cache,target=/root/.npm npm ci` in `frontend/Dockerfile`, so a
-  changed requirement or lockfile doesn't re-download everything. Rebuild the
-  local check stack to confirm. Sonnet 5, low.
