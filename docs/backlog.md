@@ -37,7 +37,3 @@ so it can be picked up without re-deriving the reasoning.
   `migrate` service (same image) that the backend waits on with
   `condition: service_completed_successfully`. Do it before running a second
   backend replica. Sonnet 5, medium: the startup order is easy to get subtly wrong.
-- Give the postgres service only `POSTGRES_USER`, `POSTGRES_PASSWORD` and
-  `POSTGRES_DB` (an `environment:` block) instead of the whole `env_file`, so
-  `SESSION_SECRET` and the Google secret stay out of that container. Needs the
-  values read from the same file as the backend's. Sonnet 5, medium.

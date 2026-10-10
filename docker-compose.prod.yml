@@ -6,8 +6,14 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
-    env_file:
-      - ${DEPLOY_ENV_FILE:-.env}
+    # Only the database's own settings, so SESSION_SECRET and the rest of the
+    # env file stay out of this container. Compose interpolates these from the
+    # shell and the project's `.env`, or from `--env-file` when the file isn't
+    # named `.env`.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
     # Loopback only: Docker's published ports bypass the host firewall.
     ports:
       - "127.0.0.1:${DEPLOY_PG_PORT:-5432}:5432"

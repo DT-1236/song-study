@@ -157,14 +157,18 @@ Router path like `/documents/12` works.
   `song-study_postgres-data`. A prod file with the same name would reuse
   that volume, and the local check below would run against the dev data.
 - **postgres:** `postgres:16-alpine` with dev's healthcheck and a named
-  volume. The check is `pg_isready -U $$POSTGRES_USER`: the doubled `$` has
-  the container read its own `env_file`, where `${POSTGRES_USER}` would be
+  volume. It gets only `POSTGRES_USER`, `POSTGRES_PASSWORD` and
+  `POSTGRES_DB`, as an `environment:` block interpolated from the shell and
+  the project's `.env` (`--env-file` when the file has another name), so
+  `SESSION_SECRET` and the Google secret stay out of that container. The
+  check is `pg_isready -U $$POSTGRES_USER`: the doubled `$` has the
+  container read its own environment, where `${POSTGRES_USER}` would be
   read from the host shell.
   - Publishes `127.0.0.1:${DEPLOY_PG_PORT:-5432}:5432` and nothing wider.
     That makes it reachable from the VM itself, and so through an SSH
     tunnel, but not from the internet. The VM uses the default; the local
     check sets `DEPLOY_PG_PORT=15433`. Compose reads it from the shell, not
-    from `env_file`, so it goes on the command line and not in `.env.example`.
+    from the env file, so it goes on the command line and not in `.env.example`.
   - Write out the `127.0.0.1`. Docker's published ports bypass the host
     firewall, so a bare `5432:5432` would expose the database to the
     internet.
@@ -178,10 +182,10 @@ Router path like `/documents/12` works.
     certificates. Without it, every rebuild requests a new certificate, and
     Let's Encrypt's rate limits lock the domain out after a few.
 - `restart: unless-stopped` on all three, so they come back after a reboot.
-- `env_file: ${DEPLOY_ENV_FILE:-.env}` for postgres and backend, and
-  `APP_URL` passed through to caddy. The local check points
-  `DEPLOY_ENV_FILE` at its own file, since the repo-root `.env` belongs to
-  dev.
+- `env_file: ${DEPLOY_ENV_FILE:-.env}` for backend, the three `POSTGRES_*`
+  values for postgres (above), and `APP_URL` passed through to caddy. The
+  local check points `DEPLOY_ENV_FILE` and `--env-file` at its own file,
+  since the repo-root `.env` belongs to dev.
 
 **`.env.example`:** a short deployment section.
 - `APP_URL=https://<domain>`.
@@ -220,11 +224,11 @@ the existing note about the proxy.
    client's redirect URIs before step 1 starts (see "Before step 1"). If
    sign-in fails with a redirect URI mismatch, ask rather than working around
    it.
-2. Run `DEPLOY_PG_PORT=15433 DEPLOY_ENV_FILE=<that file> docker compose -f
-   docker-compose.prod.yml -p song-study-deploycheck up -d --build`, then
+2. Run `DEPLOY_PG_PORT=15433 DEPLOY_ENV_FILE=<that file> docker compose
+   --env-file <that file> -f docker-compose.prod.yml -p song-study-deploycheck up -d --build`, then
    confirm with `docker volume ls` that the volumes are prefixed
    `song-study-deploycheck_`. Give every later `docker compose` command in
-   this check the same `-p` and `DEPLOY_PG_PORT`.
+   this check the same `--env-file`, `-p` and `DEPLOY_PG_PORT`.
 3. Check, using the headless browser from `docs/browser-checks.md`:
    - Sign in with Google.
    - Create a document from the public-domain text in
