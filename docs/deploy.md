@@ -113,8 +113,9 @@ PR opens.
 **`backend/Dockerfile`:**
 - Based on `python:3.11-slim`. It runs `pip install -r requirements.txt` and
   copies in `app/`, `migrations/` and `alembic.ini`.
-- The command runs `alembic upgrade head`, then `uvicorn app.main:app --host
-  0.0.0.0 --port 8000` with one worker and no `--reload`.
+- The command runs `uvicorn app.main:app --host 0.0.0.0 --port 8000` with one
+  worker and no `--reload`. Migrations run in `docker-compose.prod.yml`'s
+  one-shot `migrate` service (same image), which the backend waits on.
 - Install the requirements before copying the code, so a code-only change
   doesn't reinstall the 650 MB of dictionaries.
 - `app/env.py`'s `load_dotenv` leaves variables that are already set alone,

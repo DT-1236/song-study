@@ -33,7 +33,3 @@ so it can be picked up without re-deriving the reasoning.
   `RUN --mount=type=cache,target=/root/.npm npm ci` in `frontend/Dockerfile`, so a
   changed requirement or lockfile doesn't re-download everything. Rebuild the
   local check stack to confirm. Sonnet 5, low.
-- Move `alembic upgrade head` out of `backend/Dockerfile`'s `CMD` into a one-shot
-  `migrate` service (same image) that the backend waits on with
-  `condition: service_completed_successfully`. Do it before running a second
-  backend replica. Sonnet 5, medium: the startup order is easy to get subtly wrong.

@@ -11,4 +11,5 @@ COPY migrations migrations
 COPY app app
 
 # One worker: each extra one pays the tokenizer's ~100 MB again.
-CMD ["sh", "-c", "alembic upgrade head && exec uvicorn app.main:app --host 0.0.0.0 --port 8000"]
+# Migrations run in the compose file's one-shot `migrate` service, not here.
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

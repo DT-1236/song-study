@@ -25,14 +25,25 @@ services:
       timeout: 5s
       retries: 10
 
+  # One-shot: applies migrations with the backend's image, then exits, so
+  # backend replicas never race each other to migrate.
+  migrate:
+    build: ./backend
+    command: ["alembic", "upgrade", "head"]
+    env_file:
+      - ${DEPLOY_ENV_FILE:-.env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   backend:
     build: ./backend
     restart: unless-stopped
     env_file:
       - ${DEPLOY_ENV_FILE:-.env}
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   caddy:
     build: ./frontend
