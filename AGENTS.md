@@ -133,6 +133,14 @@
   the pairing isn't obvious.
 - Skip false positives; they aren't backlog.
 
+## Backlog items
+
+- When doing an item out of `docs/backlog.md`, leave the change uncommitted in
+  the working tree (no commit, branch or PR). The overarching sweep session
+  gathers those changes, runs `/simplify` and commits them together, which is
+  easier when each item's diff is still loose and unmixed with commit
+  history. Say in the summary which files the item touched.
+
 ## Pull requests
 
 - When opening, updating, or reviewing a PR with a large diff, don't rely
