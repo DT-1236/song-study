@@ -63,6 +63,15 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-09 | Deploy step 1, deployment files | #106 | /simplify (4 subagents) | Sonnet 5.5, medium | — | 18 | 735k | 3k | S |
 | 2026-10-09 | Mobile step 2, new document form and documents list | #108 | initial pass | Sonnet 5.5, low | M | 15 | 815k | 5k | S |
 | 2026-10-09 | Mobile step 2, new document form and documents list | #108 | /simplify (inline, no subagents) | Sonnet 5.5, low | — | 3 | 209k | 2k | S |
+| 2026-10-10 | Backlog sweep 6: postgres gets only its own env | — | backlog item | Sonnet 5.5, medium | — | 9 | 405k | 4k | S |
+| 2026-10-10 | Backlog sweep 6: prod migrate service | — | backlog item | Sonnet 5.5, medium | — | 5 | 208k | 2k | S |
+| 2026-10-10 | Backlog sweep 6: BuildKit cache mounts | — | backlog item | Sonnet 5.5, low | — | 6 | 248k | 1k | S |
+| 2026-10-10 | Backlog sweep 6: `.lyrics-box` as a `<div>` | — | backlog item | Sonnet 5.5, low | — | 11 | 467k | 2k | S |
+| 2026-10-10 | Backlog sweep 6: `useInert` and `inputRef` | — | backlog item | Haiku 5.5, low | — | 7 | 310k | 4k | S |
+| 2026-10-10 | Backlog sweep 6: `NO_HOVER` (moved into the mobile plan) | — | backlog item | Haiku 5.5, low | — | 12 | 536k | 5k | S |
+| 2026-10-10 | Backlog sweep 6: `PAGE_NAMES` questions (2 sessions, no change) | — | backlog item | Haiku 5.5 / Sonnet 5.5, low | — | 6 | 243k | 2k | S |
+| 2026-10-10 | Backlog sweep 6: gather and commit items | — | backlog sweep | Opus 5.5, medium | — | 29 | 1.5M | 9k | M |
+| 2026-10-10 | Backlog sweep 6 | — | /simplify (4 subagents) | Opus 5.5, medium | — | 25 | 1.4M | 8k | M |
 
 ## Post-mortem log
 

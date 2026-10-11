@@ -10,3 +10,11 @@ so it can be picked up without re-deriving the reasoning.
   empty top-bar title. Give each route in `App.tsx` a `handle: { title }` and read
   it with `useMatches()`, keeping the tab title for document routes. Do it when
   `/settings` lands. Sonnet 5, low.
+
+## `/simplify` on backlog sweep 6 (deploy compose, drawers, lyrics box)
+
+- `docker-compose.prod.yml`'s `migrate` and `backend` both say `build: ./backend`,
+  so `up --build` builds the image twice (cached, but two tags that can drift).
+  Give both one `image:` name and keep `build:` on one of them. The name must
+  stay unique per `-p` project so the local check doesn't reuse the VM's tag.
+  Rebuild the local check stack to confirm. Sonnet 5, low.
