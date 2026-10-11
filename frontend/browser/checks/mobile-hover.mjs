@@ -46,8 +46,11 @@ await check('mobile-hover', async (h) => {
     'moving into the popup keeps it open',
   )
   await dtok.click()
-  await desk.waitForSelector('.gloss-pinned')
-  h.expect(true, 'a click pins it and the marker appears')
+  await settle(desk)
+  h.expect(
+    (await desk.locator('.gloss-pinned').count()) === 1,
+    'a click pins it and the marker appears',
+  )
   await dtok.click()
   await desk.mouse.move(5, 5)
   await desk.waitForTimeout(300)

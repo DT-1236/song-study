@@ -3,8 +3,6 @@ import { usePersistentState } from './usePersistentState'
 import { useSeekSeconds } from './usePlayerShortcuts'
 
 // The viewing settings: the same for every document, and kept across reloads.
-// One owner per page, since two instances of a persistent state don't see
-// each other's changes until a reload.
 export function useViewSettings() {
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
   const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
@@ -24,7 +22,7 @@ export function useViewSettings() {
   }
 }
 
-export type ViewSettingsState = ReturnType<typeof useViewSettings>
+type ViewSettingsState = ReturnType<typeof useViewSettings>
 
 // The custom properties the lyrics' rules in App.css read, for the element
 // holding them.

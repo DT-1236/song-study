@@ -28,13 +28,25 @@ const router = createBrowserRouter(
       }
     >
       <Route index element={<Navigate to="/new" replace />} />
-      <Route path="new" element={<NewDocumentForm />} />
-      <Route path="documents" element={<DocumentsListPage />} />
+      <Route
+        path="new"
+        element={<NewDocumentForm />}
+        handle={{ title: 'New Document' }}
+      />
+      <Route
+        path="documents"
+        element={<DocumentsListPage />}
+        handle={{ title: 'Existing Documents' }}
+      />
       <Route path="documents/:id" element={<DocumentViewPage />} />
       <Route path="documents/:id/study" element={<StudyPage />} />
       <Route path="documents/:id/run-through" element={<RunThroughPage />} />
-      <Route path="study" element={<StudyPage />} />
-      <Route path="settings" element={<SettingsPage />} />
+      <Route path="study" element={<StudyPage />} handle={{ title: 'Study' }} />
+      <Route
+        path="settings"
+        element={<SettingsPage />}
+        handle={{ title: 'Settings' }}
+      />
     </Route>,
   ),
 )
