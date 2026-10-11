@@ -19,7 +19,7 @@ export function SettingsPage() {
       <p className="lyrics-box settings-sample" style={displayStyle(settings)}>
         <span className="token playing">{renderSegments(SAMPLE)}</span>
       </p>
-      <ViewSettings settings={settings} />
+      <ViewSettings />
     </div>
   )
 }

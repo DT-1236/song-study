@@ -2942,7 +2942,6 @@ export function DocumentViewPage() {
         {mode.kind !== 'lyrics' &&
           (showGrid ? (
             <ViewSettings
-              settings={viewSettings}
               display={mode.kind !== 'timings'}
               // An LRCLIB track being previewed has no furigana.
               furigana={!lrclibPreview}
