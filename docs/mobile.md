@@ -258,6 +258,10 @@ take taps meant for the line's first token.
   `:hover` on the last element tapped, so a token would otherwise keep its
   highlight after its gloss closes.
 - Keep the handlers stable so `TokenSpan`'s memo holds.
+- `NO_HOVER` in `media.ts` is still unused. Import it wherever this step
+  needs the `(hover: none)` query in TypeScript, rather than repeating the
+  literal. `App.css` keeps its own `(hover: none)` literal, since CSS can't
+  read the constant.
 
 **"Pinned" marker, on every device:**
 - `TokenSpan` takes a `pinned` boolean (a primitive, so its memo holds) and

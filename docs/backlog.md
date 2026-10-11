@@ -22,6 +22,3 @@ so it can be picked up without re-deriving the reasoning.
   empty top-bar title. Give each route in `App.tsx` a `handle: { title }` and read
   it with `useMatches()`, keeping the tab title for document routes. Do it when
   `/settings` lands. Sonnet 5, low.
-- `NO_HOVER` in `media.ts` is unused until the touch steps import it, and
-  `App.css` repeats `(hover: none)` as a literal. Use the constant from
-  step 5a on. Haiku 4.5, low.
