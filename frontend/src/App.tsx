@@ -12,6 +12,7 @@ import { NewDocumentForm } from './NewDocumentForm'
 import { DocumentsListPage } from './DocumentsListPage'
 import { DocumentViewPage } from './DocumentViewPage'
 import { RunThroughPage } from './RunThroughPage'
+import { SettingsPage } from './SettingsPage'
 import { StudyPage } from './StudyPage'
 import { TabsProvider } from './TabsContext'
 
@@ -33,6 +34,7 @@ const router = createBrowserRouter(
       <Route path="documents/:id/study" element={<StudyPage />} />
       <Route path="documents/:id/run-through" element={<RunThroughPage />} />
       <Route path="study" element={<StudyPage />} />
+      <Route path="settings" element={<SettingsPage />} />
     </Route>,
   ),
 )

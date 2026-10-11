@@ -67,14 +67,11 @@ import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { useSave } from './useSave'
-import { usePersistentState } from './usePersistentState'
-import { useHighlightSettings } from './useHighlightSettings'
+import { NARROW_SCREEN, useMediaQuery } from './media'
+import { ViewSettings } from './ViewSettings'
+import { displayStyle, useViewSettings } from './useViewSettings'
 import { usePlayingLine } from './usePlayingLine'
-import {
-  isTypingTarget,
-  usePlayerShortcuts,
-  useSeekSeconds,
-} from './usePlayerShortcuts'
+import { isTypingTarget, usePlayerShortcuts } from './usePlayerShortcuts'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
@@ -2436,48 +2433,6 @@ const TimingEditor = memo(function TimingEditor({
   )
 })
 
-function RangeControl({
-  id,
-  label,
-  unit,
-  value,
-  onChange,
-  min,
-  max,
-  step,
-  hint,
-}: {
-  id: string
-  label: string
-  unit: string
-  value: number
-  onChange: (value: number) => void
-  min: number
-  max: number
-  step?: number
-  // Shown after the value, e.g. the keys that use the setting.
-  hint?: React.ReactNode
-}) {
-  return (
-    <div className="control">
-      <label htmlFor={id}>
-        {label} {value}
-        {unit}
-        {hint && <> {hint}</>}
-      </label>
-      <input
-        id={id}
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-      />
-    </div>
-  )
-}
-
 // What the document page is editing, which it does one thing at a time.
 type EditMode =
   | { kind: 'view' }
@@ -2505,11 +2460,9 @@ export function DocumentViewPage() {
   const [tokensError, setTokensError] = useState<string | null>(null)
 
   // Viewing settings: the same for every document, and kept across reloads.
-  const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
-  const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
-  const [seekSeconds, setSeekSeconds] = useSeekSeconds()
-  const highlight = useHighlightSettings()
-  const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
+  const viewSettings = useViewSettings()
+  const { seekSeconds, nudgeMs } = viewSettings
+  const narrow = useMediaQuery(NARROW_SCREEN)
 
   const [mode, setMode] = useState<EditMode>(VIEWING)
   const timingDraft = mode.kind === 'timings' ? mode.draft : null
@@ -2813,6 +2766,9 @@ export function DocumentViewPage() {
   }
 
   const editing = mode.kind !== 'view'
+  // Timing keeps its grid at every width: leaving for /settings would hit the
+  // unsaved-changes prompt.
+  const showGrid = mode.kind === 'timings' || !narrow
   // Timings need the lyrics to show them against, and a video to play them
   // in.
   const canEditTimings = hasVideo && tokens !== null
@@ -2888,134 +2844,63 @@ export function DocumentViewPage() {
 
         <div className="lyrics-header">
           <label htmlFor="lyrics">Lyrics</label>
-          {!editing && !doc.lrclib_replaces_text && (
-            <button
-              type="button"
-              className="lyrics-edit-toggle"
-              onClick={() => {
-                setLyricsSaveError(null)
-                setMode({ kind: 'lyrics', draft: doc.text })
-              }}
-            >
-              Edit lyrics
-            </button>
-          )}
-        </div>
-
-        {mode.kind !== 'lyrics' && (
-          <div className="text-size-controls">
-            {mode.kind !== 'timings' && (
+          <div className="lyrics-header-actions">
+            {mode.kind === 'timings' && (
               <>
-                <RangeControl
-                  id="font-size"
-                  label="Text size"
-                  unit="px"
-                  value={fontSize}
-                  onChange={setFontSize}
-                  min={14}
-                  max={32}
-                />
-                {/* An LRCLIB track being previewed has no furigana. */}
-                {!lrclibPreview && (
-                  <RangeControl
-                    id="furigana-size"
-                    label="Furigana size"
-                    unit="px"
-                    value={furiganaSize}
-                    onChange={setFuriganaSize}
-                    min={6}
-                    max={20}
-                  />
-                )}
+                <button
+                  type="button"
+                  disabled={savingTimings}
+                  onClick={handleSaveTimings}
+                >
+                  {savingTimings ? 'Saving…' : 'Save timings'}
+                </button>
+                <button
+                  type="button"
+                  disabled={savingTimings}
+                  onClick={handleCancelTimings}
+                >
+                  Cancel
+                </button>
               </>
             )}
-            <RangeControl
-              id="seek-seconds"
-              label="Seek step"
-              unit="s"
-              value={seekSeconds}
-              onChange={setSeekSeconds}
-              min={1}
-              max={30}
-              hint={
-                <>
-                  (<kbd>,</kbd> / <kbd>.</kbd>)
-                </>
-              }
-            />
-            {mode.kind === 'timings' ? (
+            {!editing && (
               <>
-                <RangeControl
-                  id="nudge-ms"
-                  // Not "Nudge step": with its keys, that won't fit the label
-                  // column.
-                  label="Nudge"
-                  unit="ms"
-                  value={nudgeMs}
-                  onChange={setNudgeMs}
-                  min={10}
-                  max={500}
-                  step={10}
-                  hint={
-                    <>
-                      (<kbd>←</kbd>
-                      <kbd>→</kbd>)
-                    </>
-                  }
-                />
-                <div className="control-actions">
+                {!doc.lrclib_replaces_text && (
                   <button
                     type="button"
-                    disabled={savingTimings}
-                    onClick={handleSaveTimings}
+                    onClick={() => {
+                      setLyricsSaveError(null)
+                      setMode({ kind: 'lyrics', draft: doc.text })
+                    }}
                   >
-                    {savingTimings ? 'Saving…' : 'Save timings'}
+                    Edit lyrics
                   </button>
-                  <button
-                    type="button"
-                    disabled={savingTimings}
-                    onClick={handleCancelTimings}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="control">
-                  <label htmlFor="highlight-color">Highlight color</label>
-                  <input
-                    id="highlight-color"
-                    type="color"
-                    value={highlight.color}
-                    onChange={(e) => highlight.setColor(e.target.value)}
-                  />
-                </div>
-                <RangeControl
-                  id="highlight-opacity"
-                  label="Highlight opacity"
-                  unit="%"
-                  value={highlight.opacity}
-                  onChange={highlight.setOpacity}
-                  min={5}
-                  max={100}
-                />
-                {!editing && (
-                  <div className="control-actions">
-                    <button
-                      type="button"
-                      disabled={!canEditTimings}
-                      title={canEditTimings ? undefined : 'Needs a video'}
-                      onClick={startEditingTimings}
-                    >
-                      Edit timings
-                    </button>
-                  </div>
                 )}
+                <button
+                  type="button"
+                  disabled={!canEditTimings}
+                  title={canEditTimings ? undefined : 'Needs a video'}
+                  onClick={startEditingTimings}
+                >
+                  Edit timings
+                </button>
               </>
             )}
           </div>
-        )}
+        </div>
+
+        {mode.kind !== 'lyrics' &&
+          (showGrid ? (
+            <ViewSettings
+              settings={viewSettings}
+              display={mode.kind !== 'timings'}
+              // An LRCLIB track being previewed has no furigana.
+              furigana={!lrclibPreview}
+              nudge={mode.kind === 'timings'}
+            />
+          ) : (
+            <Link to="/settings">View settings</Link>
+          ))}
         {timingsSaveError && <p className="form-error">{timingsSaveError}</p>}
       </div>
 
@@ -3056,9 +2941,7 @@ export function DocumentViewPage() {
           id="lyrics"
           style={
             {
-              ...highlight.style,
-              '--lyrics-font-size': `${fontSize}px`,
-              '--furigana-font-size': `${furiganaSize}px`,
+              ...displayStyle(viewSettings),
               '--header-height': `${headerHeight}px`,
             } as React.CSSProperties
           }

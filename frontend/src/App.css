@@ -787,7 +787,7 @@ li.grammar-legend-item {
 
 .text-size-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(19rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(19rem, 100%), 1fr));
   gap: 0.5rem 1.5rem;
   color: var(--text-muted);
   font-size: 0.9em;
@@ -798,7 +798,7 @@ li.grammar-legend-item {
    changing value doesn't shift its input. */
 .text-size-controls .control {
   display: grid;
-  grid-template-columns: 10rem 1fr;
+  grid-template-columns: 10rem minmax(0, 1fr);
   align-items: center;
   gap: 0.5rem;
 }
@@ -837,17 +837,20 @@ li.grammar-legend-item {
   font-size: 0.85em;
 }
 
-/* Buttons in a cell of the view settings, level with the sliders. */
-.control-actions {
+.lyrics-header-actions {
   display: flex;
-  align-items: center;
   gap: 0.5rem;
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
-.text-size-controls .control-actions button {
+.lyrics-header-actions button {
   margin-top: 0;
-  padding: 0.2rem 0.8rem;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.85em;
+}
+
+.settings-sample {
+  margin-bottom: 1rem;
 }
 
 .lyrics-editor {
