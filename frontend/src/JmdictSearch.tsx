@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type RefObject } from 'react'
 import { toKana } from 'wanakana'
 import { errorMessage, searchJmdict } from './api'
 import type { JmdictEntry } from './api'
@@ -9,7 +9,11 @@ const DEBOUNCE_MS = 300
 // Paste in a word (kanji or kana), or type it in romaji in the second box,
 // and see every entry JMDict has for it, same as the per-token gloss popups
 // but without needing a reading match or any surrounding sentence context.
-export function JmdictSearch() {
+export function JmdictSearch({
+  inputRef,
+}: {
+  inputRef?: RefObject<HTMLInputElement>
+}) {
   // What each box shows. Typing in one clears the other, so the results are
   // always for the box in use.
   const [pasted, setPasted] = useState('')
@@ -60,6 +64,7 @@ export function JmdictSearch() {
       <div className="jmdict-search-header">
         <div className="jmdict-search-title">JMDict Lookup</div>
         <input
+          ref={inputRef}
           type="text"
           className="jmdict-search-input"
           placeholder="Paste a word…"

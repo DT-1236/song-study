@@ -7,6 +7,7 @@ import { JmdictSearch } from './JmdictSearch'
 import { NARROW_SCREEN, useMediaQuery } from './media'
 import { PosLegendModal } from './PosLegend'
 import { useTabs } from './TabsContext'
+import { useInert } from './useInert'
 
 const PAGE_NAMES: Record<string, string> = {
   '/new': 'New Document',
@@ -23,6 +24,7 @@ export function Layout() {
   const [drawer, setDrawer] = useState<Drawer>(null)
   const navRef = useRef<HTMLElement>(null)
   const lookupRef = useRef<HTMLElement>(null)
+  const lookupInputRef = useRef<HTMLInputElement>(null)
   const user = useCurrentUser()
   const [showPosLegend, setShowPosLegend] = useState(false)
   const [showGrammarLegend, setShowGrammarLegend] = useState(false)
@@ -41,17 +43,13 @@ export function Layout() {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [drawer])
 
-  // A closed drawer on a narrow screen is skipped by Tab and screen readers.
-  // React 18 has no `inert` prop, so it's set on the element.
-  useEffect(() => {
-    if (navRef.current) navRef.current.inert = narrow && drawer !== 'nav'
-    if (lookupRef.current)
-      lookupRef.current.inert = narrow && drawer !== 'lookup'
-  }, [narrow, drawer])
+  // A closed drawer on a narrow screen is out of the way.
+  useInert(navRef, narrow && drawer !== 'nav')
+  useInert(lookupRef, narrow && drawer !== 'lookup')
 
   useEffect(() => {
     if (drawer === 'lookup')
-      lookupRef.current?.querySelector('input')?.focus({ preventScroll: true })
+      lookupInputRef.current?.focus({ preventScroll: true })
   }, [drawer])
 
   const documentId = matchPath('/documents/:id/*', pathname)?.params.id
@@ -150,7 +148,7 @@ export function Layout() {
         ref={lookupRef}
         className={`right-panel${drawer === 'lookup' ? ' drawer-open' : ''}`}
       >
-        <JmdictSearch />
+        <JmdictSearch inputRef={lookupInputRef} />
       </aside>
       <PosLegendModal
         open={showPosLegend}

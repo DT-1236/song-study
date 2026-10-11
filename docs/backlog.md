@@ -15,9 +15,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## `/simplify` on the mobile step 1 branch (responsive shell)
 
-- `Layout.tsx`'s two `inert` assignments and the lookup focus (`querySelector('input')`)
-  can become a `useInert(ref, active)` helper and an `inputRef` prop on
-  `JmdictSearch`. Small change inside two files. Haiku 4.5, low: one obvious answer.
 - `Layout.tsx`'s `PAGE_NAMES` table repeats the routes, so a new route shows an
   empty top-bar title. Give each route in `App.tsx` a `handle: { title }` and read
   it with `useMatches()`, keeping the tab title for document routes. Do it when
