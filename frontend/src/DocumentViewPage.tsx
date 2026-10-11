@@ -1662,7 +1662,7 @@ const TokenizedText = memo(function TokenizedText({
   }, [tokens])
 
   const panelRef = useRef<HTMLDivElement>(null)
-  const boxRef = useRef<HTMLParagraphElement>(null)
+  const boxRef = useRef<HTMLDivElement>(null)
 
   // Scrolls the line being sung onto the screen when it moves off it, as
   // little as possible: its first highlighted token, where it starts even
@@ -1869,7 +1869,7 @@ const TokenizedText = memo(function TokenizedText({
           />
         </div>
       )}
-      <p
+      <div
         ref={boxRef}
         className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}
       >
@@ -1964,7 +1964,7 @@ const TokenizedText = memo(function TokenizedText({
             </Fragment>
           )
         })}
-      </p>
+      </div>
     </>
   )
 })

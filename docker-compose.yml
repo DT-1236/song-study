@@ -1,8 +1,12 @@
 services:
   postgres:
     image: postgres:16-alpine
-    env_file:
-      - .env
+    # Only the database's own settings, as in docker-compose.prod.yml, so the
+    # app's secrets stay out of this container.
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
