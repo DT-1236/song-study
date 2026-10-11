@@ -9,16 +9,16 @@ const stored = new Map<string, string | null>()
 const listeners = new Map<string, Set<() => void>>()
 
 function read(key: string) {
-  if (!stored.has(key)) {
-    let raw: string | null = null
-    try {
-      raw = window.localStorage.getItem(KEY_PREFIX + key)
-    } catch {
-      // Storage unavailable: the key starts unset.
-    }
-    stored.set(key, raw)
+  const cached = stored.get(key)
+  if (cached !== undefined) return cached
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(KEY_PREFIX + key)
+  } catch {
+    // Storage unavailable: the key starts unset.
   }
-  return stored.get(key) ?? null
+  stored.set(key, raw)
+  return raw
 }
 
 function write(key: string, raw: string | null) {

@@ -1294,6 +1294,15 @@ function GlossDetails({
 // clipped by either floating column.
 const EDGE_MARGIN_PX = 8
 
+// A pointer handler that calls `handler` only for a mouse. A tap also sends a
+// compatibility mouseenter with no mouseleave after it, which would leave the
+// gloss hovered open after a second tap unpins it.
+function mouseOnly(handler: () => void) {
+  return (e: { pointerType: string }) => {
+    if (e.pointerType === 'mouse') handler()
+  }
+}
+
 // Says the gloss was pinned (by a click) rather than just hovered.
 function PinnedMarker() {
   return (
@@ -1325,8 +1334,8 @@ function GlossPopup({
   onTokensUpdated,
   onCardChanged,
   pinned,
-  onMouseEnter,
-  onMouseLeave,
+  onHoverEnter,
+  onHoverLeave,
 }: {
   token: Token
   instances: Token[]
@@ -1338,8 +1347,8 @@ function GlossPopup({
   onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   pinned: boolean
-  onMouseEnter?: () => void
-  onMouseLeave?: () => void
+  onHoverEnter?: () => void
+  onHoverLeave?: () => void
 }) {
   const popupRef = useRef<HTMLDivElement>(null)
   const ownWord = words.find((word) => word.piece === null)
@@ -1392,12 +1401,8 @@ function GlossPopup({
       ref={popupRef}
       className="gloss-popup"
       onClick={(e) => e.stopPropagation()}
-      onPointerEnter={(e) => {
-        if (e.pointerType === 'mouse') onMouseEnter?.()
-      }}
-      onPointerLeave={(e) => {
-        if (e.pointerType === 'mouse') onMouseLeave?.()
-      }}
+      onPointerEnter={onHoverEnter && mouseOnly(onHoverEnter)}
+      onPointerLeave={onHoverLeave && mouseOnly(onHoverLeave)}
     >
       {ownWord && (
         <StudyListControl
@@ -1612,22 +1617,11 @@ const TokenSpan = memo(function TokenSpan({
   return (
     <span
       className={className}
-      // Mouse only: a tap also sends a compatibility mouseenter with no
-      // mouseleave after it, which would leave the gloss hovered open after a
-      // second tap unpins it.
       onPointerEnter={
-        interactive
-          ? (e) => {
-              if (e.pointerType === 'mouse') onHoverEnter(token.id)
-            }
-          : undefined
+        interactive ? mouseOnly(() => onHoverEnter(token.id)) : undefined
       }
       onPointerLeave={
-        interactive
-          ? (e) => {
-              if (e.pointerType === 'mouse') onHoverLeave(token.id)
-            }
-          : undefined
+        interactive ? mouseOnly(() => onHoverLeave(token.id)) : undefined
       }
       // Keeps a shift-click from selecting text.
       onMouseDown={
@@ -1649,8 +1643,8 @@ const TokenSpan = memo(function TokenSpan({
           onTokensUpdated={onTokensUpdated}
           onCardChanged={onCardChanged}
           pinned={pinned}
-          onMouseEnter={() => onHoverEnter(token.id)}
-          onMouseLeave={() => onHoverLeave(token.id)}
+          onHoverEnter={() => onHoverEnter(token.id)}
+          onHoverLeave={() => onHoverLeave(token.id)}
         />
       )}
     </span>

@@ -123,6 +123,12 @@ CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewa
 - **A `goto` is a full load.** For Back or `useBlocker` checks, `goto` once
   and then move only by in-app clicks, or Back leaves the app. The sidebar's
   document tabs live in React state, so every `goto` loses them.
+- **From a git worktree** (a backlog sweep's, say), the harness serves that
+  worktree's code but needs the main checkout's untracked setup: symlink in
+  `frontend/node_modules`, `backend/.venv` and `.env`. `.gitignore`'s `.venv/`
+  doesn't match a symlink, so add `backend/.venv` to
+  `$(git rev-parse --git-common-dir)/info/exclude`. Both checkouts share the
+  harness's ports and database, so run it from one at a time.
 - **`beforeunload` never fires on `page.close({ runBeforeUnload: true })`**
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).

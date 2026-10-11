@@ -22,7 +22,7 @@ export function useViewSettings() {
   }
 }
 
-export type ViewSettingsState = ReturnType<typeof useViewSettings>
+type ViewSettingsState = ReturnType<typeof useViewSettings>
 
 // The custom properties the lyrics' rules in App.css read, for the element
 // holding them.

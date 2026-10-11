@@ -1,8 +1,8 @@
 import { useViewSettings } from './useViewSettings'
 
-// The controls for the viewing settings. `display` is text size and furigana size and
-// the highlight; `furigana` is the furigana size within it; `nudge` is the
-// timing editor's nudge step. Seek step is always shown.
+// The controls for the viewing settings. `display` is text size and furigana
+// size and the highlight; `furigana` is the furigana size within it; `nudge`
+// is the timing editor's nudge step. Seek step is always shown.
 export function ViewSettings({
   display = true,
   furigana = true,
