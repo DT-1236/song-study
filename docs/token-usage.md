@@ -72,6 +72,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-10 | Backlog sweep 6: `PAGE_NAMES` questions (2 sessions, no change) | #109 | backlog item | Haiku 5.5 / Sonnet 5.5, low | — | 6 | 243k | 2k | S |
 | 2026-10-10 | Backlog sweep 6: gather and commit items | #109 | backlog sweep | Opus 5.5, medium | — | 29 | 1.5M | 9k | M |
 | 2026-10-10 | Backlog sweep 6 | #109 | /simplify (4 subagents) | Opus 5.5, medium | — | 25 | 1.4M | 8k | M |
+| 2026-10-10 | Mobile step 4, settings page | #110 | initial pass | Sonnet 5.5, medium | M | 19 | 1.2M | 12k | M |
+| 2026-10-10 | Mobile step 4, settings page | #110 | /simplify (4 subagents) | Sonnet 5.5, medium | — | 22 | 1.3M | 6k | M |
 
 ## Post-mortem log
 

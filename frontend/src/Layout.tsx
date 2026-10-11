@@ -13,6 +13,7 @@ const PAGE_NAMES: Record<string, string> = {
   '/new': 'New Document',
   '/documents': 'Existing Documents',
   '/study': 'Study',
+  '/settings': 'Settings',
 }
 
 type Drawer = 'nav' | 'lookup' | null
@@ -130,7 +131,14 @@ export function Layout() {
           <button type="button" onClick={() => setShowGrammarLegend(true)}>
             Grammar Rules
           </button>
-          <div className="sidebar-section-title">{user.name}</div>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) =>
+              `sidebar-section-title${isActive ? ' active' : ''}`
+            }
+          >
+            {user.name}
+          </NavLink>
           <button
             type="button"
             onClick={() => logout().then(() => window.location.reload())}
