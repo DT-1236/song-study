@@ -1098,14 +1098,25 @@ li.grammar-legend-item {
    looked at (as opposed to the rest of its token group, see .phrase-outline
    below) is never in doubt. Solid, not tinted, so it isn't lost against
    the page's own dark background. */
-.token.has-gloss:hover,
 .token.has-gloss.pinned {
   color: var(--accent-text);
 }
 
-.token.has-gloss:hover::before,
 .token.has-gloss.pinned::before {
   background-color: var(--accent);
+}
+
+/* Only where there's a mouse: a touch browser leaves :hover on the last
+   element tapped, so the token would keep its highlight once its gloss
+   closed. Must match NO_HOVER's inverse in media.ts. */
+@media (hover: hover) {
+  .token.has-gloss:hover {
+    color: var(--accent-text);
+  }
+
+  .token.has-gloss:hover::before {
+    background-color: var(--accent);
+  }
 }
 
 /* Highlighted, not just outlined, to stand apart from the dashed outlines
@@ -1297,6 +1308,16 @@ label.apply-to-all {
   position: relative;
   float: right;
   margin: 0 -0.5rem 0 0.4rem;
+}
+
+.gloss-pinned {
+  float: right;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-top: -0.2rem;
+  font-size: 0.75rem;
+  color: var(--text-muted);
 }
 
 .gloss-popup > .study-list {

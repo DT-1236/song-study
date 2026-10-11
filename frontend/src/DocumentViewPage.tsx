@@ -1294,6 +1294,29 @@ function GlossDetails({
 // clipped by either floating column.
 const EDGE_MARGIN_PX = 8
 
+// Says the gloss was pinned (by a click) rather than just hovered.
+function PinnedMarker() {
+  return (
+    <span className="gloss-pinned">
+      <svg
+        viewBox="0 0 24 24"
+        width="12"
+        height="12"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 17v5" />
+        <path d="M9 3h6l-1 7 3 3v2H7v-2l3-3z" />
+      </svg>
+      Pinned
+    </span>
+  )
+}
+
 function GlossPopup({
   token,
   instances,
@@ -1301,6 +1324,7 @@ function GlossPopup({
   documentId,
   onTokensUpdated,
   onCardChanged,
+  pinned,
   onMouseEnter,
   onMouseLeave,
 }: {
@@ -1313,6 +1337,7 @@ function GlossPopup({
   documentId: number
   onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
+  pinned: boolean
   onMouseEnter?: () => void
   onMouseLeave?: () => void
 }) {
@@ -1367,8 +1392,12 @@ function GlossPopup({
       ref={popupRef}
       className="gloss-popup"
       onClick={(e) => e.stopPropagation()}
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
+      onPointerEnter={(e) => {
+        if (e.pointerType === 'mouse') onMouseEnter?.()
+      }}
+      onPointerLeave={(e) => {
+        if (e.pointerType === 'mouse') onMouseLeave?.()
+      }}
     >
       {ownWord && (
         <StudyListControl
@@ -1377,6 +1406,7 @@ function GlossPopup({
           onCardChanged={onCardChanged}
         />
       )}
+      {pinned && <PinnedMarker />}
       <GlossDetails
         token={token}
         pieceControls={(piece) => {
@@ -1550,6 +1580,7 @@ const TokenSpan = memo(function TokenSpan({
   index,
   className,
   showPopup,
+  pinned,
   instances,
   words,
   documentId,
@@ -1563,6 +1594,8 @@ const TokenSpan = memo(function TokenSpan({
   index: number
   className: string
   showPopup: boolean
+  // Whether its popup was pinned by a click, as opposed to hovered.
+  pinned: boolean
   // Every token in this token's group (see groupKey), itself included.
   instances: Token[]
   // The words its popup offers to add to the user's cards.
@@ -1579,8 +1612,23 @@ const TokenSpan = memo(function TokenSpan({
   return (
     <span
       className={className}
-      onMouseEnter={interactive ? () => onHoverEnter(token.id) : undefined}
-      onMouseLeave={interactive ? () => onHoverLeave(token.id) : undefined}
+      // Mouse only: a tap also sends a compatibility mouseenter with no
+      // mouseleave after it, which would leave the gloss hovered open after a
+      // second tap unpins it.
+      onPointerEnter={
+        interactive
+          ? (e) => {
+              if (e.pointerType === 'mouse') onHoverEnter(token.id)
+            }
+          : undefined
+      }
+      onPointerLeave={
+        interactive
+          ? (e) => {
+              if (e.pointerType === 'mouse') onHoverLeave(token.id)
+            }
+          : undefined
+      }
       // Keeps a shift-click from selecting text.
       onMouseDown={
         interactive
@@ -1600,6 +1648,7 @@ const TokenSpan = memo(function TokenSpan({
           documentId={documentId}
           onTokensUpdated={onTokensUpdated}
           onCardChanged={onCardChanged}
+          pinned={pinned}
           onMouseEnter={() => onHoverEnter(token.id)}
           onMouseLeave={() => onHoverLeave(token.id)}
         />
@@ -1943,6 +1992,7 @@ const TokenizedText = memo(function TokenizedText({
                 index={index}
                 className={classNames.join(' ')}
                 showPopup={showPopup}
+                pinned={isPinned}
                 instances={instancesByKey.get(keys[index]) ?? NO_TOKENS}
                 // Only the token showing its popup needs them, so the rest
                 // keep their memo when the words change.
