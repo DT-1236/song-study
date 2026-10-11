@@ -135,11 +135,16 @@
 
 ## Backlog items
 
-- When doing an item out of `docs/backlog.md`, leave the change uncommitted in
-  the working tree (no commit, branch or PR). The overarching sweep session
-  gathers those changes, runs `/simplify` and commits them together, which is
-  easier when each item's diff is still loose and unmixed with commit
-  history. Say in the summary which files the item touched.
+- Work in the current sweep branch's worktree (`backlog-sweep-N`, which the
+  sweep session creates before any item starts), not the main checkout, and
+  read `docs/backlog.md` there. An item based on `main` edits a backlog that
+  earlier items have already changed, so every handoff conflicts. If you
+  weren't given the worktree's path, `git worktree list` shows it; ask if
+  there's no sweep branch.
+- Leave the change uncommitted in that worktree (no commit, branch or PR). The
+  overarching sweep session commits each item and runs `/simplify` over them
+  together, which is easier when each item's diff is still loose and unmixed
+  with commit history. Say in the summary which files the item touched.
 
 ## Pull requests
 
