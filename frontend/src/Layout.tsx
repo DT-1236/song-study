@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { NavLink, Outlet, matchPath, useLocation } from 'react-router-dom'
+import {
+  NavLink,
+  Outlet,
+  matchPath,
+  useLocation,
+  useMatches,
+} from 'react-router-dom'
 import { logout } from './api'
 import { useCurrentUser } from './AuthGate'
 import { GrammarLegendModal } from './GrammarLegend'
@@ -9,18 +15,12 @@ import { PosLegendModal } from './PosLegend'
 import { useTabs } from './TabsContext'
 import { useInert } from './useInert'
 
-const PAGE_NAMES: Record<string, string> = {
-  '/new': 'New Document',
-  '/documents': 'Existing Documents',
-  '/study': 'Study',
-  '/settings': 'Settings',
-}
-
 type Drawer = 'nav' | 'lookup' | null
 
 export function Layout() {
   const { tabs } = useTabs()
   const { pathname } = useLocation()
+  const matches = useMatches()
   const narrow = useMediaQuery(NARROW_SCREEN)
   const [drawer, setDrawer] = useState<Drawer>(null)
   const navRef = useRef<HTMLElement>(null)
@@ -55,7 +55,8 @@ export function Layout() {
 
   const documentId = matchPath('/documents/:id/*', pathname)?.params.id
   const pageName =
-    PAGE_NAMES[pathname] ??
+    (matches[matches.length - 1].handle as { title?: string } | undefined)
+      ?.title ??
     tabs.find((tab) => String(tab.documentId) === documentId)?.title ??
     ''
 
