@@ -117,7 +117,7 @@ listener in an effect.
 - Both stay mounted while closed, so the lookup keeps its query and results.
 - A closed drawer on a narrow screen is `inert`, so Tab and screen readers
   skip it. React 18 has no `inert` prop (it warns on a boolean), so set
-  `element.inert` from an effect on a ref.
+  `element.inert` through `useInert(ref, active)` (`frontend/src/useInert.ts`).
 
 **`App.css`:**
 - `.app-layout`, `.sidebar` and `.right-panel` use `100dvh` (falling back to
@@ -260,8 +260,7 @@ take taps meant for the line's first token.
 - Keep the handlers stable so `TokenSpan`'s memo holds.
 - `NO_HOVER` in `media.ts` is still unused. Import it wherever this step
   needs the `(hover: none)` query in TypeScript, rather than repeating the
-  literal. `App.css` keeps its own `(hover: none)` literal, since CSS can't
-  read the constant.
+  literal.
 
 **"Pinned" marker, on every device:**
 - `TokenSpan` takes a `pinned` boolean (a primitive, so its memo holds) and

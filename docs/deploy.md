@@ -182,8 +182,9 @@ Router path like `/documents/12` works.
   - Has named volumes for `/data` and `/config`. `/data` holds the
     certificates. Without it, every rebuild requests a new certificate, and
     Let's Encrypt's rate limits lock the domain out after a few.
-- `restart: unless-stopped` on all three, so they come back after a reboot.
-- `env_file: ${DEPLOY_ENV_FILE:-.env}` for backend, the three `POSTGRES_*`
+- `restart: unless-stopped` on all but `migrate`, so they come back after a
+  reboot.
+- `env_file: ${DEPLOY_ENV_FILE:-.env}` for migrate and backend, the three `POSTGRES_*`
   values for postgres (above), and `APP_URL` passed through to caddy. The
   local check points `DEPLOY_ENV_FILE` and `--env-file` at its own file,
   since the repo-root `.env` belongs to dev.
