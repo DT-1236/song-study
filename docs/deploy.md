@@ -226,11 +226,11 @@ the existing note about the proxy.
    client's redirect URIs before step 1 starts (see "Before step 1"). If
    sign-in fails with a redirect URI mismatch, ask rather than working around
    it.
-2. Run `DEPLOY_PG_PORT=15433 DEPLOY_ENV_FILE=<that file> docker compose
+2. Run `BACKEND_IMAGE=song-study-deploycheck-backend DEPLOY_PG_PORT=15433 DEPLOY_ENV_FILE=<that file> docker compose
    --env-file <that file> -f docker-compose.prod.yml -p song-study-deploycheck up -d --build`, then
    confirm with `docker volume ls` that the volumes are prefixed
    `song-study-deploycheck_`. Give every later `docker compose` command in
-   this check the same `--env-file`, `-p` and `DEPLOY_PG_PORT`.
+   this check the same `--env-file`, `-p`, `BACKEND_IMAGE` and `DEPLOY_PG_PORT`.
 3. Check, using the headless browser from `docs/browser-checks.md`:
    - Sign in with Google.
    - Create a document from the public-domain text in

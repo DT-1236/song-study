@@ -28,7 +28,7 @@ services:
   # One-shot: applies migrations with the backend's image, then exits, so
   # backend replicas never race each other to migrate.
   migrate:
-    build: ./backend
+    image: &backend-image ${BACKEND_IMAGE:-song-study-prod-backend}
     command: ["alembic", "upgrade", "head"]
     env_file:
       - ${DEPLOY_ENV_FILE:-.env}
@@ -38,6 +38,7 @@ services:
 
   backend:
     build: ./backend
+    image: *backend-image
     restart: unless-stopped
     env_file:
       - ${DEPLOY_ENV_FILE:-.env}
