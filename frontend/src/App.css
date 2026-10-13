@@ -224,7 +224,8 @@
   }
 }
 
-/* iOS zooms in on focusing a text field under 16px. */
+/* iOS zooms in on focusing a text field under 16px. A platform minimum,
+   not a style, so it outranks any field's own size. */
 @media (hover: none) {
   input:not([type]),
   input[type='text'],
@@ -232,7 +233,7 @@
   input[type='number'],
   textarea,
   select {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
 
@@ -1350,10 +1351,12 @@ li.grammar-legend-item {
     -webkit-touch-callout: none;
   }
 
-  /* iOS won't let a field be typed in under user-select: none. */
-  .lyrics-box .token input {
+  /* The gloss inside the token isn't held to pin, so its text keeps both,
+     and iOS won't let a field be typed in under user-select: none. */
+  .lyrics-box .gloss-popup {
     -webkit-user-select: text;
     user-select: text;
+    -webkit-touch-callout: default;
   }
 }
 
@@ -1678,20 +1681,17 @@ label.apply-to-all {
 }
 
 /* Each pushes the study-list icon and Close to the right. */
-.gloss-sheet-header .gloss-pinned {
-  float: none;
+.gloss-sheet-header .gloss-pinned,
+.gloss-hold-hint {
   margin: 0 auto 0 0;
 }
 
 .gloss-hold-hint {
-  margin-right: auto;
   font-size: 0.8rem;
   color: var(--text-muted);
 }
 
-/* In the header's row rather than floated over the gloss. */
 .gloss-sheet-header .study-list {
-  float: none;
   margin: 0;
 }
 
@@ -1851,14 +1851,6 @@ label.apply-to-all {
   color: var(--text);
   font: inherit;
   font-size: 0.9em;
-}
-
-/* iOS zooms in on focusing a field under 16px. Repeats the touch rule near
-   the top of the file, which the size above would otherwise override. */
-@media (hover: none) {
-  .reading-correction-row input {
-    font-size: 16px;
-  }
 }
 
 .reading-correction-row input:focus {

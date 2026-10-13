@@ -448,6 +448,14 @@ export async function token(page, surface, nth = 0) {
   return page.locator('.token').nth(index)
 }
 
+// Waits until the player bar's player is ready, which enables its buttons:
+// a key pressed earlier does nothing.
+export function playerReady(page) {
+  return page
+    .locator('.player-controls button[aria-label="Play"]:enabled')
+    .waitFor({ timeout: 20_000 })
+}
+
 // The YouTube player's frame, once its <video> exists: the player isn't
 // ready for several seconds after the page loads.
 export async function videoFrame(page, timeout = 20_000) {
@@ -472,7 +480,8 @@ export function tapOrClick(page, locator) {
 }
 
 // A finger on a touch page's screen, for gestures `tap()` can't make: a hold
-// (`down`, wait, `up`) or a swipe (`swipe`, or `down`, `move`s, `up`).
+// (`hold`, or `down`, wait, `up`) or a swipe (`swipe`, or `down`, `move`s,
+// `up`).
 // Points are CSS px in the viewport. Sent as CDP touch events, which go
 // through the browser's own input handling: a swipe scrolls the page and
 // ends a press with `pointercancel`, as on a phone.
@@ -487,6 +496,12 @@ export async function finger(page) {
     down,
     move,
     up,
+    // Holds still at (x, y) for `ms`, then lifts.
+    async hold(x, y, ms) {
+      await down(x, y)
+      await page.waitForTimeout(ms)
+      await up()
+    },
     // Drags from (x, y) by dy in small steps, then lifts: a swipe of -dy
     // scrolls the page down by about dy.
     async swipe(x, y, dy, steps = 10) {

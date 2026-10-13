@@ -1362,6 +1362,13 @@ function GlossPopup({
   const sheet = useMediaQuery(NO_HOVER)
   const [heldToPin] = usePersistentState('heldToPin', false)
   const ownWord = words.find((word) => word.piece === null)
+  const studyList = ownWord && (
+    <StudyListControl
+      word={ownWord}
+      documentId={documentId}
+      onCardChanged={onCardChanged}
+    />
+  )
   const pieceWords = new Map<number, DocumentWord>()
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
@@ -1381,9 +1388,6 @@ function GlossPopup({
     const popup = popupRef.current
     const container = popup?.closest<HTMLElement>('.content')
     if (!sheet || !popup || !container) return
-    // Left by the popup's placement under its token, before the screen
-    // stopped having a mouse.
-    popup.style.transform = ''
     const setHeight = () =>
       container.style.setProperty('--sheet-height', `${popup.offsetHeight}px`)
     setHeight()
@@ -1426,9 +1430,12 @@ function GlossPopup({
     // size observed, so this neither flickers nor loops.
     const observer = new ResizeObserver(reposition)
     if (popupRef.current) observer.observe(popupRef.current)
+    const popup = popupRef.current
     return () => {
       window.removeEventListener('resize', reposition)
       observer.disconnect()
+      // So a sheet, which isn't placed under its token, isn't shifted.
+      if (popup) popup.style.transform = ''
     }
   }, [sheet])
 
@@ -1454,25 +1461,13 @@ function GlossPopup({
               </span>
             )
           )}
-          {ownWord && (
-            <StudyListControl
-              word={ownWord}
-              documentId={documentId}
-              onCardChanged={onCardChanged}
-            />
-          )}
+          {studyList}
           <button type="button" className="gloss-close" onClick={onClose}>
             Close
           </button>
         </div>
       )}
-      {ownWord && !sheet && (
-        <StudyListControl
-          word={ownWord}
-          documentId={documentId}
-          onCardChanged={onCardChanged}
-        />
-      )}
+      {!sheet && studyList}
       {pinned && !sheet && <PinnedMarker />}
       <GlossDetails
         token={token}
@@ -1948,12 +1943,16 @@ const TokenizedText = memo(function TokenizedText({
       window.clearTimeout(timer)
       setPressingId(null)
     }
+    // Ends the countdown once the touch moves off, but keeps listening for
+    // the cancel a scroll ends in.
     const handleMove = (e: PointerEvent) => {
       if (
         e.pointerId === pointerId &&
         Math.hypot(e.clientX - clientX, e.clientY - clientY) > PRESS_SLOP_PX
-      )
+      ) {
         stopCountdown()
+        window.removeEventListener('pointermove', handleMove)
+      }
     }
     const handleUp = (e: PointerEvent) => {
       if (e.pointerId === pointerId) endPress()
@@ -1965,16 +1964,16 @@ const TokenizedText = memo(function TokenizedText({
       endPress()
       setHoveredId(null)
     }
+    const listening = new AbortController()
     function endPress() {
       stopCountdown()
-      window.removeEventListener('pointermove', handleMove)
-      window.removeEventListener('pointerup', handleUp)
-      window.removeEventListener('pointercancel', handleCancel)
+      listening.abort()
       endPressRef.current = null
     }
-    window.addEventListener('pointermove', handleMove)
-    window.addEventListener('pointerup', handleUp)
-    window.addEventListener('pointercancel', handleCancel)
+    const { signal } = listening
+    window.addEventListener('pointermove', handleMove, { signal })
+    window.addEventListener('pointerup', handleUp, { signal })
+    window.addEventListener('pointercancel', handleCancel, { signal })
     endPressRef.current = endPress
   }
 

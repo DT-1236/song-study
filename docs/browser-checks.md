@@ -93,8 +93,8 @@ And from `harness.mjs`, each taking a page: `isShown`, `settle` (waits for
 CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewaysOverflow`, `smallTapTargets` (under
 44×44), `smallInputFonts` (under 16px), `tokenized` (waits for the processed
 tokens), `token(page, surface, nth)`,
-`videoFrame`, `videoTime` and `rotate`. For touch gestures `tap()` can't
-make, `finger(page)` gives `down`, `move`, `up` and `swipe` through CDP
+`playerReady`, `videoFrame`, `videoTime` and `rotate`. For touch gestures `tap()` can't
+make, `finger(page)` gives `down`, `move`, `up`, `hold` and `swipe` through CDP
 touch events, which scroll the page and end a press in `pointercancel` as a
 phone does; `center(locator)` is where to put it.
 
@@ -141,8 +141,8 @@ phone does; `center(locator)` is where to put it.
   `polling: 'raf'`. Pass `polling: 250`. The player is hidden by default
   (`.youtube-player.hidden`), and it still plays.
 - **The player bar's buttons are disabled until the player is ready.** Wait
-  for `.player-controls button[aria-label="Play"]:enabled` before pressing
-  one, or a key: a key pressed earlier does nothing.
+  for them with `playerReady(page)` before pressing one, or a key: a key
+  pressed earlier does nothing.
 - **A `goto` is a full load.** For Back or `useBlocker` checks, `goto` once
   and then move only by in-app clicks, or Back leaves the app. The sidebar's
   document tabs live in React state, so every `goto` loses them.

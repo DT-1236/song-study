@@ -9,6 +9,7 @@ import {
   isShown,
   NARROW,
   PHONE,
+  playerReady,
   settle,
   sidewaysOverflow,
   smallInputFonts,
@@ -74,6 +75,14 @@ const blankPoint = (page) =>
     return null
   })
 const scrollTop = (page) => page.$eval('.content', (el) => el.scrollTop)
+// Waits until the lyrics have scrolled from `top`, as playback moves the
+// line being sung.
+const scrolledFrom = (page, top) =>
+  page.waitForFunction(
+    (top) => document.querySelector('.content').scrollTop !== top,
+    top,
+    { timeout: 20_000, polling: 250 },
+  )
 // Swipes from `point` and says whether the lyrics scrolled: back toward the
 // top, which has room once they're scrolled at all (closing a sheet takes
 // its room away from the end).
@@ -98,6 +107,11 @@ await check('mobile-gloss-sheet', async (h) => {
   const page = await h.open(path, PHONE)
   await tokenized(page)
   const f = await finger(page)
+  // Holds `locator` long enough to pin it.
+  const holdOn = async (locator) => {
+    const at = await center(locator)
+    await f.hold(at.x, at.y, LONG_PRESS_MS * 1.5)
+  }
   const spider = await token(page, '蜘蛛')
   const resting = await before(spider)
   await spider.tap()
@@ -243,17 +257,11 @@ await check('mobile-gloss-sheet', async (h) => {
     (await openSurface(page)) === '糸' && !(await isPinned(page)),
     'the next tap on another token previews it: nothing swallowed it',
   )
-  at = await center(thread)
-  await f.down(at.x, at.y)
-  await page.waitForTimeout(LONG_PRESS_MS * 1.5)
-  await f.up()
+  await holdOn(thread)
   h.expect(await isPinned(page), 'holding the previewed token pins it')
   await thread.tap()
   h.expect(!(await isOpen(page)), 'a tap on the pinned token closes it')
-  at = await center(thread)
-  await f.down(at.x, at.y)
-  await page.waitForTimeout(LONG_PRESS_MS * 1.5)
-  await f.up()
+  await holdOn(thread)
   await page.locator('.gloss-popup .gloss-close').tap()
   h.expect(!(await isOpen(page)), 'Close closes a pin')
 
@@ -292,13 +300,12 @@ await check('mobile-gloss-sheet', async (h) => {
       },
     )
   })
-  const lowToken = page.locator('.lyrics-box .token').nth(low)
-  const lowBox = await lowToken.boundingBox()
-  await f.down(lowBox.x + lowBox.width / 2, lowBox.y + lowBox.height / 2)
+  at = await center(page.locator('.lyrics-box .token').nth(low))
+  await f.down(at.x, at.y)
   await page.waitForTimeout(LONG_PRESS_MS * 3)
   const under = await page.evaluate(
-    ([x, y]) => !!document.elementFromPoint(x, y)?.closest('.gloss-popup'),
-    [lowBox.x + lowBox.width / 2, lowBox.y + lowBox.height / 2],
+    ({ x, y }) => !!document.elementFromPoint(x, y)?.closest('.gloss-popup'),
+    at,
   )
   await f.up()
   await settle(page)
@@ -367,8 +374,7 @@ await check('mobile-gloss-sheet', async (h) => {
   )
 
   h.step('phone: playback')
-  const play = page.locator('.player-controls button[aria-label="Play"]')
-  await play.and(page.locator(':enabled')).waitFor({ timeout: 20_000 })
+  await playerReady(page)
   await page.locator('.player-video-toggle').tap()
   await (await token(page, '蜘蛛')).tap()
   await settle(page)
@@ -385,28 +391,17 @@ await check('mobile-gloss-sheet', async (h) => {
   await h.screenshot(page, 'video-shown')
   await page.locator('.player-video-toggle').tap()
   top = await scrollTop(page)
-  await play.tap()
-  await page.waitForFunction(
-    (top) => document.querySelector('.content').scrollTop !== top,
-    top,
-    { timeout: 20_000, polling: 250 },
-  )
+  await page.locator('.player-controls button[aria-label="Play"]').tap()
+  await scrolledFrom(page, top)
   h.expect(
     await isOpen(page),
     "the playing line's auto-scroll leaves a preview open",
   )
   await page.locator('.gloss-popup .gloss-close').tap()
-  at = await center(await token(page, '蜘蛛', 2))
-  await f.down(at.x, at.y)
-  await page.waitForTimeout(LONG_PRESS_MS * 1.5)
-  await f.up()
+  await holdOn(await token(page, '蜘蛛', 2))
   // The pin's own scroll into view, then the line being sung moving on.
   top = await scrollTop(page)
-  await page.waitForFunction(
-    (top) => document.querySelector('.content').scrollTop !== top,
-    top,
-    { timeout: 20_000, polling: 250 },
-  )
+  await scrolledFrom(page, top)
   // Its first token: auto-scroll keeps where the line starts in view, even
   // when it wraps.
   const playing = await page.$eval(
