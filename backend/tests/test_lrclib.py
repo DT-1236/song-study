@@ -15,8 +15,10 @@ from collections.abc import Sequence
 import pytest
 from fastapi import HTTPException
 from pydantic import ValidationError
+from sqlalchemy import text
 
 from app import lrclib
+from app.db import owned_document_row
 from app.lrclib import (
     LrclibError,
     LrclibLyrics,
@@ -35,6 +37,7 @@ from app.main import (
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
 from tests.support import (
+    TEST_USER_ID,
     as_session_user,
     create_document,
     document_tokens,
@@ -442,6 +445,25 @@ def test_kept_lyrics_stay_editable_and_untimed_at_a_trailing_blank_line(
         URI,
         None,
     )
+
+
+def test_timings_are_hidden_once_any_writer_changes_the_text(
+    committed_engine, fake_lrclib
+):
+    document_id = create_document(DocumentCreate(title="test", text=WEATHER)).id
+    fake_lrclib.publish(URI, [(1.0, WEATHER)], duration=10.0)
+    link_lrclib(document_id, LrclibLink(uri="1", replace_text=False))
+
+    # A writer that doesn't clear the timings itself.
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE documents SET text = :text WHERE id = :id"),
+            {"id": document_id, "text": SECOND_SENTENCE},
+        )
+
+    with committed_engine.connect() as conn:
+        row = owned_document_row(conn, document_id, TEST_USER_ID)
+    assert row.lrclib_lines is None
 
 
 def test_linking_replaces_the_lyrics_and_times_the_tokens(
