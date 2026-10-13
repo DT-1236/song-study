@@ -1,27 +1,64 @@
 import { useEffect, useRef, useState } from 'react'
-import { PRESS_MS } from './PlayerBar'
 import { lineToStamp, nudgedStart, overlapFor, roundedToMs } from './timing'
 import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
 import { isTypingTarget } from './usePlayerShortcuts'
-import { useTransient } from './useTransient'
-
-const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 // What the timing editor's keys do, one for each of its bar buttons.
 export type TimingKey = 'earlier' | 'later' | 'stamp'
+
+// The timing editor's keys, by `KeyboardEvent.key`.
+const KEYS: Record<string, TimingKey | 'up' | 'down'> = {
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+  ArrowLeft: 'earlier',
+  ArrowRight: 'later',
+  '/': 'stamp',
+}
+
+// What the timing editor's key `event` does, or null if it isn't one of
+// them or is typed into a field or an open dialog.
+function timingKeyOf(event: KeyboardEvent) {
+  // / is typed with Shift on some layouts, so only the arrows rule it out.
+  if (event.altKey || event.ctrlKey || event.metaKey) return null
+  const key = KEYS[event.key] ?? null
+  if (key === null || (key !== 'stamp' && event.shiftKey)) return null
+  const active = document.activeElement
+  // A slider doesn't count as typing here, so the keys still work once
+  // one's been dragged; an open dialog's controls do. (A closed one's
+  // button keeps focus for a moment after it closes.)
+  if (active?.closest('dialog[open]')) return null
+  if (
+    isTypingTarget(active) &&
+    !(active instanceof HTMLInputElement && active.type === 'range')
+  )
+    return null
+  return key
+}
+
+// Calls `onPress` with each of the timing editor's keys that has a bar
+// button, as it's pressed.
+export function useTimingKeyPresses(onPress: (key: TimingKey) => void) {
+  useEffect(() => {
+    function listener(event: KeyboardEvent) {
+      const key = timingKeyOf(event)
+      // A held / times nothing more (see the editor's own listener).
+      if (key === 'stamp' && event.repeat) return
+      if (key !== null && key !== 'up' && key !== 'down') onPress(key)
+    }
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [onPress])
+}
 
 // A change to a line's timing that's confirmed first.
 type TimingAction =
   | { kind: 'delete'; line: number }
   | { kind: 'overwrite'; line: number; start: number }
 
-// No kind of change skips its confirmation.
-const NO_SKIPS = { delete: false, overwrite: false }
-
 // The state and keys of the timing editor for `lines`, whose starts are
-// `starts` (null once a line's timing is deleted), or inactive while either
-// is null. Lives above the editor so the player bar's buttons can share it.
+// `starts` (null once a line's timing is deleted), new for each editing
+// session.
 //
 // The picked line follows playback; ↑/↓ or a click pick another and play from
 // it; ←/→ move the picked line's start by `nudgeMs` and play from there; /
@@ -36,10 +73,9 @@ export function useTimingEditor({
   getTime,
   nudgeMs,
   onToast,
-  barButtons,
 }: {
-  lines: LyricsLine[] | null
-  starts: (number | null)[] | null
+  lines: LyricsLine[]
+  starts: (number | null)[]
   // Sets `line`'s start, null to leave it untimed.
   onStartChange: (line: number, start: number | null) => void
   playingLine: number | null
@@ -49,36 +85,25 @@ export function useTimingEditor({
   nudgeMs: number
   // Shows why a key did nothing.
   onToast: (message: string) => void
-  // Whether buttons for the keys are showing, to look pressed with them.
-  barButtons: boolean
 }) {
-  const editing = lines !== null && starts !== null
-  // Which button looks pressed, for the key that does the same.
-  const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
-  const [selected, setSelected] = useState(0)
+  const [selected, setSelected] = useState(() => playingLine ?? 0)
   // A change waiting on its confirmation.
   const [pending, setPending] = useState<TimingAction | null>(null)
   // Set by "don't ask again": that kind of change skips its confirmation
   // until editing ends.
-  const [skipConfirm, setSkipConfirm] = useState(NO_SKIPS)
+  const [skipConfirm, setSkipConfirm] = useState({
+    delete: false,
+    overwrite: false,
+  })
   const selectedRowRef = useRef<HTMLDivElement>(null)
   // The rows' container: row i is its child i.
   const rowsRef = useRef<HTMLDivElement>(null)
 
-  // Each editing session starts on the first line (the effect below moves it
-  // to the one being sung), with every confirmation asked again.
-  useEffect(() => {
-    if (!editing) return
-    setSelected(0)
-    setSkipConfirm(NO_SKIPS)
-    setPending(null)
-  }, [editing])
-
   // The picked line follows the one being sung. Picking a line plays from
   // it, so the two only part when an untimed line is picked.
   useEffect(() => {
-    if (editing && playingLine !== null) setSelected(playingLine)
-  }, [editing, playingLine])
+    if (playingLine !== null) setSelected(playingLine)
+  }, [playingLine])
 
   // Scrolls the picked line onto the screen when it moves off it, as little
   // as possible.
@@ -89,7 +114,7 @@ export function useTimingEditor({
   // Picks `line` and plays from its start, if it has one.
   function pick(line: number) {
     setSelected(line)
-    const start = starts?.[line] ?? null
+    const start = starts[line] ?? null
     if (start !== null) onPlayLine(start)
   }
 
@@ -130,7 +155,6 @@ export function useTimingEditor({
   }
 
   function nudge(direction: number) {
-    if (!starts) return
     const start = starts[selected] ?? null
     if (start === null) return onToast('This line has no timing to nudge.')
     const moved = nudgedStart(start, direction * nudgeMs)
@@ -144,7 +168,6 @@ export function useTimingEditor({
   // then, or the first line before any is, asking first if that replaces a
   // time it already has.
   function timeNextLine() {
-    if (!starts || !lines) return
     const time = getTime()
     if (time === null) return onToast("The video isn't ready yet.")
     const start = roundedToMs(time)
@@ -157,35 +180,16 @@ export function useTimingEditor({
   }
 
   function handleKeyDown(event: KeyboardEvent) {
-    if (!lines) return
-    // / is typed with Shift on some layouts, so only the arrows rule it out.
-    if (event.altKey || event.ctrlKey || event.metaKey) return
-    if (event.key !== '/' && (!ARROW_KEYS.has(event.key) || event.shiftKey))
-      return
-    const active = document.activeElement
-    // A slider doesn't count as typing here, so the keys still work once
-    // one's been dragged; an open dialog's controls do. (A closed one's
-    // button keeps focus for a moment after it closes.)
-    if (active?.closest('dialog[open]')) return
-    if (
-      isTypingTarget(active) &&
-      !(active instanceof HTMLInputElement && active.type === 'range')
-    )
-      return
+    const key = timingKeyOf(event)
+    if (key === null) return
     event.preventDefault()
-    if (event.key === '/') {
+    if (key === 'stamp') {
       // Held down, it would time line after line at almost the same moment.
-      if (!event.repeat) {
-        // Pressing re-renders every row, so only when a button shows it.
-        if (barButtons) press('stamp')
-        timeNextLine()
-      }
-    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      const earlier = event.key === 'ArrowLeft'
-      if (barButtons) press(earlier ? 'earlier' : 'later')
-      nudge(earlier ? -1 : 1)
+      if (!event.repeat) timeNextLine()
+    } else if (key === 'earlier' || key === 'later') {
+      nudge(key === 'earlier' ? -1 : 1)
     } else {
-      const line = selected + (event.key === 'ArrowUp' ? -1 : 1)
+      const line = selected + (key === 'up' ? -1 : 1)
       if (line >= 0 && line < lines.length) pick(line)
     }
   }
@@ -194,17 +198,15 @@ export function useTimingEditor({
   // see the latest state.
   const handleKeyDownRef = useLatest(handleKeyDown)
   useEffect(() => {
-    if (!editing) return
     const listener = (event: KeyboardEvent) => handleKeyDownRef.current(event)
     window.addEventListener('keydown', listener)
     return () => window.removeEventListener('keydown', listener)
-  }, [editing, handleKeyDownRef])
+  }, [handleKeyDownRef])
 
   return {
     selected,
     selectedRowRef,
     rowsRef,
-    pressed,
     pick,
     nudge,
     timeNextLine,
@@ -222,5 +224,3 @@ export function useTimingEditor({
     cancelPending: () => setPending(null),
   }
 }
-
-export type TimingEditorState = ReturnType<typeof useTimingEditor>
