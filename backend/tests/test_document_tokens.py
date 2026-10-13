@@ -9,6 +9,7 @@ from __future__ import annotations
 import threading
 from typing import NamedTuple
 
+from alembic import command
 from sqlalchemy import text
 
 from app.glosses import is_glossable
@@ -23,6 +24,7 @@ from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
 from tests.support import (
     BackgroundCall,
+    alembic_config,
     clear_gloss_links,
     create_document,
     fetch_document_tokens,
@@ -351,20 +353,42 @@ def test_a_job_that_outlived_its_claim_is_started_over(committed_engine, monkeyp
     assert fetch_document_tokens(document_id).status == "ready"
 
 
-def test_an_empty_text_is_ready_with_no_tokens(committed_engine, monkeypatch):
+def test_a_job_that_writes_no_tokens_is_not_started_again(
+    committed_engine, monkeypatch
+):
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
     with committed_engine.begin() as conn:
         conn.execute(
             text("UPDATE documents SET text = '' WHERE id = :id"), {"id": document_id}
         )
+    processed = hold_processing(monkeypatch)
 
-    def fail(document_text):
-        raise AssertionError("an empty text was processed")
-
-    monkeypatch.setattr("app.processing.process_document", fail)
-
+    assert get_document_tokens(document_id) == []
     progress = fetch_document_tokens(document_id)
+
     assert (progress.status, progress.tokens) == ("ready", [])
+    assert processed.texts == [""]
+
+
+def test_the_migration_marks_documents_with_tokens_as_processed(committed_engine):
+    tokenized = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    get_document_tokens(tokenized)
+    untouched = create_document(DocumentCreate(title=TITLE, text=SECOND_SENTENCE)).id
+
+    config = alembic_config()
+    command.downgrade(config, "0034")
+    try:
+        command.upgrade(config, "0035")
+    finally:
+        command.upgrade(config, "head")
+
+    with committed_engine.connect() as conn:
+        marked = dict(
+            conn.execute(
+                text("SELECT id, processed_at IS NOT NULL FROM documents")
+            ).all()
+        )
+    assert marked == {tokenized: True, untouched: False}
 
 
 def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_engine):
