@@ -66,6 +66,7 @@ import {
 import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
+import { usePersistentState } from './usePersistentState'
 import { useSave } from './useSave'
 import { NARROW_SCREEN, useMediaQuery } from './media'
 import { ViewSettings } from './ViewSettings'
@@ -1704,14 +1705,18 @@ const TokenizedText = memo(function TokenizedText({
   const panelRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
 
+  // Whether the line being sung is kept on screen. Shared by every document.
+  const [autoScroll, setAutoScroll] = usePersistentState('autoScroll', true)
+
   // Scrolls the line being sung onto the screen when it moves off it, as
   // little as possible: its first highlighted token, where it starts even
   // when it wraps.
   useEffect(() => {
+    if (!autoScroll) return
     boxRef.current
       ?.querySelector('.token.playing')
       ?.scrollIntoView({ block: 'nearest' })
-  }, [playingLine])
+  }, [playingLine, autoScroll])
 
   // Scrolls `element` out from under the selection panel, which is pinned to
   // the top of the screen, if it's there once the panel has rendered.
@@ -2006,6 +2011,19 @@ const TokenizedText = memo(function TokenizedText({
           )
         })}
       </div>
+      {lineTimings && (
+        <div className="autoscroll-anchor">
+          <button
+            type="button"
+            className="autoscroll-toggle"
+            aria-pressed={autoScroll}
+            title="Keep the line being sung on screen"
+            onClick={() => setAutoScroll(!autoScroll)}
+          >
+            Auto-scroll: {autoScroll ? 'on' : 'off'}
+          </button>
+        </div>
+      )}
     </>
   )
 })
