@@ -10,7 +10,7 @@ import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
 // How long a button looks pressed after its key is.
-const PRESS_MS = 150
+export const PRESS_MS = 150
 
 // The song's player, docked to the bottom of the screen: its video, hidden
 // unless shown, and a button for each of the player's keys (Space, , and .),
@@ -102,7 +102,7 @@ export function PlayerBar({
 }
 
 // A button in the bar.
-export function BarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+function BarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
@@ -115,11 +115,12 @@ export function BarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
 }
 
 // A button doing what the key `keyName` does, showing that key.
-function KeyButton({
+export function KeyButton({
   label,
   keyName,
   pressed,
   children,
+  className,
   ...props
 }: ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string
@@ -128,7 +129,9 @@ function KeyButton({
 }) {
   return (
     <BarButton
-      className={pressed ? 'pressed' : undefined}
+      className={
+        [className, pressed && 'pressed'].filter(Boolean).join(' ') || undefined
+      }
       aria-label={label}
       title={`${label} (${keyName})`}
       {...props}

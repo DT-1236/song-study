@@ -51,7 +51,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import type { LrclibSong } from './LrclibMatches'
-import { BarButton, PlayerBar } from './PlayerBar'
+import { KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -2465,8 +2465,12 @@ const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 const TOAST_MS = 2500
 
-// How long a bar button looks pressed after its key is.
-const KEY_PRESS_MS = 150
+// The timing editor's help note up to "starts", in the words for each kind
+// of device.
+const KEYS_HELP =
+  "↑/↓ or a click pick another and play from it, ←/→ nudge the picked line's start and play from there, and / starts"
+const TOUCH_HELP =
+  "Tap a line to pick it and play from it, the nudge buttons move the picked line's start and play from there, and Stamp starts"
 
 // What the timing editor's keys do, one for each of its bar buttons.
 type TimingKey = 'earlier' | 'later' | 'stamp'
@@ -2509,8 +2513,9 @@ const TimingEditor = memo(function TimingEditor({
   barControls: HTMLElement | null
 }) {
   const touch = useMediaQuery(NO_HOVER)
+  const hasBarButtons = touch && barControls !== null
   // Which button looks pressed, for the key that does the same.
-  const [pressed, press] = useTransient<TimingKey>(KEY_PRESS_MS)
+  const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
   const [selected, setSelected] = useState(() => playingLine ?? 0)
   // A change waiting on its confirmation.
   const [pending, setPending] = useState<TimingAction | null>(null)
@@ -2645,12 +2650,13 @@ const TimingEditor = memo(function TimingEditor({
     if (event.key === '/') {
       // Held down, it would time line after line at almost the same moment.
       if (!event.repeat) {
-        press('stamp')
+        // Pressing re-renders every row, so only when a button shows it.
+        if (hasBarButtons) press('stamp')
         timeNextLine()
       }
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
       const earlier = event.key === 'ArrowLeft'
-      press(earlier ? 'earlier' : 'later')
+      if (hasBarButtons) press(earlier ? 'earlier' : 'later')
       nudge(earlier ? -1 : 1)
     } else {
       const line = selected + (event.key === 'ArrowUp' ? -1 : 1)
@@ -2669,44 +2675,40 @@ const TimingEditor = memo(function TimingEditor({
 
   return (
     <>
-      {touch &&
-        barControls &&
+      {hasBarButtons &&
         createPortal(
           <>
-            <BarButton
-              className={pressed === 'earlier' ? 'pressed' : undefined}
-              aria-label="Nudge earlier"
+            <KeyButton
+              label="Nudge earlier"
+              keyName="←"
+              pressed={pressed === 'earlier'}
               onClick={() => nudge(-1)}
             >
               −{nudgeMs}ms
-            </BarButton>
-            <BarButton
-              className={pressed === 'later' ? 'pressed' : undefined}
-              aria-label="Nudge later"
+            </KeyButton>
+            <KeyButton
+              label="Nudge later"
+              keyName="→"
+              pressed={pressed === 'later'}
               onClick={() => nudge(1)}
             >
               +{nudgeMs}ms
-            </BarButton>
-            <BarButton
-              className={`timing-stamp${pressed === 'stamp' ? ' pressed' : ''}`}
+            </KeyButton>
+            <KeyButton
+              className="timing-stamp"
+              label="Stamp"
+              keyName="/"
+              pressed={pressed === 'stamp'}
               onClick={timeNextLine}
             >
               Stamp
-            </BarButton>
+            </KeyButton>
           </>,
           barControls,
         )}
       <p className="lyrics-editor-note">
-        The picked line follows playback.{' '}
-        {touch ? 'Tap' : '↑/↓ or a click pick'}{' '}
-        {touch
-          ? 'a line to pick it and play from it'
-          : 'another and play from it'}
-        ,{' '}
-        {touch
-          ? "the nudge buttons move the picked line's start and play from there, and Stamp starts"
-          : "←/→ nudge the picked line's start and play from there, and / starts"}{' '}
-        the next line at the current playback time (the first line, if none has
+        The picked line follows playback. {touch ? TOUCH_HELP : KEYS_HELP} the
+        next line at the current playback time (the first line, if none has
         started yet) and moves the page down a line. Outlined lines have no time
         yet, and need one before saving. A blank line between stanzas can be
         timed too, to end the line before it there (for an instrumental break),

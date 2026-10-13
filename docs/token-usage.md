@@ -107,6 +107,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Backlog sweep 8 and #113, #115, #118                             | #128 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 39    | 2.2M       | 8k     | M    |
 | 2026-10-13 | Mobile step 6: select on touch                                   | #129 | initial pass                           | Opus 5.5, low               | M    | 26    | 1.9M       | 13k    | M    |
 | 2026-10-13 | Mobile step 6: select on touch                                   | #129 | /simplify (4 subagents)                | Opus 5.5, low               | —    | 17    | 1.1M       | 4k     | M    |
+| 2026-10-13 | Mobile step 7: timing buttons in the player bar                  | #PR  | initial pass                           | Sonnet 5.5, medium          | M    | 21    | 1.3M       | 11k    | M    |
+| 2026-10-13 | Mobile step 7: timing buttons in the player bar                  | #PR  | /simplify (4 subagents)                | Sonnet 5.5, medium          | —    | 22    | 1.3M       | 6k     | M    |
 | 2026-10-13 | Backlog sweep 9: header height through `useHeightProperty`       | #130 | backlog item                           | Sonnet 5.5, medium          | —    | 13    | 652k       | 7k     | S    |
 | 2026-10-13 | Backlog sweep 9: `revealBelowPanel` via scroll padding           | #130 | backlog item                           | Sonnet 5.5, medium          | —    | 7     | 310k       | 3k     | S    |
 | 2026-10-13 | Backlog sweep 9: gather and commit items                         | #130 | backlog sweep                          | Opus 5.5, medium            | —    | 18    | 895k       | 7k     | S    |
