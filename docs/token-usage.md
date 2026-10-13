@@ -83,6 +83,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-12 | Lyrics shown while a document processes; open it on saving | #116 | /simplify (4 subagents) | Opus 5.5, medium | — | 35 | 2.1M | 9k | M |
 | 2026-10-12 | Documents processed by a background job, polled by the page | #117 | initial pass (plan + both steps) | Opus 5.5, high | L | 78 | 12.3M | 75k | L |
 | 2026-10-12 | Documents processed by a background job, polled by the page | #117 | /simplify (4 subagents) | Opus 5.5, high | — | 48 | 6.1M | 20k | L |
+| 2026-10-13 | Player readiness reported by YouTubePlayer (backlog) | #118 | initial pass (onReadyChange, PR) | Sonnet 5.5, high | — | 20 | 1.0M | 8k | M |
+| 2026-10-13 | Player readiness reported by YouTubePlayer (backlog) | #118 | rework: queue `playFrom` in the handle | Sonnet 5.5, high | — | 13 | 963k | 10k | S |
 
 ## Post-mortem log
 

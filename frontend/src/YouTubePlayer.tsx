@@ -24,6 +24,8 @@ export type YouTubePlayerHandle = {
   togglePlay: () => void
   pause: () => void
   seekBy: (deltaSeconds: number) => void
+  // Before the player is ready, plays once it is, unless `pause` or another
+  // `playFrom` comes first.
   playFrom: (seconds: number) => void
 }
 
@@ -32,8 +34,9 @@ type Props = {
   // Called after each seek made through the handle, so playback-time
   // readers can update at once rather than at their next check.
   onSeek?: () => void
-  // Called once the player's methods are usable, for the video it was made for.
-  onReady?: () => void
+  // Called with whether the player's methods are usable: true once they are
+  // for `videoId`, and false again when it is replaced by another video's.
+  onReadyChange?: (ready: boolean) => void
   // Called as the video starts and stops playing.
   onPlayingChange?: (playing: boolean) => void
   // Whether the video shows. Hidden, it plays on as audio: most of these
@@ -43,7 +46,7 @@ type Props = {
 
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
   function YouTubePlayer(
-    { videoId, onSeek, onReady, onPlayingChange, showVideo = false },
+    { videoId, onSeek, onReadyChange, onPlayingChange, showVideo = false },
     ref,
   ) {
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -54,9 +57,11 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
     // up: it keeps reporting the time from before a seek until the iframe
     // reports back, some 50 ms later.
     const seekRef = useRef<{ seconds: number; at: number } | null>(null)
+    // A `playFrom` made before the player was ready, to run once it is.
+    const pendingPlayRef = useRef<(() => void) | null>(null)
     // Read when the player becomes ready, which is after the render that
     // made it, so a later render's callback is the one that runs.
-    const onReadyRef = useLatest(onReady)
+    const onReadyChangeRef = useLatest(onReadyChange)
     // Read when the state changes, for the same reason: a callback in the
     // effect's deps would rebuild the player, stopping playback.
     const onPlayingChangeRef = useLatest(onPlayingChange)
@@ -80,7 +85,10 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
             onReady: (event) => {
               if (cancelled) return
               playerRef.current = event.target
-              onReadyRef.current?.()
+              onReadyChangeRef.current?.(true)
+              const pending = pendingPlayRef.current
+              pendingPlayRef.current = null
+              pending?.()
             },
             onStateChange: (event) => {
               if (cancelled) return
@@ -93,9 +101,15 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
       return () => {
         cancelled = true
         player?.destroy()
+        // It was for the video being replaced.
+        pendingPlayRef.current = null
+        // The latest callback is wanted here, not the one from this effect's
+        // render, which is what the rule's ref-copy advice would give.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (playerRef.current) onReadyChangeRef.current?.(false)
         playerRef.current = null
       }
-    }, [videoId, onReadyRef, onPlayingChangeRef])
+    }, [videoId, onReadyChangeRef, onPlayingChangeRef])
 
     useImperativeHandle(ref, () => {
       // The playback time, counting a seek the player hasn't reported yet.
@@ -121,6 +135,17 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
         onSeek?.()
       }
 
+      function playFrom(seconds: number) {
+        const player = playerRef.current
+        if (!player) {
+          pendingPlayRef.current = () => playFrom(seconds)
+          return
+        }
+        pendingPlayRef.current = null
+        seekTo(player, seconds)
+        player.playVideo()
+      }
+
       return {
         getCurrentTime: () =>
           playerRef.current ? currentTime(playerRef.current) : null,
@@ -135,7 +160,10 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
             player.playVideo()
           }
         },
-        pause: () => playerRef.current?.pauseVideo(),
+        pause: () => {
+          pendingPlayRef.current = null
+          playerRef.current?.pauseVideo()
+        },
         seekBy: (deltaSeconds) => {
           const player = playerRef.current
           if (!player) return
@@ -144,12 +172,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
           const clamped = Math.min(Math.max(target, 0), player.getDuration())
           seekTo(player, clamped)
         },
-        playFrom: (seconds) => {
-          const player = playerRef.current
-          if (!player) return
-          seekTo(player, seconds)
-          player.playVideo()
-        },
+        playFrom,
       }
     }, [onSeek])
 
