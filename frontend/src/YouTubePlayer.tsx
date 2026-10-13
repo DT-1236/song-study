@@ -1,5 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef } from 'react'
 import { loadYouTubeIframeApi } from './loadYouTubeIframeApi'
+import { useInert } from './useInert'
 import { useLatest } from './useLatest'
 
 // Playback time (getCurrentTime/getDuration) and getVideoData() (title,
@@ -33,10 +34,19 @@ type Props = {
   onSeek?: () => void
   // Called once the player's methods are usable, for the video it was made for.
   onReady?: () => void
+  // Called as the video starts and stops playing.
+  onPlayingChange?: (playing: boolean) => void
+  // Whether the video shows. Hidden, it plays on as audio: most of these
+  // songs' videos are a still of the album cover.
+  showVideo?: boolean
 }
 
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
-  function YouTubePlayer({ videoId, onSeek, onReady }, ref) {
+  function YouTubePlayer(
+    { videoId, onSeek, onReady, onPlayingChange, showVideo = false },
+    ref,
+  ) {
+    const wrapperRef = useRef<HTMLDivElement>(null)
     const containerRef = useRef<HTMLDivElement>(null)
     // Set only once the player is ready, since its methods don't exist before.
     const playerRef = useRef<YT.Player | null>(null)
@@ -47,6 +57,11 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
     // Read when the player becomes ready, which is after the render that
     // made it, so a later render's callback is the one that runs.
     const onReadyRef = useLatest(onReady)
+    // Read when the state changes, for the same reason: a callback in the
+    // effect's deps would rebuild the player, stopping playback.
+    const onPlayingChangeRef = useLatest(onPlayingChange)
+    // A hidden video takes no Tab stop and isn't read out.
+    useInert(wrapperRef, !showVideo)
 
     useEffect(() => {
       let cancelled = false
@@ -58,11 +73,18 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
           videoId,
           width: '100%',
           height: '100%',
+          // Plays in the page on an iPhone rather than fullscreen, which a
+          // hidden video couldn't be closed from.
+          playerVars: { playsinline: 1 },
           events: {
             onReady: (event) => {
               if (cancelled) return
               playerRef.current = event.target
               onReadyRef.current?.()
+            },
+            onStateChange: (event) => {
+              if (cancelled) return
+              onPlayingChangeRef.current?.(event.data === YT_PLAYING_STATE)
             },
           },
         })
@@ -73,7 +95,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
         player?.destroy()
         playerRef.current = null
       }
-    }, [videoId, onReadyRef])
+    }, [videoId, onReadyRef, onPlayingChangeRef])
 
     useImperativeHandle(ref, () => {
       // The playback time, counting a seek the player hasn't reported yet.
@@ -132,7 +154,10 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
     }, [onSeek])
 
     return (
-      <div className="youtube-player">
+      <div
+        ref={wrapperRef}
+        className={showVideo ? 'youtube-player' : 'youtube-player hidden'}
+      >
         <div ref={containerRef} />
       </div>
     )

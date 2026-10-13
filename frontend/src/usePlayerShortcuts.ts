@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import type { RefObject } from 'react'
+import { useLatest } from './useLatest'
 import { usePersistentState } from './usePersistentState'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
@@ -24,15 +25,23 @@ export function useSeekSeconds() {
   return usePersistentState('seekSeconds', 3)
 }
 
+// What a player shortcut did.
+export type PlayerShortcut = 'play' | 'back' | 'forward'
+
 // Spacebar play/pause and ,/. seek by `seekSeconds` on the player at
 // `playerRef`, same as YouTube's own page — but only when focus isn't on
 // something these keys already have a native meaning for: typing (a
 // textarea, an input) for all three, or activating a focused button/link for
-// Space specifically, which would otherwise get silently overridden.
+// Space specifically, which would otherwise get silently overridden. Calls
+// `onShortcut` with each one taken.
 export function usePlayerShortcuts(
   playerRef: RefObject<YouTubePlayerHandle | null>,
   seekSeconds: number,
+  onShortcut?: (shortcut: PlayerShortcut) => void,
 ) {
+  // Read when a key is pressed, so a new callback doesn't re-add the listener.
+  const onShortcutRef = useLatest(onShortcut)
+
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       const active = document.activeElement
@@ -44,19 +53,20 @@ export function usePlayerShortcuts(
         if (isNativeSpaceTarget || isTypingTarget(active)) return
         event.preventDefault()
         playerRef.current?.togglePlay()
+        onShortcutRef.current?.('play')
         return
       }
 
       if (event.code === 'Comma' || event.code === 'Period') {
         if (isTypingTarget(active)) return
         event.preventDefault()
-        playerRef.current?.seekBy(
-          event.code === 'Comma' ? -seekSeconds : seekSeconds,
-        )
+        const back = event.code === 'Comma'
+        playerRef.current?.seekBy(back ? -seekSeconds : seekSeconds)
+        onShortcutRef.current?.(back ? 'back' : 'forward')
       }
     }
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [playerRef, seekSeconds])
+  }, [playerRef, seekSeconds, onShortcutRef])
 }

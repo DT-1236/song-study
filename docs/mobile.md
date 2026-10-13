@@ -20,7 +20,7 @@ width. The document page also assumes a mouse and a keyboard:
   phone doesn't have.
 - **The video is below the lyrics**, so it scrolls out of view while you
   read. `YouTubePlayer` passes no `playerVars`, so without `playsinline: 1` an
-  iPhone plays it fullscreen.
+  iPhone plays it fullscreen. (Both fixed by the player bar, below.)
 - **Seeking and timing are keyboard-only:** `,` and `.` seek
   (`usePlayerShortcuts`), and the timing editor uses ↑/↓, ←/→ and `/`
   (`TimingEditor`'s `handleKeyDown`).
@@ -35,15 +35,20 @@ plan once the desktop version is settled.
 
 ### Decided (2026-10-08)
 
-- Video: on a narrow screen it stays **below the lyrics by default**, since
-  most of these videos are only there for the audio. A **Pin** button by
-  the video pins it: across the top in portrait, and on the right at 40% of
-  the screen width in landscape. A pinned video has an **unpin icon over
-  it** (the standard pushpin-off). The choice is kept per device.
+- Video (revised 2026-10-12, replacing a pinnable video): **hidden by
+  default on every device**, since most of these songs come from YouTube
+  Music search and their videos are only the cover. A **player bar** docked
+  to the bottom of the screen (`PlayerBar`, sticky at the end of the page)
+  has a button for each player key, −seek, play/pause and +seek, which looks
+  pressed when its key is, and a **Video** toggle that shows the video above
+  the buttons. The toggle is `usePersistentState('showVideo', false)`, kept
+  per device. The study and run-through pages keep the video hidden with no
+  bar.
 - The view settings **move to a new settings page**, reached by clicking the
   account name in the sidebar.
-- On touch, a **one-row control bar** at the bottom of the document page:
-  play/pause and seek −/+ always, plus the timing buttons in timing mode.
+- The player bar is on **every device**, with the keys shown on its buttons
+  where there's a mouse. Step 7 adds the timing buttons to it in timing
+  mode, on touch.
 - Multi-select on touch starts from a **Select** button in the gloss popup.
   Taps on the outlined instances then add to the selection, as clicks
   already do once a selection exists.
@@ -74,19 +79,20 @@ plan once the desktop version is settled.
 
 There are eight steps after this doc, each on its own branch and PR. Step 1
 comes first. Steps 2, 3, 4 and 5a each need only step 1. Step 5b needs step
-5a, step 6 needs step 5b, and step 7 needs steps 3 and 5b.
+5a, step 6 needs step 5b, and step 7 needs step 5b. The player bar, which
+replaced most of step 3 and the start of step 7, shipped on its own.
 
 | Step | Status | Ships | Model | Effort | Size | Actual | Why |
 |---|---|---|---|---|---|---|---|
 | 0 — Doc | Done | This plan committed as `docs/mobile.md` | Opus 5 | medium, reviewed at high | — | — | Planning |
 | 1 — Responsive shell | Done | `media.ts`; top bar + nav and lookup drawers in `Layout`; `dvh` heights; narrow-screen padding; 16px inputs on touch | Sonnet 5 | medium | — | M; simplify S | Conventional drawer work against a clear spec. The traps (a drawer left open after navigating, focus inside a closed drawer) show up in the browser check |
 | 2 — New document form and documents list | Done | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | M | | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
-| 3 — Document page layout and pinnable video | | Pin button and unpin overlay; the pinned video across the top or on the right, without remounting; `playsinline`; scroll offsets that clear it | **Opus 5** | medium | L | | The playing line's `scrollIntoView`, `revealBelowPanel` and `.selection-anchor`'s `--header-height` all assume nothing is pinned at the top. Getting one wrong fails *silently*: the playing line scrolls under the video |
+| 3 — Document page layout | | "Edit timings" reason as text; wider line play buttons on touch; a shown video beside the bar's buttons in landscape | Sonnet 5 | low | S | | The pinnable video it was planned around became the player bar (hidden video, `playsinline`, `--player-bar-height`), so what's left is three small rules, each with one answer |
 | 4 — Settings page | Done | `/settings`, account name in the sidebar links to it, the view settings move there; the page's own actions move to the lyrics header | Sonnet 5 | medium | M | M; simplify M | Extracting the settings grid has to keep each mode's controls and the page's actions where they work, but each value already persists through `usePersistentState` |
 | 5a — Mouse-only hover and the Pinned marker | Done | Hover only from a real mouse, so a second tap closes a gloss; no sticky `:hover`; a "Pinned" marker in the gloss on every device | Sonnet 5 | medium | M | | Each change has one clear answer, and the 1280px run checks that desktop hover, the grace period and click-to-pin are unchanged. The marker is one primitive prop through the memoized `TokenSpan` |
 | 5b — Tap to preview, long-press to pin; gloss as a bottom sheet | | On touch, a tap previews and a long press (with a countdown outline) pins; dismissal on a tap or scroll elsewhere; the gloss opens as a sheet at the bottom of the screen | **Opus 5** | **high** | L | | The click that may or may not follow a long press, the memoized `TokenSpan`, `GlossPopup`'s reposition, the document-level dismiss listener and the playing line's auto-scroll interact in ways that only show up as a gloss that won't close, or closes on its own |
 | 6 — Select on touch | | Select button in the gloss; selection panel as a bottom sheet on touch | **Opus 5** | low | M | | Little is left to decide once 5b exists: a button into `toggleSelected`, a hint, the sheet reused. Opus because the one new rule (a scroll doesn't end a selection) runs against 5b's dismiss listener, and getting it wrong just looks like a selection that won't stick |
-| 7 — Touch control bar | | One-row bar on touch: play/pause and seek always, nudge and stamp in timing mode | Sonnet 5 | medium | M | | `nudge` and `timeNextLine` already exist as functions and the player handle already has `togglePlay` and `seekBy`. What needs care, focus and the bar's place under the sheet and toast, is measured by the checks |
+| 7 — Timing buttons in the player bar | | Nudge −/+ and Stamp in the player bar in timing mode, on touch; touch-sized `.timing-delete` | Sonnet 5 | medium | M | | The bar, its play state, focus handling and its offsets for the toast and the playing line already exist. What needs care is reaching `TimingEditor`'s own `nudge` and `timeNextLine` from the bar without lifting its state |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Escalate a step that stalls rather
@@ -132,8 +138,8 @@ listener in an effect.
   the browser default of about 13px, and opening the lookup focuses one at
   once. The gloss's reading-fix input works out to about 12px.
 
-`.content` stays the scroll container, so step 3's pinned video can sit at
-its top, just under the top bar.
+`.content` stays the scroll container, so the player bar can stick to its
+bottom.
 
 ## Step 2 — New document form and documents list
 
@@ -159,58 +165,29 @@ already close on a tap outside, since `useClickOutside` listens for
 and video ID columns (a class on those `th`/`td`), and show the created date
 without its time. The rest stays a table.
 
-## Step 3 — Document page layout and pinnable video
+## Step 3 — Document page layout
 
 **"Edit timings" reason:** the button's disabled reason ("Needs a video") is
 only a `title`, which a phone never shows. Show it as text next to the button
 when the button is disabled.
 
-**Pin button and overlay** (narrow screens only; wide screens are unchanged):
-- The "YouTube video ID" label row above the player gets a Pin button: a
-  pushpin icon and "Pin video".
-- Pinned, the video has an unpin button over one corner: the standard
-  pushpin-off icon (Material Symbols `keep` and `keep_off`, inlined as SVG
-  like the app's other icons), with a 44px hit area. It covers part of the
-  embed's own overlay, so pick the corner from a screenshot.
-- Kept per device with `usePersistentState('pinVideo', false)`. Unpinned is
-  the default.
-
-**Where a pinned video goes:**
-- **Portrait:** `position: fixed` across the top of `.content`, just under
-  the top bar, at the content width. `.content-inner` gets top padding equal
-  to its height, so the page starts below it.
-- **Landscape** (`(orientation: landscape)` on a narrow screen): fixed on
-  the right, under the top bar, 40% of the viewport wide (266×149 at
-  664×390). `.content-inner` gets right padding of that width plus a gap, so
-  the lyrics wrap beside it rather than under it.
-- Pinning and rotating only change classes and media queries. Always render
-  the same wrapper around `YouTubePlayer` in `DocumentViewPage`, holding the
-  overlay button, and toggle a class on it. Moving `YouTubePlayer` in the
-  JSX, or wrapping it only when pinned, remounts the iframe and stops
-  playback.
-- **`YouTubePlayer.tsx`:** pass `playerVars: { playsinline: 1 }`, so an
-  iPhone plays the video in the page rather than fullscreen. This applies
-  everywhere, since desktop browsers ignore it.
-
-**Offsets that clear the video:** measure the pinned video's height (a
-`ResizeObserver`, as `headerHeight` is measured now) and set it as
-`--offset-top` on `#lyrics`. It's 0 unless the video is pinned across the
-top: unpinned, in landscape, and on wide screens. Then:
-- `.lyrics-box .token`'s `scroll-margin-top` adds `--offset-top`, so
-  `TokenizedText`'s playing-line `scrollIntoView({ block: 'nearest' })`
-  stops below the video, not under it. `SyncedLyrics`' rows are
-  `.lyrics-box .token` too. `TimingEditor`'s `.timing-row` gets the same
-  margin.
-- The same rules take a `scroll-margin-bottom` of `--offset-bottom`, 0 for
-  now. Steps 5b and 7 set it for the sheet and the bar.
-- `.selection-anchor`'s `top` adds `--offset-top`, for a narrow window with
-  a mouse, which gets both the pinned video and the top-pinned selection
-  panel. On touch, step 6 moves the panel to the bottom.
-
 **Line play buttons:** `.lyrics-box .line-play` gets a wider tap area on
 touch (`NO_HOVER`), without moving the line's text. Its hit area can extend
 left, into the box's padding, with a pseudo-element. Extending right would
 take taps meant for the line's first token.
+
+**A shown video in landscape:** above the bar's buttons, a shown video at
+24rem wide is 216px of a 390px-high screen. On a narrow screen in landscape
+(`(orientation: landscape)`), put it beside the buttons instead, at 40% of
+the viewport width. Only `.player-bar`'s layout changes: `PlayerBar` renders
+the same `YouTubePlayer` in the same place whatever the layout, since moving
+it in the JSX remounts the iframe and stops playback.
+
+Already done by the player bar: the video is hidden by default and docked
+at the bottom when shown, so nothing is pinned at the top and no
+`--offset-top` is needed; `YouTubePlayer` passes `playsinline: 1`; and the
+bar sets its height as `--player-bar-height` on `.content`, whose
+`scroll-padding-bottom` and the toast's `bottom` read it.
 
 ## Step 4 — Settings page
 
@@ -359,23 +336,24 @@ playback. A preview is for a quick look.
   `.new-document-form button/input/label` and `.lyrics-box ruby rt` rules
   stop applying and every control in it restyles.
 - Its stacking is its token's: `.token:has(.gloss-popup)` puts it at
-  z-index 20 in the page's root stacking context. Set the pinned video and
-  the control bar below that, and the drawers above it.
+  z-index 20 in the page's root stacking context. The player bar is at 10,
+  below it, and the drawers are above it.
 - It inherits the token's touch `user-select: none` and callout rule, which
   is fine. The reading-fix input stays editable.
 - `GlossPopup`'s `reposition` effect is skipped in sheet mode.
 - **Its height** leaves the token's line in view: at most 60dvh, and at
-  most the screen less the top bar, `--offset-top`, the control bar (step 7,
-  0 until then) and about three lyric lines. On a 390×664 phone with the
-  video pinned, a plain 60dvh sheet would leave 17px of lyrics.
+  most the screen less the top bar, `--player-bar-height` and about three
+  lyric lines. On a 390×664 phone with the video shown in the bar, a plain
+  60dvh sheet would leave about 17px of lyrics.
 - The sheet has its own Close button. On iOS a tap on non-clickable page
   text doesn't send a `click` to `document`, so a pin can't be closed only
   by tapping elsewhere.
 - The sheet measures itself (a `ResizeObserver`, set imperatively as
   `reposition` sets its transform) and sets `--sheet-height` on the lyrics
   box. The box gets that much bottom padding, so the last lines can still be
-  scrolled above it. `--offset-bottom` adds it, so the playing line's
-  auto-scroll stops above the sheet.
+  scrolled above it. `.content`'s `scroll-padding-bottom` adds it to
+  `--player-bar-height`, so the playing line's auto-scroll stops above the
+  sheet. The sheet sits directly above the bar.
 - The token whose gloss is open keeps its outline while its sheet is open.
   It's scrolled into view above the sheet with `scrollIntoView({ block:
   'nearest' })` when it would be covered, which the bottom margin makes
@@ -401,45 +379,35 @@ playback. A preview is for a quick look.
   sheet as step 5b, not `.selection-anchor`'s pinned-to-the-top placement.
   `revealBelowPanel` then reveals above the sheet.
 
-## Step 7 — Touch control bar
+## Step 7 — Timing buttons in the player bar
 
-**The bar:**
-- On touch (`NO_HOVER`), one row fixed to the bottom of the document page,
-  in every mode: play/pause, seek −, seek +. In timing mode it adds nudge −,
-  nudge + and a wider "Stamp", still in one row.
+The player bar already has −seek, play/pause (showing the player's state,
+through `YouTubePlayer`'s `onPlayingChange`), +seek and the Video toggle, on
+every device. Its buttons leave focus where it was, and its height already
+clears the toast and the playing line.
+
+**What this step adds:**
+- On touch (`NO_HOVER`), in timing mode, nudge −, nudge + and a wider
+  "Stamp" join the bar's row, and the Video toggle leaves it. At 320px
+  that's six buttons in 288px: the seek buttons' "−3s" makes them wider
+  than 44px today, so measure the row there and narrow their padding on
+  touch if Stamp has no room.
 - Previous and next line aren't in it: a tap on a timing row already picks
   that line and plays from it.
-- At 320px that's six buttons in 288px: five at 44px and Stamp taking the
-  rest.
-
-**What the buttons call:**
-- Play/pause and seek use the player handle as it is:
-  `togglePlay()` and `seekBy(±seekSeconds)`, with `useSeekSeconds()` for
-  the step.
-- The play/pause button shows the player's state. `YouTubePlayer` reports
-  only `onReady` today, so it gains an `onStateChange` → `onPlayingChange`
-  prop. Read it through `useLatest`, as `onReadyRef` is. The effect that
-  creates the player depends on `[videoId, onReadyRef]`, and a callback in
-  those deps would destroy and rebuild the iframe on every new callback,
-  stopping playback.
 - Nudge and Stamp call `TimingEditor`'s own `nudge(±1)` and
   `timeNextLine()`, so they behave exactly like ←/→ and `/`. Its state stays
-  inside it: one `ControlBar` component takes its buttons as children. The
-  page renders it outside timing mode. `TimingEditor` renders it in timing
-  mode, with play and seek passed down.
-
-**Focus:**
-- The buttons leave focus where it was: the `onMouseDown` `preventDefault`
-  pattern `.timing-delete` uses. Check that a tap doesn't focus them either.
-- A focused button takes Space, so with a keyboard attached (an iPad) Space
-  would press Stamp again instead of playing or pausing.
+  inside it: `PlayerBar` takes extra buttons as children, and the page
+  passes them from `TimingEditor` (a ref to a handle it exposes, or a
+  portal target), without lifting its state.
+- The extra buttons also look pressed when their keys are, as the bar's
+  others do.
 
 **Around it:**
+- A focused button takes Space, so with a keyboard attached (an iPad) Space
+  would press Stamp again instead of playing or pausing: Stamp takes the
+  same `onMouseDown` `preventDefault` the bar's other buttons do.
 - Taps on the bar don't dismiss a gloss preview (step 5b's `pointerdown`
   listener leaves the bar out).
-- The lyrics get bottom padding for the bar, and `--offset-bottom` adds its
-  height. A gloss sheet sits directly above it. The toast moves up so it
-  clears it.
 - `TimingEditor`'s help note describes the buttons on touch, not the keys.
 - `.timing-delete` gets a 44px hit area on touch, kept inside the gutter so
   it doesn't take taps meant for the row.
@@ -530,21 +498,12 @@ named in brackets.
    The no-sideways-scroll, tap-target and font-size checks pass on `/new`
    (with the song and LRCLIB dropdowns open) and on `/documents`. Tapping
    outside an open dropdown closes it.
-- **Step 3.** On a document on the phone, the player follows `#lyrics` and
-   isn't fixed. Tap Pin, play, then scroll `.content` to the bottom: the
-   player's `getBoundingClientRect().top` stays at the top bar's bottom, and
-   at scroll top `.document-header`'s top is at or below the player's bottom.
-   Sample every 250ms during playback: whenever a `.token.playing` exists,
-   its top is at or below the player's bottom and its bottom is on screen.
-   Rotate to 664×390 mid-playback: the player is about 40% of `innerWidth`
-   wide against the right edge, and no `.token`'s rect overlaps it. Rotate
-   back. Across both, `currentTime` keeps increasing and the iframe element
-   is the same node (a remount would replace it). Tap the unpin overlay (44px
-   hit area): the player follows `#lyrics` again, still the same node, still
-   playing. Reload: the pin choice is kept. The iframe's `src` includes
-   `playsinline=1`. A disabled "Edit timings" shows its reason as text. At
-   1280px there's no Pin button, the player is below the lyrics and not
-   fixed, and `--offset-top` is 0.
+- **Step 3.** A disabled "Edit timings" shows its reason as text. On the
+   phone, a line play button's hit area is at least 44px wide and doesn't
+   overlap the line's first token. At 664×390 with the video shown, it's
+   about 40% of `innerWidth` wide, beside the bar's buttons, and the iframe
+   element is the same node after rotating there and back mid-playback,
+   with `currentTime` still increasing.
 - **Step 4.** The account-name link goes to `/settings` and is the active
    link there. Change the text size on `/settings`, open a document: its
    lyrics' computed font size matches. At 1280px, change it in the document
@@ -598,11 +557,10 @@ named in brackets.
    all three tokens. A swipe on the lyrics leaves the selection. Clear
    empties it. At 1280px, shift-click still selects, and a click elsewhere
    and Escape still clear.
-- **Step 7.** On the phone, in viewing and in timing mode, the bar's buttons
-   share one top (within 1px) at 390px and at 320px, and each passes the
-   tap-target check. Play/pause starts and stops `currentTime` advancing, and
-   its icon follows. Seek moves `currentTime` by the seek step. In timing
-   mode, tap Stamp and nudge: after each, the picked line and its start time
+- **Step 7.** On the phone, in timing mode, the bar's buttons share one top
+   (within 1px) at 390px and at 320px, and each passes the tap-target check.
+   (`checks/player-bar.mjs` already covers play/pause, seek, focus and the
+   tap targets outside timing mode.) Tap Stamp and nudge: after each, the picked line and its start time
    match what the same key press gives at 1280px (run both and compare).
    After tapping a bar button, `document.activeElement` is what it was
    before, and pressing Space then toggles playback rather than stamping
@@ -612,8 +570,9 @@ named in brackets.
 
 ### On a real phone
 
-What Chromium can't show is checked on the user's iPhone after steps 3, 5b
-and 7. Those steps check that the video plays in the page, that a tap on
+What Chromium can't show is checked on the user's iPhone after the player
+bar and steps 5b and 7. Those check that the hidden video plays from the
+bar and a shown one plays in the page, that a tap on
 the lyrics closes a preview, and that a long press pins without iOS's
 text selection or callout menu appearing. Step 1 checks that focusing the
 lookup doesn't zoom. That needs only configuration: the frontend reachable

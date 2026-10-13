@@ -2,12 +2,11 @@ import { useCallback, useRef, useState } from 'react'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { LrclibMatches } from './LrclibMatches'
+import { PlayerBar } from './PlayerBar'
 import { SongSearch } from './SongSearch'
 import { SyncedLyrics } from './SyncedLyrics'
 import { useLrclibChoice } from './useLrclibChoice'
-import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import { usePlayingLine } from './usePlayingLine'
-import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
 export function NewDocumentForm() {
@@ -34,8 +33,6 @@ export function NewDocumentForm() {
   const [savedTitle, setSavedTitle] = useState<string | null>(null)
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
-  const [seekSeconds] = useSeekSeconds()
-  usePlayerShortcuts(playerRef, seekSeconds)
   const handlePlayLine = useCallback(
     (start: number) => playerRef.current?.playFrom(start),
     [],
@@ -140,19 +137,6 @@ export function NewDocumentForm() {
       <h1>New document</h1>
 
       <SongSearch pickedId={pickedSong?.video_id ?? null} onPick={handlePick} />
-      {hasVideo && (
-        <YouTubePlayer
-          ref={playerRef}
-          videoId={youtubeVideoId.trim()}
-          onSeek={onSeek}
-        />
-      )}
-      {hasVideo && (
-        <p className="lyrics-editor-note">
-          <kbd>Space</kbd> plays and pauses, and <kbd>,</kbd> / <kbd>.</kbd>{' '}
-          seek {seekSeconds}s (set on a document page).
-        </p>
-      )}
 
       <label htmlFor="title">Title</label>
       <input
@@ -215,6 +199,14 @@ export function NewDocumentForm() {
 
       {error && <p className="form-error">{error}</p>}
       {savedTitle && <p className="form-success">Saved "{savedTitle}".</p>}
+
+      {hasVideo && (
+        <PlayerBar
+          playerRef={playerRef}
+          videoId={youtubeVideoId.trim()}
+          onSeek={onSeek}
+        />
+      )}
     </form>
   )
 }

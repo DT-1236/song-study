@@ -95,6 +95,8 @@
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  /* Scrolling something into view stops above a docked player bar. */
+  scroll-padding-bottom: var(--player-bar-height, 0px);
 }
 
 .content-inner {
@@ -575,6 +577,82 @@ li.grammar-legend-item {
   display: block;
 }
 
+/* Still laid out, since a browser may not load a player in a frame that
+   isn't, but clipped to nothing. At this size YouTube streams its lowest
+   resolution, which is all the audio needs. */
+.youtube-player.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  clip-path: inset(50%);
+}
+
+/* Docked to the bottom of the screen while the page above it is in view.
+   PlayerBar sets its height on the scroll container, as --player-bar-height,
+   so what's scrolled into view stops above it. */
+.player-bar {
+  position: sticky;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  border-top: 1px solid var(--border);
+  background-color: var(--bg);
+}
+
+.player-bar .youtube-player:not(.hidden) {
+  width: min(100%, 24rem);
+}
+
+.player-controls {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding. */
+.new-document-form .player-controls button {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  justify-content: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin-top: 0;
+  padding: 0.4rem 0.8rem;
+}
+
+.player-controls svg {
+  width: 0.9em;
+  height: 0.9em;
+  fill: currentColor;
+}
+
+.player-controls kbd {
+  font-size: 0.8em;
+  color: var(--text-muted);
+}
+
+/* As a click looks, for the key that does the same. */
+.player-controls button.pressed {
+  border-color: var(--accent);
+  background-color: var(--border);
+}
+
+.player-video-toggle[aria-pressed='true'] {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Keys are no use without a keyboard. */
+@media (hover: none) {
+  .player-controls kbd {
+    display: none;
+  }
+}
+
 .new-document-form button {
   margin-top: 1rem;
   padding: 0.6rem 1.2rem;
@@ -810,7 +888,8 @@ li.grammar-legend-item {
 }
 
 /* Keys that use a setting, drawn as keycaps so a lone , or . reads as one. */
-.text-size-controls kbd {
+.text-size-controls kbd,
+.player-controls kbd {
   padding: 0 0.3em;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -987,7 +1066,8 @@ li.grammar-legend-item {
 .toast {
   position: fixed;
   left: 50%;
-  bottom: 1.5rem;
+  /* Above the player docked at the bottom. */
+  bottom: calc(1.5rem + var(--player-bar-height, 0px));
   transform: translateX(-50%);
   z-index: 20;
   padding: 0.5rem 1rem;
@@ -1834,11 +1914,6 @@ label.apply-to-all {
 }
 
 .study-next {
-  margin-top: 1rem;
-}
-
-.study-player {
-  width: 240px;
   margin-top: 1rem;
 }
 

@@ -20,9 +20,16 @@ export const LinePlayButton = memo(function LinePlayButton({
       onMouseDown={(e) => e.preventDefault()}
       onClick={() => onPlayLine(start)}
     >
-      <svg viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2 1 9 5 2 9Z" />
-      </svg>
+      <PlayIcon />
     </button>
   )
 })
+
+// A play triangle, sized and colored by its button's CSS.
+export function PlayIcon() {
+  return (
+    <svg viewBox="0 0 10 10" aria-hidden="true">
+      <path d="M2 1 9 5 2 9Z" />
+    </svg>
+  )
+}

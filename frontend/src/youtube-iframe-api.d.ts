@@ -29,8 +29,11 @@ declare global {
       videoId: string
       width?: string | number
       height?: string | number
+      playerVars?: { playsinline?: 0 | 1 }
       events?: {
         onReady?: (event: { target: Player }) => void
+        // `data` is the new state, as getPlayerState() would return it.
+        onStateChange?: (event: { target: Player; data: number }) => void
       }
     }
 

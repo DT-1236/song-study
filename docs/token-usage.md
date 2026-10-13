@@ -77,6 +77,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-10 | Mobile step 5a, mouse-only hover and Pinned marker | #111 | initial pass | Sonnet 5.5, medium | M | 14 | 787k | 7k | S |
 | 2026-10-10 | Backlog sweep 7: gather and commit items, AGENTS.md | #112 | backlog sweep | Opus 5.5, medium | — | 38 | 2.1M | 15k | M |
 | 2026-10-10 | Backlog sweep 7 and #111 | #112 | /simplify (4 subagents) | Opus 5.5, medium | — | 69 | 6.1M | 24k | L |
+| 2026-10-12 | Player bar, video hidden by default | #114 | initial pass | Opus 5.5, medium | — | 71 | 7.9M | 55k | L |
+| 2026-10-12 | Player bar, video hidden by default | #114 | /simplify (4 subagents) | Opus 5.5, medium | — | 35 | 3.6M | 13k | M |
 
 ## Post-mortem log
 
