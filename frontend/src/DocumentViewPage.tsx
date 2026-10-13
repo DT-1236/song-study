@@ -1340,6 +1340,7 @@ function GlossPopup({
   onCardChanged,
   pinned,
   onClose,
+  onSelect,
   onHoverEnter,
   onHoverLeave,
 }: {
@@ -1354,6 +1355,8 @@ function GlossPopup({
   onCardChanged: (card: StudyCard) => void
   pinned: boolean
   onClose: () => void
+  // Starts a selection with this token, as a shift-click does.
+  onSelect: () => void
   onHoverEnter?: () => void
   onHoverLeave?: () => void
 }) {
@@ -1374,6 +1377,12 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
+  // The way into a selection without a shift key.
+  const selectButton = (
+    <button type="button" className="gloss-select" onClick={onSelect}>
+      Select
+    </button>
+  )
   // From the gloss rather than `words`, which lists only the pieces whose
   // shown word is studyable.
   const wordPieces =
@@ -1452,6 +1461,7 @@ function GlossPopup({
             )
           )}
           {studyList}
+          {selectButton}
           <button type="button" className="gloss-close" onClick={onClose}>
             Close
           </button>
@@ -1484,6 +1494,7 @@ function GlossPopup({
           onTokensUpdated={onTokensUpdated}
         />
       )}
+      {!sheet && <div className="gloss-actions">{selectButton}</div>}
     </div>
   )
 }
@@ -1520,6 +1531,7 @@ function SelectionPanel({
   focus,
   instances,
   panelRef,
+  sheet,
   documentId,
   onTokensUpdated,
   onClear,
@@ -1533,12 +1545,16 @@ function SelectionPanel({
   focus: number
   // Every token in the first selected token's group, selected or not.
   instances: Token[]
-  panelRef: React.Ref<HTMLDivElement>
+  panelRef: React.RefObject<HTMLDivElement>
+  // Whether it's a sheet at the bottom of the screen, as a gloss is without
+  // a mouse.
+  sheet: boolean
   documentId: number
   onTokensUpdated: TokensUpdated
   onClear: () => void
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
+  useHeightProperty(panelRef, '--sheet-height', sheet)
   const selected = indices.map((i) => tokens[i])
   const kind = selectionKind(tokens, keys, indices)
   const title =
@@ -1573,11 +1589,12 @@ function SelectionPanel({
   )
 
   // Pinned to the top of the screen, and no taller than the page content
-  // above the lyrics (see .selection-anchor). Clicks inside stop here, since
-  // a click anywhere else ends the selection.
+  // above the lyrics (see .selection-anchor), or a sheet at the bottom on
+  // touch. Clicks inside stop here, since a click anywhere else ends the
+  // selection.
   return (
     <div
-      className="selection-panel"
+      className={sheet ? 'selection-panel selection-sheet' : 'selection-panel'}
       ref={panelRef}
       onClick={(e) => e.stopPropagation()}
     >
@@ -1594,9 +1611,9 @@ function SelectionPanel({
         <>
           {selected.length === 1 && (
             <div className="conflict-note">
-              Click the outlined instances of this word to decide for them
-              together, or shift-click neighboring words to mark a run. Click
-              anywhere else to finish.
+              {sheet
+                ? 'Tap the outlined instances of this word to decide for them together. Tap Clear to finish.'
+                : 'Click the outlined instances of this word to decide for them together, or shift-click neighboring words to mark a run. Click anywhere else to finish.'}
             </div>
           )}
           {decisions?.urgent && (
@@ -1640,6 +1657,7 @@ const TokenSpan = memo(function TokenSpan({
   onCardChanged,
   onPointerDown,
   onClick,
+  onSelect,
   onHoverEnter,
   onHoverLeave,
   onClose,
@@ -1659,14 +1677,17 @@ const TokenSpan = memo(function TokenSpan({
   onCardChanged: (card: StudyCard) => void
   onPointerDown: (index: number, event: React.PointerEvent<HTMLElement>) => void
   onClick: (index: number, event: React.MouseEvent<HTMLElement>) => void
+  onSelect: (index: number, element: HTMLElement) => void
   onHoverEnter: (tokenId: number) => void
   onHoverLeave: (tokenId: number) => void
   onClose: () => void
 }) {
   const interactive = hasPopup(token)
+  const spanRef = useRef<HTMLSpanElement>(null)
 
   return (
     <span
+      ref={spanRef}
       className={className}
       onPointerEnter={
         interactive ? mouseOnly(() => onHoverEnter(token.id)) : undefined
@@ -1696,6 +1717,9 @@ const TokenSpan = memo(function TokenSpan({
           onCardChanged={onCardChanged}
           pinned={pinned}
           onClose={onClose}
+          onSelect={() => {
+            if (spanRef.current) onSelect(index, spanRef.current)
+          }}
           onHoverEnter={() => onHoverEnter(token.id)}
           onHoverLeave={() => onHoverLeave(token.id)}
         />
@@ -1777,10 +1801,18 @@ const TokenizedText = memo(function TokenizedText({
       ?.scrollIntoView({ block: 'nearest' })
   }, [playingLine, autoScroll])
 
-  // Scrolls `element` out from under the selection panel, which is pinned to
-  // the top of the screen, if it's there once the panel has rendered.
+  const sheet = useMediaQuery(NO_HOVER)
+
+  // Scrolls `element` out from under the selection panel, pinned to the top
+  // of the screen or, on touch, a sheet at the bottom, if it's there once
+  // the panel has rendered.
   function revealBelowPanel(element: HTMLElement) {
     requestAnimationFrame(() => {
+      // .content's scroll padding keeps it above the sheet.
+      if (sheet) {
+        element.scrollIntoView({ block: 'nearest' })
+        return
+      }
       const coveredTo = panelRef.current?.getBoundingClientRect().bottom ?? 0
       const top = element.getBoundingClientRect().top
       if (top < coveredTo)
@@ -2027,6 +2059,20 @@ const TokenizedText = memo(function TokenizedText({
     setHoveredId(showing === id ? null : id)
   }
 
+  // Unpins the token and starts a selection with it, as a shift-click does.
+  function handleSelect(index: number, element: HTMLElement) {
+    setPinnedId(null)
+    setHoveredId(null)
+    toggleSelected(index, element)
+  }
+
+  const handleSelectRef = useLatest(handleSelect)
+  const onTokenSelect = useCallback(
+    (index: number, element: HTMLElement) =>
+      handleSelectRef.current(index, element),
+    [handleSelectRef],
+  )
+
   // Kept current by an effect, so onTokenClick can keep one identity (and
   // TokenSpan's memo hold) while still seeing the latest selection.
   const handleClickRef = useLatest(handleClick)
@@ -2102,6 +2148,7 @@ const TokenizedText = memo(function TokenizedText({
             focus={focus}
             instances={instancesByKey.get(keys[selected[0]]) ?? NO_TOKENS}
             panelRef={panelRef}
+            sheet={sheet}
             documentId={documentId}
             onTokensUpdated={onTokensUpdated}
             onClear={() => setSelected([])}
@@ -2216,6 +2263,7 @@ const TokenizedText = memo(function TokenizedText({
                 onCardChanged={onCardChanged}
                 onPointerDown={onTokenPointerDown}
                 onClick={onTokenClick}
+                onSelect={onTokenSelect}
                 onHoverEnter={handleHoverEnter}
                 onHoverLeave={handleHoverLeave}
                 onClose={closeGloss}
