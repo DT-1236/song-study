@@ -336,24 +336,6 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
         )
 
 
-def _delete_tokens(conn, document_id: int) -> None:
-    """Delete the document's tokens and their conflicts, for the next
-    tokens request to regenerate from its current text."""
-    processing.cancel(conn, document_id)
-    conn.execute(
-        text(
-            """
-            DELETE FROM conflicts
-            WHERE token_id IN (SELECT id FROM tokens WHERE document_id = :id)
-            """
-        ),
-        {"id": document_id},
-    )
-    conn.execute(
-        text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id}
-    )
-
-
 def _linked_lyrics(
     document_text: str, replaces_text: bool, lyrics: LrclibLyrics
 ) -> tuple[str, list[dict] | None]:
@@ -389,8 +371,7 @@ def _store_lrclib_lyrics(
     regenerated if the text changes, so readings picked for them survive an
     update to just the line timings."""
     new_text, lines = _linked_lyrics(current.text, replace_text, lyrics)
-    if new_text != current.text:
-        _delete_tokens(conn, current.id)
+    # Changing the text drops its tokens, by the trigger from migration 0034.
     row = conn.execute(
         text(
             f"""
@@ -427,20 +408,16 @@ class DocumentTextUpdate(BaseModel):
 def update_document_text(
     document_id: OwnedDocument, body: DocumentTextUpdate, user_id: CurrentUser
 ) -> Document:
-    """Editing the lyrics invalidates every token derived from the old text
-    — furigana, gloss links, conflicts, all of it no longer corresponds to
-    anything real. No version history is kept (not asked for), so this just
-    deletes them outright; they're regenerated from scratch (same as a
-    never-before-processed document) by the job the next tokens request
-    starts.
-    The shared gloss_lookups cache is untouched — it's keyed by word, not
-    by document, so other documents' (and this one's next processing
-    pass's) cached lookups stay valid.
+    """Set the document's lyrics. A changed text drops every token derived
+    from the old one, with no version history kept; the next tokens request
+    processes it from scratch. The shared gloss_lookups cache, keyed by
+    word rather than document, is kept.
 
     A document whose lyrics LRCLIB replaces takes them from there, so its
     text can't be edited until it's unlinked."""
     with engine.begin() as conn:
-        # Its line timings were for the old text.
+        # Its line timings were for the old text. Its tokens are dropped by
+        # the trigger from migration 0034.
         row = conn.execute(
             text(
                 f"""
@@ -460,7 +437,6 @@ def update_document_text(
                 status_code=409,
                 detail="This document's lyrics come from LRCLIB — unlink it to edit them.",
             )
-        _delete_tokens(conn, document_id)
 
     return Document(**row._mapping)
 

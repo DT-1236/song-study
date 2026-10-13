@@ -189,21 +189,6 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
     return "processing"
 
 
-def cancel(conn, document_id: int) -> None:
-    """Drop the document's claim and whether its last job failed, for its
-    text changing: a job processing the old text writes nothing, and the
-    next request starts the new one."""
-    conn.execute(
-        text(
-            """
-            UPDATE documents SET processing_started_at = NULL, processing_failed = FALSE
-            WHERE id = :id
-            """
-        ),
-        {"id": document_id},
-    )
-
-
 def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
     """Process `document_text`, the document's text when it was claimed at
     `claimed_at`, and write its tokens if the claim still holds; release the
@@ -211,10 +196,9 @@ def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
     try:
         processed = process_document(document_text)
         with engine.begin() as conn:
-            # Editing the text drops the claim (see cancel), so one that
-            # still holds is for the text as it is now.
-            current_text = _release(conn, document_id, claimed_at, failed=False)
-            if current_text == document_text:
+            # Changing the text drops the claim (by the trigger from
+            # migration 0034), so one that still holds is for this text.
+            if _release(conn, document_id, claimed_at, failed=False):
                 write_processed_document(conn, document_id, processed)
     except Exception:
         with engine.begin() as conn:
@@ -222,23 +206,21 @@ def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
         raise
 
 
-def _release(
-    conn, document_id: int, claimed_at: datetime, *, failed: bool
-) -> str | None:
+def _release(conn, document_id: int, claimed_at: datetime, *, failed: bool) -> bool:
     """Release the claim made at `claimed_at` on the document, recording
-    whether its job `failed`, and return the document's text; None, with
-    nothing changed, if the claim no longer holds."""
-    return conn.execute(
+    whether its job `failed`; False, with nothing changed, if the claim no
+    longer holds."""
+    released = conn.execute(
         text(
             """
             UPDATE documents
             SET processing_started_at = NULL, processing_failed = :failed
             WHERE id = :id AND processing_started_at = :claimed_at
-            RETURNING text
             """
         ),
         {"id": document_id, "claimed_at": claimed_at, "failed": failed},
-    ).scalar_one_or_none()
+    )
+    return released.rowcount == 1
 
 
 def _log_failure(job: Future) -> None:

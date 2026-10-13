@@ -83,8 +83,9 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     assert round_trips(cold) == 16
     assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
-    # Saving the text deletes the tokens but keeps the gloss cache, so the
+    # Changing the text deletes the tokens but keeps the gloss cache, so the
     # next request is a first processing where every gloss is already cached.
+    update_document_text(document_id, DocumentTextUpdate(text=FIRST_SENTENCE))
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
     warm = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
     assert round_trips(warm) == 14
@@ -208,10 +209,10 @@ def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
     first_released = threading.Event()
 
     def recorded_release(conn, document_id, claimed_at, *, failed):
-        current_text = _release(conn, document_id, claimed_at, failed=failed)
-        releases.append(current_text)
+        released = _release(conn, document_id, claimed_at, failed=failed)
+        releases.append(released)
         first_released.set()
-        return current_text
+        return released
 
     monkeypatch.setattr("app.processing._release", recorded_release)
 
@@ -230,7 +231,7 @@ def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
         # claim is gone, so it writes nothing and leaves the second's alone.
         held.release[FIRST_SENTENCE].set()
         assert first_released.wait(timeout=30)
-        assert releases == [None]
+        assert releases == [False]
         assert fetch_document_tokens(document_id).status == "processing"
     finally:
         held.release_all()
@@ -240,6 +241,59 @@ def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
     assert [t.surface for t in tokens] == [
         r.surface for r in tokenize_document(SECOND_SENTENCE)
     ]
+
+
+def test_any_write_of_a_new_text_drops_its_tokens_and_claim(committed_engine):
+    """Changing the text, by whatever statement, drops what processing
+    derived from the old one: its tokens, their conflicts, and a job's claim
+    or recorded failure."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    assert get_document_tokens(document_id)
+
+    def processing_state():
+        return conn.execute(
+            text(
+                """
+                SELECT processing_started_at IS NOT NULL AS claimed,
+                       processing_failed,
+                       (SELECT count(*) FROM tokens WHERE document_id = :id) AS tokens,
+                       (SELECT count(*) FROM conflicts c JOIN tokens t ON t.id = c.token_id
+                        WHERE t.document_id = :id) AS conflicts
+                FROM documents WHERE id = :id
+                """
+            ),
+            {"id": document_id},
+        ).one()
+
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE documents
+                SET processing_started_at = now(), processing_failed = TRUE
+                WHERE id = :id
+                """
+            ),
+            {"id": document_id},
+        )
+        state = processing_state()
+        assert state.claimed and state.processing_failed and state.tokens
+        assert state.conflicts
+
+        conn.execute(
+            text("UPDATE documents SET text = :text WHERE id = :id"),
+            {"id": document_id, "text": SECOND_SENTENCE},
+        )
+        assert tuple(processing_state()) == (False, False, 0, 0)
+
+
+def test_saving_the_same_text_keeps_its_tokens(committed_engine):
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    token_ids = [t.id for t in get_document_tokens(document_id)]
+
+    update_document_text(document_id, DocumentTextUpdate(text=FIRST_SENTENCE))
+
+    assert [t.id for t in fetch_document_tokens(document_id).tokens] == token_ids
 
 
 def test_a_failed_job_is_reported_and_retried_only_when_asked(

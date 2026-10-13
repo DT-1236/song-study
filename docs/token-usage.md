@@ -87,6 +87,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Player readiness reported by YouTubePlayer (backlog) | #118 | rework: queue `playFrom` in the handle | Sonnet 5.5, high | — | 13 | 963k | 10k | S |
 | 2026-10-13 | Document processing step 2, open documents from the list at once | #120 | initial pass | Sonnet 5.5, low | M | 14 | 673k | 4k | S |
 | 2026-10-13 | Document processing step 2, open documents from the list at once | #120 | /simplify (inline, no subagents) | Sonnet 5.5, low | — | 2 | 111k | 1k | S |
+| 2026-10-13 | Document text changes reset processing (trigger) | #121 | initial pass | Opus 5.5, medium | M | 27 | 1.7M | 14k | M |
+| 2026-10-13 | Document text changes reset processing (trigger) | #121 | /simplify (4 subagents) | Opus 5.5, medium | — | 34 | 2.1M | 7k | M |
 
 ## Post-mortem log
 
