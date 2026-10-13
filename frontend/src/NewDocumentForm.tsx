@@ -1,4 +1,5 @@
 import { useCallback, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { LrclibMatches } from './LrclibMatches'
@@ -30,7 +31,7 @@ export function NewDocumentForm() {
   } = useLrclibChoice((id) => setLrclibUri(String(id)))
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [savedTitle, setSavedTitle] = useState<string | null>(null)
+  const navigate = useNavigate()
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
   const handlePlayLine = useCallback(
@@ -70,7 +71,6 @@ export function NewDocumentForm() {
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
-    setSavedTitle(null)
     setSubmitting(true)
 
     try {
@@ -82,17 +82,10 @@ export function NewDocumentForm() {
         youtubeVideoId,
         lrclibUri,
       })
-      setSavedTitle(document.title)
-      setTitle('')
-      setLyrics('')
-      setLrclibUri('')
-      setYoutubeVideoId('')
-      setPickedTitle('')
-      setPickedSong(null)
-      choose(undefined)
+      // Its page shows the lyrics while their furigana and glosses process.
+      navigate(`/documents/${document.id}`)
     } catch (err) {
       setError(errorMessage(err, 'Something went wrong.'))
-    } finally {
       setSubmitting(false)
     }
   }
@@ -198,7 +191,6 @@ export function NewDocumentForm() {
       </button>
 
       {error && <p className="form-error">{error}</p>}
-      {savedTitle && <p className="form-success">Saved "{savedTitle}".</p>}
 
       {hasVideo && (
         <PlayerBar

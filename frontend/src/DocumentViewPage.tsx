@@ -2925,7 +2925,13 @@ export function DocumentViewPage() {
                 <button
                   type="button"
                   disabled={!canEditTimings}
-                  title={canEditTimings ? undefined : 'Needs a video'}
+                  title={
+                    !hasVideo
+                      ? 'Needs a video'
+                      : tokens === null
+                        ? 'Needs the lyrics processed'
+                        : undefined
+                  }
                   onClick={startEditingTimings}
                 >
                   Edit timings
@@ -2999,9 +3005,19 @@ export function DocumentViewPage() {
             />
           ) : (
             <>
-              {tokensLoading && <p>Processing…</p>}
-              {tokens &&
-                (timingDraft && lyricsLines ? (
+              {tokensLoading && (
+                <p className="processing-note" role="status">
+                  <span className="spinner" aria-hidden="true" />
+                  Adding furigana and glosses…
+                </p>
+              )}
+              {tokensError && (
+                <p className="form-error">
+                  {tokensError} Showing plain lyrics instead.
+                </p>
+              )}
+              {tokens ? (
+                timingDraft && lyricsLines ? (
                   <TimingEditor
                     lines={lyricsLines}
                     starts={timingDraft}
@@ -3024,14 +3040,18 @@ export function DocumentViewPage() {
                     lineTimings={hasVideo ? lineTimings : null}
                     onPlayLine={handlePlayLine}
                   />
-                ))}
-              {tokensError && (
-                <>
-                  <p className="form-error">
-                    {tokensError} Showing plain lyrics instead.
-                  </p>
-                  <p className="lyrics-box">{doc.text}</p>
-                </>
+                )
+              ) : (
+                // Until the tokens are ready, or if they can't be: the
+                // lyrics as written, still played and followed line by line.
+                <SyncedLyrics
+                  lyrics={{
+                    text: doc.text,
+                    lines: hasVideo ? lineTimings : null,
+                  }}
+                  playingLine={playingLine}
+                  onPlayLine={handlePlayLine}
+                />
               )}
             </>
           )}

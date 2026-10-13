@@ -827,6 +827,13 @@ li.grammar-legend-item {
   animation: spin 0.7s linear infinite;
 }
 
+.processing-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
