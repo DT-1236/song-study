@@ -1,4 +1,4 @@
-// Step 6 of docs/ongoing/mobile.md: a selection starts from the gloss's
+// Step 6 of docs/completed/mobile.md: a selection starts from the gloss's
 // Select button, outlined instances are tapped into it, and on touch the
 // selection panel is a sheet at the bottom of the screen that a swipe
 // doesn't end.

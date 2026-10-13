@@ -32,7 +32,7 @@ const CHECK_TIMEOUT = Number(process.env.BROWSER_CHECK_TIMEOUT ?? 100) * 1000
 const ALLOWED_HOSTS =
   /(^|\.)(youtube\.com|youtube-nocookie\.com|ytimg\.com|googlevideo\.com|ggpht\.com|google\.com|gstatic\.com|googleapis\.com|doubleclick\.net)$/
 
-// The device contexts every layout check runs in (docs/ongoing/mobile.md, "The phone
+// The device contexts every layout check runs in (docs/completed/mobile.md, "The phone
 // harness"). Phone sizes are emulated in Chromium, not WebKit, so iOS-only
 // behavior still needs a real phone.
 const { defaultBrowserType: _, ...iPhone13 } = devices['iPhone 13']
