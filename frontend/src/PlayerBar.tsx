@@ -19,10 +19,14 @@ export function PlayerBar({
   playerRef,
   videoId,
   onSeek,
+  onExtraControls,
 }: {
   playerRef: RefObject<YouTubePlayerHandle>
   videoId: string
   onSeek?: () => void
+  // Receives the element the page's own buttons are rendered into (by a
+  // portal), after the seek buttons.
+  onExtraControls?: (element: HTMLDivElement | null) => void
 }) {
   const [seekSeconds] = useSeekSeconds()
   // Shared by every page, and hidden until it's asked for: most of these
@@ -84,6 +88,7 @@ export function PlayerBar({
         >
           +{seekSeconds}s
         </KeyButton>
+        <div ref={onExtraControls} className="player-extra-controls" />
         <BarButton
           className="player-video-toggle"
           aria-pressed={showVideo}
@@ -97,7 +102,7 @@ export function PlayerBar({
 }
 
 // A button in the bar.
-function BarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+export function BarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
   return (
     <button
       type="button"
