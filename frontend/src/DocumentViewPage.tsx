@@ -2537,9 +2537,6 @@ export function DocumentViewPage() {
     setError: setLyricsSaveError,
     save: saveLyrics,
   } = useSave()
-  // Counts lyrics saves, each of which deletes the tokens even when the text
-  // comes back unchanged, so they're loaded again.
-  const [lyricsSaves, setLyricsSaves] = useState(0)
 
   const [confirmingDiscard, setConfirmingDiscard] = useState(false)
   const {
@@ -2615,7 +2612,7 @@ export function DocumentViewPage() {
     return () => {
       cancelled = true
     }
-  }, [docId, docTitle, docText, lyricsSaves, ensureProcessed])
+  }, [docId, docTitle, docText, ensureProcessed])
 
   // Counts the edits that can change which word a token is.
   const [wordEdits, setWordEdits] = useState(0)
@@ -2764,11 +2761,8 @@ export function DocumentViewPage() {
     saveLyrics(
       () => updateDocumentText(documentId, trimmed),
       (updated) => {
+        // A changed text loads its tokens again, through docText.
         setDoc(updated)
-        // The backend already deleted the old tokens/conflicts/gloss links
-        // on save, so loading them again regenerates everything from
-        // scratch, same as a never-before-processed document.
-        setLyricsSaves((count) => count + 1)
         setMode(VIEWING)
       },
     )

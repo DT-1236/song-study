@@ -51,7 +51,7 @@ records how that works and plans the follow-ups.
 - **Migration 0034:** a trigger on `documents.text` deletes the tokens and
   their conflicts and drops the claim and the failure whenever the text
   changes, by whatever statement. A job on the old text then finds its claim
-  gone and writes nothing.
+  gone and writes nothing. Conflicts cascade from their token.
 - **Routes:**
   - `POST /documents/{id}/tokens/processing` starts processing, retrying a
     failure.
@@ -73,7 +73,7 @@ tokens, detail}`.
 | ------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------- | ---------- | ------ | ---- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 1 — Background job, polled                  | Done (#117) | `processing.py`, migration 0033, POST/GET tokens routes, polling in `api.ts`                                          | Opus 5     | high   | L    | L; simplify L | The claim, lease and release race each other, and a mistake there shows up as a document processed twice or never                |
 | 2 — Open documents from the list at once    | Done (#120) | A click in the documents list opens the page straight away, which shows the plain lyrics while they process           | Sonnet 5   | low    | M    | S; simplify S | One obvious change in two files; the browser check is most of the cost                                                           |
-| 3 — One path for changing a document's text | Done        | Every text write goes through one helper that drops what was derived from the old text; the job checks only its claim | **Opus 5** | medium | M    | M             | A path that skips the helper serves stale tokens without any error to notice                                                     |
+| 3 — One path for changing a document's text | Done        | Every text write goes through one helper that drops what was derived from the old text; the job checks only its claim | **Opus 5** | medium | M    | M; simplify M | A path that skips the helper serves stale tokens without any error to notice                                                     |
 | 4 — Record when processing finished         |             | `processed_at` replaces "has tokens" as the sign a document is processed, ending the empty-text special case          | Sonnet 5   | medium | M    |               | The rule is clear; the backfill and the gloss-repair path need care                                                              |
 | 5 — Polls read before locking               |             | A poll during a job reads the state without a lock, and only locks to claim                                           | **Opus 5** | low    | S    |               | Only worth doing if jobs get long or pollers many. The unlocked read must not decide anything the locked one doesn't check again |
 

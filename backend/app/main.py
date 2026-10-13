@@ -408,15 +408,10 @@ class DocumentTextUpdate(BaseModel):
 def update_document_text(
     document_id: OwnedDocument, body: DocumentTextUpdate, user_id: CurrentUser
 ) -> Document:
-    """Editing the lyrics invalidates every token derived from the old text
-    — furigana, gloss links, conflicts, all of it no longer corresponds to
-    anything real. No version history is kept (not asked for), so this just
-    deletes them outright; they're regenerated from scratch (same as a
-    never-before-processed document) by the job the next tokens request
-    starts.
-    The shared gloss_lookups cache is untouched — it's keyed by word, not
-    by document, so other documents' (and this one's next processing
-    pass's) cached lookups stay valid.
+    """Set the document's lyrics. A changed text drops every token derived
+    from the old one, with no version history kept; the next tokens request
+    processes it from scratch. The shared gloss_lookups cache, keyed by
+    word rather than document, is kept.
 
     A document whose lyrics LRCLIB replaces takes them from there, so its
     text can't be edited until it's unlinked."""
