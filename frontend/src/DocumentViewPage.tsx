@@ -2520,7 +2520,6 @@ export function DocumentViewPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [tokens, setTokens] = useState<Token[] | null>(null)
-  const [tokensLoading, setTokensLoading] = useState(true)
   const [tokensError, setTokensError] = useState<string | null>(null)
 
   // Viewing settings: the same for every document, and kept across reloads.
@@ -2597,7 +2596,6 @@ export function DocumentViewPage() {
 
     let cancelled = false
     setTokens(null)
-    setTokensLoading(true)
     setTokensError(null)
 
     // Runs the same furigana + gloss pipeline (and tab registration) the
@@ -2612,9 +2610,6 @@ export function DocumentViewPage() {
       .catch((err) => {
         if (cancelled) return
         setTokensError(errorMessage(err, 'Failed to load furigana.'))
-      })
-      .finally(() => {
-        if (!cancelled) setTokensLoading(false)
       })
 
     return () => {
@@ -2815,9 +2810,13 @@ export function DocumentViewPage() {
   // Timing keeps its grid at every width: leaving for /settings would hit the
   // unsaved-changes prompt.
   const showGrid = mode.kind === 'timings' || !narrow
-  // Timings need the lyrics to show them against, and a video to play them
-  // in.
-  const canEditTimings = hasVideo && tokens !== null
+  // Why timings can't be edited, if they can't: they need the lyrics to
+  // show them against, and a video to play them in.
+  const editTimingsBlocker = !hasVideo
+    ? 'Needs a video'
+    : tokens === null
+      ? 'Needs the lyrics processed'
+      : undefined
 
   function startEditingTimings() {
     if (!lyricsLines) return
@@ -2924,8 +2923,8 @@ export function DocumentViewPage() {
                 )}
                 <button
                   type="button"
-                  disabled={!canEditTimings}
-                  title={canEditTimings ? undefined : 'Needs a video'}
+                  disabled={editTimingsBlocker !== undefined}
+                  title={editTimingsBlocker}
                   onClick={startEditingTimings}
                 >
                   Edit timings
@@ -2991,49 +2990,54 @@ export function DocumentViewPage() {
             } as React.CSSProperties
           }
         >
-          {lrclibPreview ? (
-            <SyncedLyrics
-              lyrics={lrclibPreview}
+          {!lrclibPreview && tokens === null && tokensError === null && (
+            <p className="processing-note" role="status">
+              <span className="spinner" aria-hidden="true" />
+              Adding furigana and glosses…
+            </p>
+          )}
+          {!lrclibPreview && tokensError && (
+            <p className="form-error">
+              {tokensError} Showing plain lyrics instead.
+            </p>
+          )}
+          {timingDraft && lyricsLines ? (
+            <TimingEditor
+              lines={lyricsLines}
+              starts={timingDraft}
+              onStartChange={handleStartChange}
               playingLine={playingLine}
+              onPlayLine={handlePlayLine}
+              getTime={getPlaybackTime}
+              nudgeMs={nudgeMs}
+              onToast={showToast}
+            />
+          ) : tokens && !lrclibPreview ? (
+            <TokenizedText
+              tokens={tokens}
+              wordsByToken={wordsByToken}
+              documentId={documentId}
+              onTokensUpdated={handleTokensUpdated}
+              onCardChanged={handleCardChanged}
+              playingLine={playingLine}
+              // Without a video there's nothing to play them from.
+              lineTimings={hasVideo ? lineTimings : null}
               onPlayLine={handlePlayLine}
             />
           ) : (
-            <>
-              {tokensLoading && <p>Processing…</p>}
-              {tokens &&
-                (timingDraft && lyricsLines ? (
-                  <TimingEditor
-                    lines={lyricsLines}
-                    starts={timingDraft}
-                    onStartChange={handleStartChange}
-                    playingLine={playingLine}
-                    onPlayLine={handlePlayLine}
-                    getTime={getPlaybackTime}
-                    nudgeMs={nudgeMs}
-                    onToast={showToast}
-                  />
-                ) : (
-                  <TokenizedText
-                    tokens={tokens}
-                    wordsByToken={wordsByToken}
-                    documentId={documentId}
-                    onTokensUpdated={handleTokensUpdated}
-                    onCardChanged={handleCardChanged}
-                    playingLine={playingLine}
-                    // Without a video there's nothing to play them from.
-                    lineTimings={hasVideo ? lineTimings : null}
-                    onPlayLine={handlePlayLine}
-                  />
-                ))}
-              {tokensError && (
-                <>
-                  <p className="form-error">
-                    {tokensError} Showing plain lyrics instead.
-                  </p>
-                  <p className="lyrics-box">{doc.text}</p>
-                </>
-              )}
-            </>
+            // A previewed LRCLIB track; or until the tokens are ready, or if
+            // they can't be, the lyrics as written, still played and
+            // followed line by line.
+            <SyncedLyrics
+              lyrics={
+                lrclibPreview ?? {
+                  text: doc.text,
+                  lines: hasVideo ? lineTimings : null,
+                }
+              }
+              playingLine={playingLine}
+              onPlayLine={handlePlayLine}
+            />
           )}
         </div>
       )}

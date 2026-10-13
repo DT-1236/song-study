@@ -49,13 +49,14 @@ import {
   sidewaysOverflow,
   tapOrClick,
   token,
+  tokenized,
 } from '../harness.mjs'
 
 await check('gloss-on-phone', async (h) => {
   for (const device of [PHONE, DESKTOP]) {
     h.step(`${device.name}: tap a word`)
     const page = await h.open(`/documents/${h.seed.document_id}`, device)
-    await page.waitForSelector('.token')
+    await tokenized(page)
     await tapOrClick(page, await token(page, '蜘蛛'))
     h.expect(await isShown(page, '.gloss-popup'), `[${device.name}] gloss opens`)
     h.expectNone(await sidewaysOverflow(page), `[${device.name}] no sideways scroll`)
@@ -84,7 +85,8 @@ absolute path.
 
 And from `harness.mjs`, each taking a page: `isShown`, `settle` (waits for
 CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewaysOverflow`, `smallTapTargets` (under
-44×44), `smallInputFonts` (under 16px), `token(page, surface, nth)`,
+44×44), `smallInputFonts` (under 16px), `tokenized` (waits for the processed
+tokens), `token(page, surface, nth)`,
 `videoFrame`, `videoTime` and `rotate`.
 
 ## Rules that keep checks from hanging
@@ -114,6 +116,10 @@ CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewa
 
 ## Gotchas
 
+- **Wait for tokens with `tokenized(page)`, not `.token`.** While a document
+  processes, its page shows the lyrics as written, and their lines are
+  `.token`s too, so `waitForSelector('.token')` can return before the
+  furigana'd tokens exist.
 - **Furigana is in a token's text.** `token()` matches a token by its
   surface with `<rt>` and any open popup removed; Playwright's `hasText`
   alone won't find it.

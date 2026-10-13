@@ -1,10 +1,11 @@
 import { Fragment } from 'react'
 import type { ComponentProps } from 'react'
-import type { LrclibLyrics } from './api'
+import type { LineTiming } from './api'
 import { LinePlayButton } from './LinePlayButton'
 import { useHighlightSettings } from './useHighlightSettings'
 
-// LRCLIB's lyrics, read-only, as the document page shows its own: a play
+// Lyrics without tokens (LRCLIB's, or a document's own before it's
+// processed), read-only, as the document page shows tokenized ones: a play
 // button before each timed line, and the line being sung at `playingLine`
 // highlighted. `id` and `aria-labelledby` go on the lyrics box.
 export function SyncedLyrics({
@@ -13,7 +14,8 @@ export function SyncedLyrics({
   onPlayLine,
   ...props
 }: {
-  lyrics: LrclibLyrics
+  // A document's own timings can leave a line untimed (null).
+  lyrics: { text: string; lines: (LineTiming | null)[] | null }
   playingLine: number | null
   onPlayLine: (start: number) => void
 } & Pick<ComponentProps<'p'>, 'id' | 'aria-labelledby'>) {

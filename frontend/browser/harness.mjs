@@ -419,6 +419,13 @@ export function smallInputFonts(page) {
   )
 }
 
+// Waits for the document page's processed tokens. Until they load, the page
+// shows its lyrics as written, whose lines are `.token`s too, so waiting on
+// `.token` alone can return before there's a word to click.
+export function tokenized(page) {
+  return page.waitForSelector('.lyrics-box:not(.synced-lyrics) .token')
+}
+
 // A locator for the `nth` token reading `surface`. A token's text includes
 // its furigana (and an open gloss popup), so matching on Playwright's
 // `hasText` alone would miss it.

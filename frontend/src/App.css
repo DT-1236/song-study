@@ -787,10 +787,6 @@ li.grammar-legend-item {
   color: var(--danger);
 }
 
-.form-success {
-  color: var(--success);
-}
-
 .documents-list table {
   width: 100%;
   border-collapse: collapse;
@@ -825,6 +821,13 @@ li.grammar-legend-item {
   border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.7s linear infinite;
+}
+
+.processing-note {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--text-muted);
 }
 
 @keyframes spin {
