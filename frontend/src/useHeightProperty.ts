@@ -1,18 +1,20 @@
 import { useLayoutEffect } from 'react'
-import type { RefObject } from 'react'
 
 // Publishes the element's height, following it as it resizes, as the CSS
 // property `name` on its enclosing `.content` scroll container, so the
 // page's scroll padding and toasts can stay clear of it. Does nothing while
-// `enabled` is false. Written straight to the style, in a layout effect, so
-// the value is in place before paint.
+// `enabled` is false or there's no element yet. Written straight to the
+// style, in a layout effect, so the value is in place before paint.
+//
+// Takes the element itself (held in state through a callback ref), not a
+// ref object, so an element that mounts after this hook's component does
+// is still picked up.
 export function useHeightProperty(
-  ref: RefObject<HTMLElement | null>,
+  element: HTMLElement | null,
   name: string,
   enabled = true,
 ) {
   useLayoutEffect(() => {
-    const element = ref.current
     const container = element?.closest<HTMLElement>('.content')
     if (!enabled || !element || !container) return
     const publish = () =>
@@ -24,5 +26,5 @@ export function useHeightProperty(
       observer.disconnect()
       container.style.removeProperty(name)
     }
-  }, [ref, name, enabled])
+  }, [element, name, enabled])
 }

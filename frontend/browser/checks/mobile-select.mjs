@@ -102,4 +102,23 @@ await check('mobile-select', async (h) => {
     'Select in a pinned popup selects',
   )
   await h.screenshot(desk, 'desktop-selection')
+
+  h.step('desktop: a selection started at the top of the screen')
+  await desk.keyboard.press('Escape')
+  // A token from the middle of the lyrics, so it can be scrolled to the top.
+  const high = desk.locator('.token').nth(200)
+  await high.evaluate((el) => el.scrollIntoView({ block: 'start' }))
+  const before = await high.boundingBox()
+  await high.click({ modifiers: ['Shift'] })
+  await settle(desk)
+  const panelRect = await desk.locator('.selection-panel').boundingBox()
+  const after = await high.boundingBox()
+  h.expect(
+    before.y < panelRect.y + panelRect.height,
+    'the token starts out where the panel opens',
+  )
+  h.expect(
+    after.y >= panelRect.y + panelRect.height,
+    'the token is scrolled out from under the panel',
+  )
 })

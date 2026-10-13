@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import type { ButtonHTMLAttributes, RefObject } from 'react'
 import { PlayIcon } from './LinePlayButton'
 import { useHeightProperty } from './useHeightProperty'
@@ -37,11 +37,11 @@ export function PlayerBar({
 
   // Set on the scroll container, which the page's scroll padding and toast
   // read, so what's scrolled into view stops above the bar.
-  const barRef = useRef<HTMLDivElement>(null)
-  useHeightProperty(barRef, '--player-bar-height')
+  const [bar, setBar] = useState<HTMLDivElement | null>(null)
+  useHeightProperty(bar, '--player-bar-height')
 
   return (
-    <div ref={barRef} className="player-bar">
+    <div ref={setBar} className="player-bar">
       <YouTubePlayer
         ref={playerRef}
         videoId={videoId}

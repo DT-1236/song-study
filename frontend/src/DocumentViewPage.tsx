@@ -65,7 +65,6 @@ import {
   timingsFromStarts,
 } from './timing'
 import type { LyricsLine } from './timing'
-import { useElementHeight } from './useElementHeight'
 import { useHeightProperty } from './useHeightProperty'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
@@ -1360,7 +1359,7 @@ function GlossPopup({
   onHoverEnter?: () => void
   onHoverLeave?: () => void
 }) {
-  const popupRef = useRef<HTMLDivElement>(null)
+  const [popup, setPopup] = useState<HTMLDivElement | null>(null)
   // Without a mouse the gloss is a sheet at the bottom of the screen: a
   // phone has no room for it under its token.
   const sheet = useMediaQuery(NO_HOVER)
@@ -1393,24 +1392,23 @@ function GlossPopup({
   // As a sheet: its height is published as --sheet-height, so the lyrics can
   // scroll their last lines above it and what's scrolled into view (the
   // token, the line being sung) stops above it.
-  useHeightProperty(popupRef, '--sheet-height', sheet)
+  useHeightProperty(popup, '--sheet-height', sheet)
   useLayoutEffect(() => {
     if (!sheet) return
     // The popup's parent is its token, which stays outlined: out from under
     // the sheet, if it opened over it.
-    popupRef.current?.parentElement?.scrollIntoView({ block: 'nearest' })
-  }, [sheet])
+    popup?.parentElement?.scrollIntoView({ block: 'nearest' })
+  }, [sheet, popup])
 
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same
   // pre-paint layout-effect pass that measures it, with nothing for the
   // browser to paint in between.
   useLayoutEffect(() => {
-    if (sheet) return
-    function reposition() {
-      const popup = popupRef.current
-      const container = popup?.closest('.content')
-      if (!popup || !container) return
+    if (sheet || !popup) return
+    const reposition = () => {
+      const container = popup.closest('.content')
+      if (!container) return
       popup.style.transform = ''
       const popupRect = popup.getBoundingClientRect()
       const containerRect = container.getBoundingClientRect()
@@ -1428,19 +1426,18 @@ function GlossPopup({
     // Observers report before paint, and the transform doesn't change the
     // size observed, so this neither flickers nor loops.
     const observer = new ResizeObserver(reposition)
-    if (popupRef.current) observer.observe(popupRef.current)
-    const popup = popupRef.current
+    observer.observe(popup)
     return () => {
       window.removeEventListener('resize', reposition)
       observer.disconnect()
       // So a sheet, which isn't placed under its token, isn't shifted.
-      if (popup) popup.style.transform = ''
+      popup.style.transform = ''
     }
-  }, [sheet])
+  }, [sheet, popup])
 
   return (
     <div
-      ref={popupRef}
+      ref={setPopup}
       className={sheet ? 'gloss-popup gloss-sheet' : 'gloss-popup'}
       onClick={(e) => e.stopPropagation()}
       onPointerEnter={onHoverEnter && mouseOnly(onHoverEnter)}
@@ -1530,7 +1527,6 @@ function SelectionPanel({
   indices,
   focus,
   instances,
-  panelRef,
   sheet,
   documentId,
   onTokensUpdated,
@@ -1545,7 +1541,6 @@ function SelectionPanel({
   focus: number
   // Every token in the first selected token's group, selected or not.
   instances: Token[]
-  panelRef: React.RefObject<HTMLDivElement>
   // Whether it's a sheet at the bottom of the screen, as a gloss is without
   // a mouse.
   sheet: boolean
@@ -1554,7 +1549,9 @@ function SelectionPanel({
   onClear: () => void
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
-  useHeightProperty(panelRef, '--sheet-height', sheet)
+  const [panel, setPanel] = useState<HTMLDivElement | null>(null)
+  useHeightProperty(panel, '--sheet-height', sheet)
+  useHeightProperty(panel, '--panel-height', !sheet)
   const selected = indices.map((i) => tokens[i])
   const kind = selectionKind(tokens, keys, indices)
   const title =
@@ -1595,7 +1592,7 @@ function SelectionPanel({
   return (
     <div
       className={sheet ? 'selection-panel selection-sheet' : 'selection-panel'}
-      ref={panelRef}
+      ref={setPanel}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="lyrics-header">
@@ -1785,7 +1782,6 @@ const TokenizedText = memo(function TokenizedText({
     }
   }, [tokens])
 
-  const panelRef = useRef<HTMLDivElement>(null)
   const boxRef = useRef<HTMLDivElement>(null)
 
   // Whether the line being sung is kept on screen. Shared by every document.
@@ -1807,17 +1803,8 @@ const TokenizedText = memo(function TokenizedText({
   // of the screen or, on touch, a sheet at the bottom, if it's there once
   // the panel has rendered.
   function revealBelowPanel(element: HTMLElement) {
-    requestAnimationFrame(() => {
-      // .content's scroll padding keeps it above the sheet.
-      if (sheet) {
-        element.scrollIntoView({ block: 'nearest' })
-        return
-      }
-      const coveredTo = panelRef.current?.getBoundingClientRect().bottom ?? 0
-      const top = element.getBoundingClientRect().top
-      if (top < coveredTo)
-        element.closest('.content')?.scrollBy({ top: top - coveredTo - 8 })
-    })
+    // .content's scroll padding keeps it clear of the panel either way.
+    requestAnimationFrame(() => element.scrollIntoView({ block: 'nearest' }))
   }
 
   function toggleSelected(index: number, element: HTMLElement) {
@@ -2147,7 +2134,6 @@ const TokenizedText = memo(function TokenizedText({
             indices={selected}
             focus={focus}
             instances={instancesByKey.get(keys[selected[0]]) ?? NO_TOKENS}
-            panelRef={panelRef}
             sheet={sheet}
             documentId={documentId}
             onTokensUpdated={onTokensUpdated}
@@ -2809,10 +2795,10 @@ export function DocumentViewPage() {
   const [toast, showToast] = useTransient<string>(TOAST_MS)
 
   const youtubePlayerRef = useRef<YouTubePlayerHandle>(null)
-  // The page content above the lyrics, and its height: the most the pinned
+  // The page content above the lyrics, whose height is the most the pinned
   // selection panel may cover (see .selection-anchor).
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
-  const headerHeight = useElementHeight(headerEl)
+  useHeightProperty(headerEl, '--header-height')
 
   useEffect(() => {
     let cancelled = false
@@ -3234,15 +3220,7 @@ export function DocumentViewPage() {
           </p>
         </div>
       ) : (
-        <div
-          id="lyrics"
-          style={
-            {
-              ...displayStyle(viewSettings),
-              '--header-height': `${headerHeight}px`,
-            } as React.CSSProperties
-          }
-        >
+        <div id="lyrics" style={displayStyle(viewSettings)}>
           {!lrclibPreview && tokens === null && tokensError === null && (
             <p className="processing-note" role="status">
               <span className="spinner" aria-hidden="true" />
