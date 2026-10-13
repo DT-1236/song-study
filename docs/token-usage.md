@@ -79,6 +79,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-10 | Backlog sweep 7 and #111 | #112 | /simplify (4 subagents) | Opus 5.5, medium | — | 69 | 6.1M | 24k | L |
 | 2026-10-12 | Player bar, video hidden by default | #114 | initial pass | Opus 5.5, medium | — | 71 | 7.9M | 55k | L |
 | 2026-10-12 | Player bar, video hidden by default | #114 | /simplify (4 subagents) | Opus 5.5, medium | — | 35 | 3.6M | 13k | M |
+| 2026-10-12 | Lyrics shown while a document processes; open it on saving | — | initial pass | Opus 5.5, medium | — | 22 | 1.5M | 12k | M |
+| 2026-10-12 | Lyrics shown while a document processes; open it on saving | — | /simplify (4 subagents) | Opus 5.5, medium | — | 35 | 2.1M | 9k | M |
 
 ## Post-mortem log
 

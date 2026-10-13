@@ -787,10 +787,6 @@ li.grammar-legend-item {
   color: var(--danger);
 }
 
-.form-success {
-  color: var(--success);
-}
-
 .documents-list table {
   width: 100%;
   border-collapse: collapse;

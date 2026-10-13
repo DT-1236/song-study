@@ -7,6 +7,7 @@ import {
   PHONE,
   NARROW,
   sidewaysOverflow,
+  tokenized,
 } from '../harness.mjs'
 
 await check('mobile-settings', async (h) => {
@@ -26,7 +27,7 @@ await check('mobile-settings', async (h) => {
   )
   await desk.locator('#font-size').fill('24')
   await desk.goto(BASE + documentPath)
-  await desk.waitForSelector('.token')
+  await tokenized(desk)
   h.expect((await lyricsSize(desk)) === '24px', 'the document uses 24px')
   h.expect(
     (await desk.locator('#font-size').count()) === 1 &&
@@ -40,7 +41,7 @@ await check('mobile-settings', async (h) => {
 
   h.step('phone: link instead of grid')
   const phone = await h.open(documentPath, PHONE)
-  await phone.waitForSelector('.token')
+  await tokenized(phone)
   h.expect(
     (await phone.locator('.text-size-controls').count()) === 0,
     'no grid on the document page',

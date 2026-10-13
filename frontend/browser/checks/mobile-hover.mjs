@@ -1,6 +1,14 @@
 // Step 5a of docs/mobile.md: hover only from a mouse, no sticky :hover on
 // touch, and the "Pinned" marker in a pinned gloss on every device.
-import { check, DESKTOP, PHONE, isShown, settle, token } from '../harness.mjs'
+import {
+  check,
+  DESKTOP,
+  PHONE,
+  isShown,
+  settle,
+  token,
+  tokenized,
+} from '../harness.mjs'
 
 const before = (loc) =>
   loc.evaluate((el) => getComputedStyle(el, '::before').backgroundColor)
@@ -11,7 +19,7 @@ await check('mobile-hover', async (h) => {
 
   h.step('phone: tap twice')
   const phone = await h.open(path, PHONE)
-  await phone.waitForSelector('.token')
+  await tokenized(phone)
   const tok = await token(phone, surface)
   const resting = await before(tok)
   await tok.tap()
@@ -30,7 +38,7 @@ await check('mobile-hover', async (h) => {
 
   h.step('desktop: hover, cross into popup, click, click')
   const desk = await h.open(path, DESKTOP)
-  await desk.waitForSelector('.token')
+  await tokenized(desk)
   const dtok = await token(desk, surface)
   await dtok.hover()
   await desk.waitForSelector('.gloss-popup')

@@ -11,6 +11,7 @@ import {
   tapOrClick,
   videoFrame,
   videoTime,
+  tokenized,
 } from '../harness.mjs'
 
 await check('player-bar', async (h) => {
@@ -40,7 +41,7 @@ await check('player-bar', async (h) => {
     const tag = `[${device.name}]`
     h.step(`${device.name}: hidden video plays from the bar`)
     const page = await h.open(path, device)
-    await page.waitForSelector('.token')
+    await tokenized(page)
     await ready(page)
     const box = await page.$eval('.youtube-player', (el) => {
       const r = el.getBoundingClientRect()
@@ -105,7 +106,7 @@ await check('player-bar', async (h) => {
 
   h.step('desktop: keys press the buttons')
   const desk = await h.open(path, DESKTOP)
-  await desk.waitForSelector('.token')
+  await tokenized(desk)
   await ready(desk)
   h.expect(
     await desk.$eval('.player-controls kbd', (el) => el.offsetWidth > 0),
