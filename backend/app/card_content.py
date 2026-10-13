@@ -1,5 +1,5 @@
 """What a queued study card shows: the line of a song it plays, and the
-options it's answered from (docs/flashcards.md, "The card types" and "Which
+options it's answered from (docs/completed/flashcards.md, "The card types" and "Which
 line plays").
 
 Neither is stored. A card's line is chosen each time a queue is built, from

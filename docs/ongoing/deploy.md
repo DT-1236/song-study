@@ -77,7 +77,7 @@ needs step 1.
 
 | Step | Status | Ships | Model | Effort | Size | Actual | Why |
 |---|---|---|---|---|---|---|---|
-| 0 — Doc | Done | This plan as `docs/deploy.md` | Opus 5 | medium | — | — | Planning |
+| 0 — Doc | Done | This plan as `docs/ongoing/deploy.md` | Opus 5 | medium | — | — | Planning |
 | 1 — Deployment files | Done | `backend/Dockerfile`, `frontend/Dockerfile`, `.dockerignore`s, `deploy/Caddyfile`, `docker-compose.prod.yml`, deployment notes in `.env.example`, `API_PROXY_TARGET` in `vite.config.ts`, a local run of the whole stack | Sonnet 5 | medium | M | M; simplify S | Conventional Docker work against a clear spec. The traps (below) are a shared volume name, lost certificates and the SPA fallback, and each one shows up in the local check |
 | 2 — Backup script | | `deploy/backup.sh`: a dated `pg_dump`, kept for 14 days locally, copied off the box | Sonnet 5 | medium | S | | Short, but a backup that quietly writes an empty or unrestorable dump is the worst kind of failure, so it's checked by restoring the dump |
 

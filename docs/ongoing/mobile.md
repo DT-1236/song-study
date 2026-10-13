@@ -84,7 +84,7 @@ replaced most of step 3 and the start of step 7, shipped on its own.
 
 | Step | Status | Ships | Model | Effort | Size | Actual | Why |
 |---|---|---|---|---|---|---|---|
-| 0 — Doc | Done | This plan committed as `docs/mobile.md` | Opus 5 | medium, reviewed at high | — | — | Planning |
+| 0 — Doc | Done | This plan committed as `docs/ongoing/mobile.md` | Opus 5 | medium, reviewed at high | — | — | Planning |
 | 1 — Responsive shell | Done | `media.ts`; top bar + nav and lookup drawers in `Layout`; `dvh` heights; narrow-screen padding; 16px inputs on touch | Sonnet 5 | medium | — | M; simplify S | Conventional drawer work against a clear spec. The traps (a drawer left open after navigating, focus inside a closed drawer) show up in the browser check |
 | 2 — New document form and documents list | Done | Form, search dropdowns, LRCLIB matches and synced lyrics fit a phone; the documents table collapses | Sonnet 5 | low | M | | Mostly CSS with one obvious answer per rule, but judging it needs a look at a phone-sized screenshot |
 | 3 — Document page layout | | "Edit timings" reason as text; wider line play buttons on touch; a shown video beside the bar's buttons in landscape | Sonnet 5 | low | S | | The pinnable video it was planned around became the player bar (hidden video, `playsinline`, `--player-bar-height`), so what's left is three small rules, each with one answer |

@@ -27,7 +27,7 @@ records how that works and plans the follow-ups.
   long enough to want progress reports.
 - **Jobs run in the backend's own process**, on a two-thread
   `ThreadPoolExecutor`. A worker container of its own would load the
-  tokenizer's ~100 MB again on a 1 GB VM (see `docs/deploy.md`).
+  tokenizer's ~100 MB again on a 1 GB VM (see `docs/ongoing/deploy.md`).
 - **A claim lasts 5 minutes** (`processing.LEASE`). An older one belongs to
   a job that died, such as one killed by a deploy restarting the backend, and
   the next request starts the document over. The 800-character seed text

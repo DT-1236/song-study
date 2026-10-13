@@ -2,7 +2,7 @@
 and the settings that shape both.
 
 The spacing math is py-fsrs's; what's decided here is how an answer becomes
-one of its four ratings (docs/flashcards.md, "Mapping objective results onto
+one of its four ratings (docs/completed/flashcards.md, "Mapping objective results onto
 FSRS's four ratings") and which cards a session is made of.
 """
 
@@ -52,7 +52,7 @@ LATENCY_MS: dict[CardKind, tuple[int, int]] = {
 # The kinds answered by picking one of a few options, whose blind-guess floor
 # keeps a fast answer from counting as Easy.
 # Apart from LATENCY_MS though both say the same of every kind today: Type C
-# (docs/flashcards.md) is the first kind that differs. If it's dropped
+# (docs/completed/flashcards.md) is the first kind that differs. If it's dropped
 # instead, fold the two into one table of (fast_ms, slow_ms, multiple_choice).
 MULTIPLE_CHOICE_KINDS: set[CardKind] = {"recognition", "grammar"}
 

@@ -1,5 +1,5 @@
 """What the kanji sidebar on a card's reveal shows about each kanji of its word
-or group (docs/flashcards.md, "The kanji sidebar"): KANJIDIC2's readings,
+or group (docs/completed/flashcards.md, "The kanji sidebar"): KANJIDIC2's readings,
 meanings, grade and frequency, the radical it's built from, the reading it has
 in the word, and the words of the user's deck it's also in.
 

@@ -2,7 +2,7 @@
 
 Desired retention is the user's alone, since a card is shared by every song
 its word is in. The new-card limit belongs to a document, which has one
-owner. The defaults are the ones docs/flashcards.md decides; the retention
+owner. The defaults are the ones docs/completed/flashcards.md decides; the retention
 range is the slider's, the lowest and highest target it offers.
 
 Revision ID: 0020

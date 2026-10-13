@@ -46,7 +46,7 @@ Verification.
 
 | Step | Status | Ships | Model | Effort | Why |
 |---|---|---|---|---|---|
-| 0 — Doc | Done | This plan committed as `docs/song-search.md`, so each step's session reads the same spec | Haiku 4.5 | low | Mechanical: copy the plan into the repo |
+| 0 — Doc | Done | This plan committed as `docs/completed/song-search.md`, so each step's session reads the same spec | Haiku 4.5 | low | Mechanical: copy the plan into the repo |
 | 1 — YouTube Music song search | Done | `ytmusicapi` dep, `app/youtube_music.py`, `GET /api/songs/search`, `SongSearch.tsx`; a pick fills Title + YouTube video ID. Usable on its own | Sonnet 5 | medium | Wrapping a library against a clear spec. Its result shape is loose (missing album/duration), but that's visible, not silent |
 | 2 — LRCLIB track search | Done | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail *silently*: the right track just never shows up |
 | 3 — LRCLIB matches in the form | Done | `LrclibMatches.tsx`, NewDocumentForm wiring, manual fields under `<details>`, CSS | Sonnet 5 | medium | Conventional React. The traps are a typed title being overwritten and a required lyrics box hidden in `<details>`, and the browser check catches both |

@@ -154,7 +154,7 @@ tokens), `token(page, surface, nth)`,
   events, but `'ontouchstart' in window` is false, and iOS-only behavior
   (inline video without `playsinline`, input zoom, taps on plain text not
   reaching `document` click listeners) needs a real iPhone.
-  `docs/mobile.md`'s "What headless Brave emulates" has the details.
+  `docs/ongoing/mobile.md`'s "What headless Brave emulates" has the details.
 
 When a session runs into a harness bug or a new gotcha, fix the harness or
 add it here in the same PR, so the next session doesn't rediscover it.
