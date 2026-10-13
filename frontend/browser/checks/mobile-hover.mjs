@@ -1,4 +1,4 @@
-// Step 5a of docs/ongoing/mobile.md: hover only from a mouse, no sticky :hover on
+// Step 5a of docs/completed/mobile.md: hover only from a mouse, no sticky :hover on
 // touch, and the "Pinned" marker in a pinned gloss on every device. Since
 // step 5b a tap previews rather than pins; mobile-gloss-sheet checks the
 // rest of touch.

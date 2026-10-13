@@ -1,4 +1,4 @@
-// Step 4 of docs/ongoing/mobile.md: /settings, its link in the sidebar, the view
+// Step 4 of docs/completed/mobile.md: /settings, its link in the sidebar, the view
 // settings shared with the document page, and the lyrics header's actions.
 import {
   BASE,

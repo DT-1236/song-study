@@ -1,4 +1,4 @@
-// docs/ongoing/mobile.md step 1, the responsive shell: on a narrow screen the side
+// docs/completed/mobile.md step 1, the responsive shell: on a narrow screen the side
 // columns become drawers opened from a top bar; on a wide one nothing changes.
 import {
   ALL_DEVICES,

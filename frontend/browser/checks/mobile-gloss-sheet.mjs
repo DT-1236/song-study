@@ -1,4 +1,4 @@
-// Step 5b of docs/ongoing/mobile.md: on touch, a tap previews a gloss and a
+// Step 5b of docs/completed/mobile.md: on touch, a tap previews a gloss and a
 // long press pins it, with a countdown ring; a tap or swipe elsewhere closes
 // a preview but not a pin; and the gloss opens as a sheet at the bottom of
 // the screen.

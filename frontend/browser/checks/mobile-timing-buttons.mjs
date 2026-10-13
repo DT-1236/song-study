@@ -1,4 +1,4 @@
-// Step 7 of docs/ongoing/mobile.md: on touch, in timing mode, the player bar
+// Step 7 of docs/completed/mobile.md: on touch, in timing mode, the player bar
 // carries nudge −/+ and Stamp, which do what ←/→ and / do.
 import {
   check,
