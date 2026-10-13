@@ -31,10 +31,10 @@ test: install
 	$(BIN)/pytest
 
 format: install
-	$(BIN)/ruff format app tests migrations
+	$(BIN)/ruff format --config ruff.toml app tests migrations ../scripts
 
 format-check: install
-	$(BIN)/ruff format --check app tests migrations
+	$(BIN)/ruff format --config ruff.toml --check app tests migrations ../scripts
 
 lint: install
-	$(BIN)/ruff check app tests migrations
+	$(BIN)/ruff check --config ruff.toml app tests migrations ../scripts

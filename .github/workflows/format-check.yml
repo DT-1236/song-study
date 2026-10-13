@@ -8,7 +8,7 @@ on:
 
 jobs:
   prettier:
-    name: Prettier (Frontend)
+    name: Prettier (Frontend and Markdown)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -41,7 +41,7 @@ jobs:
           pip install -r requirements.txt
       - name: Check formatting
         working-directory: backend
-        run: ruff format --check app tests migrations
+        run: ruff format --config ruff.toml --check app tests migrations ../scripts
       - name: Check linting
         working-directory: backend
-        run: ruff check app tests migrations
+        run: ruff check --config ruff.toml app tests migrations ../scripts

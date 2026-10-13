@@ -2,8 +2,8 @@
 
 ## Context
 
-The app helps you *read* a song: Sudachi tokenization, furigana, JMDict glosses, LRCLIB line
-timings, YouTube playback. Nothing helps you *retain* what you read. This document designs the
+The app helps you _read_ a song: Sudachi tokenization, furigana, JMDict glosses, LRCLIB line
+timings, YouTube playback. Nothing helps you _retain_ what you read. This document designs the
 study experience — what a card looks like, what it asks, how it sounds, and how it is scheduled.
 
 **Schema and migrations are deliberately out of scope here.** The last section lists only what
@@ -23,10 +23,10 @@ Two premises the rest of the document rests on:
 
 **Yes — that is exactly what stability measures.** FSRS models memory as three numbers:
 
-- **Stability (S)**, in days: how long until predicted recall decays to 90%. This *is* the
+- **Stability (S)**, in days: how long until predicted recall decays to 90%. This _is_ the
   "how well known" metric. Anki's convention calls a card **mature** at S ≥ 21 days; nothing
   stops you picking your own threshold for a "known" badge.
-- **Retrievability (R)**, 0–1: predicted recall probability *right now*. `py-fsrs` exposes
+- **Retrievability (R)**, 0–1: predicted recall probability _right now_. `py-fsrs` exposes
   `scheduler.get_card_retrievability(card)`, so you can show "you'd probably recall this: 94%".
 - **Difficulty (D)**, 1–10: how intrinsically hard this item is for you.
 
@@ -34,20 +34,20 @@ So the progress UI has real numbers behind it without inventing anything.
 
 ### But you still want an "I already know this" button
 
-Stability is *derived from reviews*, so a word you already knew before the app ever showed it
+Stability is _derived from reviews_, so a word you already knew before the app ever showed it
 starts at zero regardless. FSRS's in-flow answer is rating **Easy**, which on a brand-new card
 sets initial stability to the `w[3]` parameter — about **8 days**. Useful, but not "don't bother
 me for a season", which is what you're describing.
 
 Recommend three distinct escapes, in increasing strength:
 
-| Action | Effect | When |
-|---|---|---|
-| **Easy** (rating 4) | Normal FSRS path, ~8 days on a new card | "That was easy" — in-flow |
+| Action                          | Effect                                                                                | When                                             |
+| ------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------ |
+| **Easy** (rating 4)             | Normal FSRS path, ~8 days on a new card                                               | "That was easy" — in-flow                        |
 | **"I know this — push it out"** | Set due date 1 / 3 / 6 months out **and** rewrite stability to match the new interval | "I knew this word before I ever opened this app" |
-| **Remove from my list** | Leave the queue entirely, **keep the row and its history** | "Stop asking me this" |
+| **Remove from my list**         | Leave the queue entirely, **keep the row and its history**                            | "Stop asking me this"                            |
 
-The middle one is Anki's *Set Due Date* with the `!` suffix, and it's the established pattern —
+The middle one is Anki's _Set Due Date_ with the `!` suffix, and it's the established pattern —
 the `!` is what makes it also rewrite stability, so the card doesn't snap back to a short
 interval on the next review. **Decided:** offer it as a 1 / 3 / 6 month preset ladder rather than
 a date picker.
@@ -65,14 +65,14 @@ costs nothing and is strictly safer.
 It also settles where **manual enrollment** lives: the reading view's gloss popup grows an
 "in your list ✓ / add" affordance. That pairs well with the per-song limit of 10 new cards a day
 — auto-enroll paces you, and the reading view is the escape hatch for a word you specifically
-want *now*. Same surface handles both first-time adds and restores, so there's one concept to
+want _now_. Same surface handles both first-time adds and restores, so there's one concept to
 learn rather than two.
 
 Worth noting the popup is already crowded and its positioning logic is delicate (the
 `useLayoutEffect` edge-nudge that avoids the floating sidebar), so this is a real UI change, not
 a free one.
 
-**Important detail:** a manual push-out must be recorded as a *reschedule*, not as a review.
+**Important detail:** a manual push-out must be recorded as a _reschedule_, not as a review.
 If it lands in the review log as a real rating, it poisons the data that the FSRS optimizer
 would later use to fit your personal parameters.
 
@@ -80,7 +80,7 @@ Since enrollment is automatic, this button is load-bearing — auto-enroll will 
 words you already know, and the push-out is how you clear them in one keystroke instead of
 grinding them through learning steps. It carries even more weight given the objective-grading
 decision in §3, which makes an Easy rating unreachable on the default card set: push-out becomes
-the *only* fast path for a word you already know.
+the _only_ fast path for a word you already know.
 
 ---
 
@@ -100,12 +100,12 @@ retention; FSRS reports stability back to you.
 
 Proposed UI — a slider with live consequences, not a bare number:
 
-| Setting | What it means | Effect on your day |
-|---|---|---|
+| Setting  | What it means                                           | Effect on your day                                                       |
+| -------- | ------------------------------------------------------- | ------------------------------------------------------------------------ |
 | **0.75** | You'll blank on about **1 in 4** cards when they appear | Longest intervals, lightest load. Fine for a big backlog you're grazing. |
-| **0.85** | About **1 in 7** | Often near the sweet spot for total work per word retained. |
-| **0.90** | About **1 in 10** — FSRS's default | Balanced. Start here. |
-| **0.95** | About **1 in 20** | Roughly doubles your reviews versus 0.90 for a modest recall gain. |
+| **0.85** | About **1 in 7**                                        | Often near the sweet spot for total work per word retained.              |
+| **0.90** | About **1 in 10** — FSRS's default                      | Balanced. Start here.                                                    |
+| **0.95** | About **1 in 20**                                       | Roughly doubles your reviews versus 0.90 for a modest recall gain.       |
 
 Above 0.95 the review count climbs steeply for very little return; that ceiling is worth
 enforcing in the slider rather than explaining after the fact. The range 0.80–0.90 is where most
@@ -131,7 +131,7 @@ out of cards being global per word:
   three songs with three different retention targets, there is no answer to "when is it due."
 
 So the settings panel shows a global retention slider plus the current song's new-card limit. A
-per-song retention *override* would need cards to stop being shared, which costs you the main
+per-song retention _override_ would need cards to stop being shared, which costs you the main
 benefit of the design — learning a word once, everywhere.
 
 ---
@@ -242,17 +242,17 @@ surfaces is visible rather than coincidental.
 
 **Decided: the question is "What are some of the meanings of this word?"** — not "what does it
 mean here". The card genuinely cannot know which sense the line uses, and phrasing it as a
-definite question makes the card lie. Show the count alongside the options (*"showing 2 of 8"*)
+definite question makes the card lie. Show the count alongside the options (_"showing 2 of 8"_)
 so incompleteness is visible rather than implied.
 
 #### The 通り problem, and why automation can't solve it
 
 A worked case that sets the limit of this design. JMDict has two entries:
 
-| entry | reading | senses |
-|---|---|---|
-| 1432920 | とおり | 8 — ①avenue; street; way; road … ⑥**the same status or way; as (as expected, as I said)** ⑦understanding ⑧counter |
-| 1432930 | どおり | 3 — ①in accordance with; following ②roughly ③Street |
+| entry   | reading | senses                                                                                                            |
+| ------- | ------- | ----------------------------------------------------------------------------------------------------------------- |
+| 1432920 | とおり  | 8 — ①avenue; street; way; road … ⑥**the same status or way; as (as expected, as I said)** ⑦understanding ⑧counter |
+| 1432930 | どおり  | 3 — ①in accordance with; following ②roughly ③Street                                                               |
 
 Songs routinely use sense ⑥ (思った通り, その通り). The card would show senses ①–② — "avenue;
 street" — which is not the meaning in play.
@@ -272,9 +272,9 @@ So identical tokens produce **one card** for all uses, and `rank_senses()` recei
 for all eight senses and cannot reorder them. There is no signal to automate on.
 
 **Decided: showing a sense the song doesn't use is acceptable, and often useful.** A card is about
-the *word*, not the occurrence. Learning that 通り also means "avenue; street" is worth knowing the
+the _word_, not the occurrence. Learning that 通り also means "avenue; street" is worth knowing the
 next time you meet it in the wild, even when this song means ⑥. This is why the prompt asks for
-*some* of the meanings — the card is deliberately teaching range, and the reveal's full sense list
+_some_ of the meanings — the card is deliberately teaching range, and the reveal's full sense list
 is where that lands.
 
 So no sense pinning, no sense-level card keys, and no neighbour-token disambiguation heuristic.
@@ -282,10 +282,10 @@ The apparent problem was mostly a mis-framing of what a vocabulary card is for.
 
 **But the reading underneath it can genuinely be wrong — and that must be fixable from the card.**
 
-The one automatic step that *is* wrong here is the reading. Sudachi reads 予定通り's 通り as トオリ
+The one automatic step that _is_ wrong here is the reading. Sudachi reads 予定通り's 通り as トオリ
 when it is actually よていど**お**り, so the gloss comes from entry 1432920 (とおり) when 1432930
 (どおり — "in accordance with; following", as sense ①) is the better match. That entry is
-unreachable *automatically*, but not unreachable full stop: a manual reading correction sets
+unreachable _automatically_, but not unreachable full stop: a manual reading correction sets
 `selected_reading`, and `own_gloss_key` then keys the token as `(通り, どおり)` — reaching the right
 entry, whose leading senses then fit the song. This is a real correction already available in the
 reading view, and it is exactly the fix a mis-glossed 通り needs.
@@ -301,7 +301,7 @@ Behaviour, given §4's rule that the reading is half the card's identity:
    rating would be noise in the review log.
 2. **The correction repoints the song at a different card**, per §4. The new card enters as new.
 3. **The old card is dropped only if nothing was learned on it** — no reviews yet means it was
-   never really a card, so delete it silently. If it *has* review history, keep it (and say so):
+   never really a card, so delete it silently. If it _has_ review history, keep it (and say so):
    that history is real knowledge about a real word, exactly as with 辛い/からい.
 
 This makes the study session a discovery surface for annotation errors, which is a nice loop:
@@ -333,13 +333,13 @@ Auto-enrolled. This is the bulk of the deck.
 ```
 
 **Decided: multiple choice over the grammar notes.** This is the best-fitting card in the whole
-design, because the answer space is *already a closed, hand-authored set* — distractors come free,
+design, because the answer space is _already a closed, hand-authored set_ — distractors come free,
 and the fuzziness that made this card unfair to self-grade ("quoting: says that, or I hear that" —
 close enough?) stops mattering entirely once you're choosing rather than judging.
 
 **Distractors come from the same category as the target**, which is what makes them hard rather
 than decorative: て vs で, たら vs ば vs ても, れる vs せる, の vs って. Those groupings already
-exist in `grammar.py` — as *source comments* (`# Auxiliaries (助動詞)`, `# Particles (助詞)`,
+exist in `grammar.py` — as _source comments_ (`# Auxiliaries (助動詞)`, `# Particles (助詞)`,
 stems of そうだ/ようだ/みたいだ, helper verbs). Turning them into a structured field alongside each
 note is the one small content change this card needs.
 
@@ -400,13 +400,13 @@ per song.
 
 ### Deliberately deferred
 
-*Given a dictionary form and a target meaning, produce the conjugated form* — "take 聞こえる, make
+_Given a dictionary form and a target meaning, produce the conjugated form_ — "take 聞こえる, make
 it 'is doing'" → type 聞こえてる. This looks like it needs a conjugation generator, which Sudachi
 isn't. **It doesn't:** the card was harvested from a real lyric, so the song's own
 surface string is the gold answer. Exact match after kana normalization, no generator, no fuzzy
 matching — and `wanakana` is already a dependency, so romaji input converts as you type.
 
-It's the one card that would be both objective *and* full production, which makes it the obvious
+It's the one card that would be both objective _and_ full production, which makes it the obvious
 next addition. The open problem is variants: ている and てる both express "is doing" and only one
 is in the song, so a defensible answer can miss the gold string. Solvable (accept any form whose
 auxiliary shares a `normalized_form`), but it's the reason this isn't in v1.
@@ -425,7 +425,7 @@ question, because a song can be followed by ear with no kanji knowledge at all.
 The cost of that choice is real and worth stating: kanji recognition will lag vocabulary. Knowing
 涙 inside a song is not the same as recognising it in a novel. The sidebar softens that; it does
 not fix it. The signal to revisit the decision is already in the data — Type A failures on words
-whose *meaning* is known but whose written form isn't are kanji weakness surfacing as vocabulary
+whose _meaning_ is known but whose written form isn't are kanji weakness surfacing as vocabulary
 failure.
 
 #### What it shows
@@ -516,10 +516,10 @@ semantic structure. Capping the second tier is reasonable — 涙's four leftove
 but the kanji contains its **variant**:
 
 | kanji | classical | as it actually appears |
-|---|---|---|
-| 涙 | 水 | 氵 |
-| 神 | 示 | 礻 |
-| 通 | 辵 | 辶 |
+| ----- | --------- | ---------------------- |
+| 涙    | 水        | 氵                     |
+| 神    | 示        | 礻                     |
+| 通    | 辵        | 辶                     |
 
 Displaying "水 water" beside 涙 when the visible component is 氵 invites exactly the confusion this
 sidebar exists to prevent. KRADFILE supplies the variant form, so the fix is to render the
@@ -533,38 +533,38 @@ between a radical that teaches and one that confuses.
 **Decided: there is no self-rating anywhere.** You never judge your own recall; every card has a
 checkable answer, and the rating is computed.
 
-| Type | Input | Graded against |
-|---|---|---|
-| A — Recognition | Pick 1 of 4 English glosses | The target's top-ranked sense |
-| B — Conjugation | Pick 1 of 4 grammar notes | `_GRAMMAR_NOTES[normalized_form]` |
-| C — Production / locate | Click a token in the line | The token's `char_begin`/`char_end` |
+| Type                    | Input                       | Graded against                      |
+| ----------------------- | --------------------------- | ----------------------------------- |
+| A — Recognition         | Pick 1 of 4 English glosses | The target's top-ranked sense       |
+| B — Conjugation         | Pick 1 of 4 grammar notes   | `_GRAMMAR_NOTES[normalized_form]`   |
+| C — Production / locate | Click a token in the line   | The token's `char_begin`/`char_end` |
 
 ### Mapping objective results onto FSRS's four ratings
 
 **Decided: correctness plus latency, with multiple choice capped at Good.**
 
-| Result | Typed / click-in-line | Multiple choice |
-|---|---|---|
-| Wrong | 1 Again | 1 Again |
-| Correct, slow | 2 Hard | 2 Hard |
-| Correct | 3 Good | 3 Good |
-| Correct, fast | 4 Easy | **3 Good** (capped) |
+| Result        | Typed / click-in-line | Multiple choice     |
+| ------------- | --------------------- | ------------------- |
+| Wrong         | 1 Again               | 1 Again             |
+| Correct, slow | 2 Hard                | 2 Hard              |
+| Correct       | 3 Good                | 3 Good              |
+| Correct, fast | 4 Easy                | **3 Good** (capped) |
 
 The cap exists because a four-option card has a 25% blind-guess floor, and FSRS cannot tell a
 lucky guess from knowledge — it just sees Good and grows stability. Capping means a guess can
 never compound into a long interval.
 
-The principle is really *Easy requires a low guess probability*, not *Easy requires typing* —
+The principle is really _Easy requires a low guess probability_, not _Easy requires typing_ —
 which is why Type C qualifies despite being a click: its answer space is every token in the line,
 not one of four.
 
 **Consequence worth naming: with the default card set, Easy is unreachable.** Types A and B are
 both multiple choice, and Type C ships off — so nothing can earn a 4. Two ways to read that:
 
-- *It's fine.* Good still compounds; Easy is an accelerator, not a requirement. And the
+- _It's fine._ Good still compounds; Easy is an accelerator, not a requirement. And the
   **push-out ladder from §1 is the intended fast path** for words you already know, which is
   exactly the case Easy would have served. The two decisions fit together.
-- *It's a drag.* Auto-enrollment pulls in words you know, and without Easy each one needs several
+- _It's a drag._ Auto-enrollment pulls in words you know, and without Easy each one needs several
   Good reviews or a manual push-out to get out of your way.
 
 The first reading is the working assumption, since the push-out button already exists for
@@ -583,7 +583,7 @@ Two gaps it leaves, both additive later if wanted:
 - **Nothing tests kanji readings.** Reasonable given the app's kana-literacy assumption and the
   fact that the reading view furiganas everything — but it does mean the deck never asks how a
   word is pronounced.
-- **Nothing tests production from scratch.** Type C asks you to *locate* a word, not generate it.
+- **Nothing tests production from scratch.** Type C asks you to _locate_ a word, not generate it.
   The typed-conjugation card below is the natural place that would go.
 
 ### Latency thresholds
@@ -638,7 +638,7 @@ and `selected_reading` comes from the selected conflict row —
 So for 辛い, picking からい and picking つらい produce **two different `gloss_lookups` rows and
 therefore two different cards** — spicy and painful, scheduled independently. Which is right:
 they really are different words that happen to share a spelling. Conversely 聞こえてる and
-聞こえた collapse to one card, because `lookup_form` is the *normalized* form, not the surface.
+聞こえた collapse to one card, because `lookup_form` is the _normalized_ form, not the surface.
 
 Three consequences fall out, and they need handling:
 
@@ -646,10 +646,10 @@ Three consequences fall out, and they need handling:
 からい for three months, then decide the song means つらい. The token's `gloss_lookup_id` moves, the
 derived association follows it, a fresh つらい card starts at zero — and the からい card keeps its
 full history, possibly orphaned (which the all-songs queue from below catches). That's correct
-behaviour, but it must be *said out loud* in the UI at the moment of the change, or progress
+behaviour, but it must be _said out loud_ in the UI at the moment of the change, or progress
 appears to vanish for no reason:
 
-> *Changing this reading to つらい starts a new card. Your からい card keeps its history.*
+> _Changing this reading to つらい starts a new card. Your からい card keeps its history._
 
 One refinement, since §3 makes reading correction a first-class action **from inside a study
 session**: drop the old card silently when it has **no reviews yet**. Nothing was learned on it,
@@ -657,8 +657,8 @@ so it was never really a card — it was an auto-enrolment acting on a reading t
 wrong. Keep it, and say so, the moment it has any review history.
 
 **2. Don't auto-enroll tokens whose reading is still unresolved.** Note the comment on
-`gloss_key` (`glosses.py:442`): *"For a flagged token, this is also the key of the default option
-create_conflicts selects."* A flagged heteronym is glossed under the **default** candidate until
+`gloss_key` (`glosses.py:442`): _"For a flagged token, this is also the key of the default option
+create_conflicts selects."_ A flagged heteronym is glossed under the **default** candidate until
 you choose — so auto-enrolling it means building review history on a guess that a later
 correction will discard. **Added to the harvest rule: skip tokens with `needs_review` and no
 selected conflict.** Manual enrollment from the gloss popup can still override, since that's an
@@ -669,20 +669,20 @@ display: it gates what enters your deck.
 0013–0015 can empty `gloss_lookups`, a card's join can miss — and then there's no gloss to render
 and no distractors to build. The fix is **on-demand rehydration through the existing
 `plan_glosses()` / `store_glosses()` pipeline** when the queue builder finds a key uncached. Do
-*not* snapshot the gloss onto the card: that would survive cache invalidation by preserving
+_not_ snapshot the gloss onto the card: that would survive cache invalidation by preserving
 exactly the stale content the invalidation exists to replace.
 
 ### One residual sharp edge
 
 `(lookup_form, reading)` is unique in `gloss_lookups`, but `source` is not part of that key, and
-`rank_senses()` flattens *all* JMDict entries matching the reading into one list. So a
+`rank_senses()` flattens _all_ JMDict entries matching the reading into one list. So a
 genuinely polysemous word has several unrelated senses under one card.
 
 That matters for objective grading: if the correct option shows sense 3 and you were thinking of
 sense 1, you could reject your own right answer. The fix is in how the option list is built —
 **an option is correct because it belongs to the target word, not because it's the sense we chose
 to display.** Show the top-ranked sense (most likely to be recognised), draw distractors from
-*other words*, and reveal the full sense list afterwards so the range gets learned. Residual risk
+_other words_, and reveal the full sense list afterwards so the range gets learned. Residual risk
 on very polysemous words is real but small.
 
 ## 5. Which line plays
@@ -691,7 +691,7 @@ Cards are **global per word** — learn 涙 in one song, and it isn't a fresh ca
 the line is not a property of the card; it's chosen **when the queue is built**, preferring an
 occurrence in the song you're currently studying and falling back to any song that has the word.
 
-This is what makes "study this song" work as a *filter* rather than a separate deck of duplicate
+This is what makes "study this song" work as a _filter_ rather than a separate deck of duplicate
 cards, and it has a nice side effect: a word you first learned elsewhere shows up in the new
 song's own line, which is exactly the review you want.
 
@@ -712,20 +712,20 @@ merely opening a song.
 **Almost nothing needs recovering, by construction.** That's the payoff of the two structural
 choices already made — the natural key and the derived association:
 
-| | Survives? | Why |
-|---|---|---|
-| Cards + all FSRS state | **Yes** | Keyed on `(user, lookup_form, reading)`; no FK to `tokens` or `gloss_lookups` |
-| Review history | **Yes** | FK to cards; `document_id` points at a row that isn't deleted |
-| Suspended / removed state | **Yes** | Lives on the card row |
-| Type B conjugation cards | **Yes** | Keyed on the grammar term — entirely lyrics-independent |
-| Type C answer offsets | **Yes** | Chosen at queue-build time, never stored |
-| Card ↔ song association | **Recomputes** | Derived by joining cards against `tokens`, so re-tokenization restores it |
+|                           | Survives?      | Why                                                                           |
+| ------------------------- | -------------- | ----------------------------------------------------------------------------- |
+| Cards + all FSRS state    | **Yes**        | Keyed on `(user, lookup_form, reading)`; no FK to `tokens` or `gloss_lookups` |
+| Review history            | **Yes**        | FK to cards; `document_id` points at a row that isn't deleted                 |
+| Suspended / removed state | **Yes**        | Lives on the card row                                                         |
+| Type B conjugation cards  | **Yes**        | Keyed on the grammar term — entirely lyrics-independent                       |
+| Type C answer offsets     | **Yes**        | Chosen at queue-build time, never stored                                      |
+| Card ↔ song association   | **Recomputes** | Derived by joining cards against `tokens`, so re-tokenization restores it     |
 
 For any word still present in the new lyrics, the association simply reappears the next time the
 queue is built. There is no repair step because there is no stored link to corrupt.
 
 **The one real gap: words that left the song.** If LRCLIB's version drops a verse, those cards
-still exist with full history, but they're no longer in *any* song — and since the session flow is
+still exist with full history, but they're no longer in _any_ song — and since the session flow is
 per-song ("Study this song"), nothing can reach them. They stay due forever and are never shown.
 
 Three fixes, in order of how much they're worth:
@@ -736,13 +736,13 @@ Three fixes, in order of how much they're worth:
 2. **An orphan view, free of charge.** `first_seen_document_id` survives the wipe, so "cards that
    came from 雲の糸 but are no longer in it" is already answerable with no new storage.
 3. **Surface the change instead of swallowing it.** After a refresh alters the word list, say so:
-   *"雲の糸's lyrics changed upstream: 88 words → 82. 6 of your cards are no longer in this song."*
+   _"雲の糸's lyrics changed upstream: 88 words → 82. 6 of your cards are no longer in this song."_
    A silent readiness score jumping from 41% to 46% because the denominator moved is worse than a
    sentence explaining it.
 
 A fourth option, if the diff matters more later: store an **enrollment record**
 (`document_id, lookup_form, reading, enrolled_at`) at enrollment time. Note this contradicts the
-"don't store derived data" argument from §6 only in appearance — the *live* association stays
+"don't store derived data" argument from §6 only in appearance — the _live_ association stays
 derived and self-healing, while this is a deliberately historical record of what you once enrolled
 from this song. Staleness is the feature. Not needed for v1, since `first_seen_document_id`
 covers the useful case.
@@ -764,7 +764,7 @@ needs a per-song aggregate — and a mode that studies a song as a song.
 FSRS gives retrievability per card (`get_card_retrievability`), so a song-level score is a
 roll-up of the cards belonging to that song's words.
 
-**Definition: the occurrence-weighted mean retrievability across *all* of the song's harvestable
+**Definition: the occurrence-weighted mean retrievability across _all_ of the song's harvestable
 words, counting words with no card yet as 0.**
 
 Two deliberate choices in there:
@@ -792,7 +792,7 @@ time anyway, so any cached value is wrong the moment it's written. If the query 
 later, cache it with a TTL rather than maintaining it transactionally.
 
 This also gives the documents list a natural sort ("least ready first") and a nudge worth having:
-*"雲の糸 has drifted to 41% — run through it?"*
+_"雲の糸 has drifted to 41% — run through it?"_
 
 ### Run-through mode
 
@@ -841,7 +841,7 @@ fallbacks are explanations, not headwords), particles and auxiliaries (grammar, 
 covers), and — per §4 — **tokens whose reading is still a default guess**.
 
 As built (step 2), that last rule is `needs_review` with a `heteronym` or `oov` reason. The default
-option is always created *selected*, so "no selected conflict" never happens; what a pick changes
+option is always created _selected_, so "no selected conflict" never happens; what a pick changes
 is `needs_review`, which any pick clears — including re-picking the default. A `no_kana_anchor`
 flag doesn't gate: the reading is certain, only its furigana split isn't. **The rule holds back a
 lot:** on the 蜘蛛の糸 test fixture it excludes 47 of 159 words (人, 水, 花, 日, 事, …), nearly all
@@ -890,7 +890,7 @@ Not a migration — just the inventory, so we know what's cheap and what isn't.
 - A **user** — nothing in the app has one today, so there's nowhere to hang study state.
   Confirmed staging: seeded single user now, OAuth at deploy time.
 - **Card + review-log storage**, holding FSRS's `state / step / stability / difficulty / due /
-  last_review` plus an append-only review log (needed later for personal parameter fitting)
+last_review` plus an append-only review log (needed later for personal parameter fitting)
 - A **line-index helper on the backend** — the frontend currently derives a token's line by
   counting `\n`; the queue builder needs the same thing server-side
 - **An all-songs queue** in addition to the per-song one, so no card can be stranded (§5)
@@ -902,7 +902,7 @@ Not a migration — just the inventory, so we know what's cheap and what isn't.
   comments, and Type B's distractors need them as data
 - **Distractor selection** for Types A and B — POS-matched, same-song-preferred, near-synonym
   guarded, length-normalized. New logic, but it reads only data that already exists
-- **An option-list renderer** that shows glosses *without* readings — `SenseBlock` and
+- **An option-list renderer** that shows glosses _without_ readings — `SenseBlock` and
   `GlossDetails` both show the reading, so neither can be reused for the prompt side
 - **Per-review latency** on the review log, plus the thresholds in force at the time, so ratings
   stay interpretable if the thresholds change
@@ -1005,19 +1005,20 @@ creates it. Everything below references it.
 **1 — Users and ownership.** Migration adding `users`, a seeded local user, and
 `documents.owner_id`; document routes scoped to the current user. No UI, no study code. Ships
 independently and unblocks the rest.
-*Watch:* the current-user dependency must default to the seeded user, or all 19 test modules
+_Watch:_ the current-user dependency must default to the seeded user, or all 19 test modules
 break — they call route functions directly rather than over HTTP.
 
 **2 — Card storage and harvest.** Migration for `study_cards` / `study_reviews`; the harvest rule
 (§7) including the `needs_review` exclusion; card keys derived through the existing
 `own_gloss_key()`; the enrollment path. No scheduling yet.
-*Watch:* no foreign key into `gloss_lookups` (§5), and rehydrate uncached keys through
+_Watch:_ no foreign key into `gloss_lookups` (§5), and rehydrate uncached keys through
 `plan_glosses()` / `store_glosses()` rather than snapshotting a gloss.
-*As built* (`backend/app/cards.py`, migration 0018) — what later steps build on:
+_As built_ (`backend/app/cards.py`, migration 0018) — what later steps build on:
+
 - `study_cards` has a `kind`: `recognition` (Type A, keyed `(lookup_form, reading)`) or `grammar`
   (Type B, keyed on the grammar term with `reading` NULL), unique per user with `NULLS NOT
-  DISTINCT`. Type C can become a third kind sharing a word's key, so its scheduling stays separate.
-- Grammar cards come only from grammar *attached* in a predicate group or accepted phrase, and
+DISTINCT`. Type C can become a third kind sharing a word's key, so its scheduling stays separate.
+- Grammar cards come only from grammar _attached_ in a predicate group or accepted phrase, and
   only for terms with their own entry in `_GRAMMAR_NOTES` — the generic "particle" fallback has
   nothing to test. A particle after a noun outside any group gives no card.
 - Cards store `alt_lookup_form` (the token's dictionary form): the second spelling
@@ -1034,8 +1035,9 @@ break — they call route functions directly rather than over HTTP.
 **3 — Scheduling.** The `fsrs` dependency, the review endpoint, the rating map (correctness +
 latency, multiple choice capped at Good), push-out and remove, the per-song queue **and the
 all-songs queue**, the per-song new-card limit, the retention setting.
-*Watch:* a manual push-out is a reschedule, never a logged rating.
-*As built* (`backend/app/study.py`, migration 0020) — what later steps build on:
+_Watch:_ a manual push-out is a reschedule, never a logged rating.
+_As built_ (`backend/app/study.py`, migration 0020) — what later steps build on:
+
 - Ratings come from the card's `kind` alone: `LATENCY_MS` holds each kind's fast/slow thresholds
   (3 s / 10 s for both, flat as §3 starts) and `MULTIPLE_CHOICE_KINDS` the kinds capped at Good,
   which today is both. Type C, when it arrives, is a third kind that isn't in that set. The client
@@ -1073,9 +1075,10 @@ and text-only when a song has no audio — which needs the backend line-index he
 frontend derives a token's line by counting `\n`). A grammar card takes its example line from
 whatever song is being studied. The all-songs queue must still return a card whose word is in no
 song, with no line.
-*Watch:* the line is chosen when the queue is built and never stored (§5), so the queue endpoints
+_Watch:_ the line is chosen when the queue is built and never stored (§5), so the queue endpoints
 grow a line field rather than the cards gaining a column.
-*As built* (`backend/app/card_content.py`, `grammar.py`, migration 0022) — what later steps build on:
+_As built_ (`backend/app/card_content.py`, `grammar.py`, migration 0022) — what later steps build on:
+
 - Both queues return `QueuedCard`s: the card's row plus `line`, `options`, `answer` (an index into
   `options`) and, for a word, `senses` — all of them, ranked for the line's part of speech, for the
   reveal. Line and options are drawn afresh on every queue build and never stored. The client still
@@ -1121,11 +1124,12 @@ grow a line field rather than the cards gaining a column.
 radical resolved to the variant form the kanji actually contains, and the deck cross-link query
 (`LIKE '%聞%'` over `study_cards.lookup_form`). This produces the sidebar payload; the reveal that
 renders it arrives in step 6, so nothing is visible at the end of this step.
-*Watch:* four kinds of quiet wrongness in one place — okurigana markers, rendaku, script, and the
+_Watch:_ four kinds of quiet wrongness in one place — okurigana markers, rendaku, script, and the
 standalone-to-variant radical mapping. A wrong reading looks entirely plausible on screen, so this
 step lives or dies by its tests. A jukugo with no matching kun reading showing on'yomi alone is
 the correct outcome, not a gap to fill.
-*As built* (`backend/app/kanji.py`) — what step 6 renders:
+_As built_ (`backend/app/kanji.py`) — what step 6 renders:
+
 - Both queue routes return `{cards, kanji}`. Each card's `kanji` lists the distinct kanji of its
   group, in order, with what depends on the word: `character`, `kun_readings` (only those the word
   uses, as `き(こえる)`) and `more_kun` for the rest. The rest of each sidebar entry is the same on
@@ -1161,7 +1165,7 @@ the correct outcome, not a gap to fill.
 keyboard handling, reveal, session summary, and the kanji sidebar from step 5 rendered on the
 reveal. It renders the gloss itself rather than reaching into `DocumentViewPage.tsx`; step 7
 removes the duplication once both consumers exist.
-*Watch:* audio needs a `youtube_video_id` **and** line timings, so this is the step that depends
+_Watch:_ audio needs a `youtube_video_id` **and** line timings, so this is the step that depends
 on the queued LRCLIB work. Also the pending `.new-document-form` CSS narrowing, which currently
 overrides every document-page button and will catch this page too. A line sung in katakana
 (§7) shows the card's word in kanji (声) beside the highlighted katakana (コエ) on the prompt, not
@@ -1169,7 +1173,8 @@ just on the reveal. Take the spelling from `Line.written_as`, which marks a kata
 UI can't infer it, because a conjugated surface still shows its dictionary form only on the
 reveal.
 
-*As built* (`StudyPage.tsx`, `StudyCardView.tsx`, `KanjiSidebar.tsx`) — what later steps build on:
+_As built_ (`StudyPage.tsx`, `StudyCardView.tsx`, `KanjiSidebar.tsx`) — what later steps build on:
+
 - Routes `/documents/:id/study` (the song's queue, which enrolls) and `/study` (all songs), linked
   from the document page and the sidebar. The queue is a snapshot taken on load and walked once;
   a missed card is not repeated in the session, and a card with no options is skipped.
@@ -1188,7 +1193,8 @@ reveal.
 **7 — Extract the gloss rendering.** Pull the gloss rendering the document page and the study UI
 now both carry out of `DocumentViewPage.tsx` into a shared module, shaped by what the two actually
 share. No behavior change.
-*As built* (`SenseList.tsx`) — what later steps build on:
+_As built_ (`SenseList.tsx`) — what later steps build on:
+
 - What the two shared was only the list of senses: each sense's glosses and field/misc tags, five
   shown before a "Show N more" expander, and "No dictionary entry found." for none. `SenseList`
   is that, and `GlossDetails` (the headword, part of speech and composite pieces around it) stays
@@ -1199,8 +1205,9 @@ share. No behavior change.
 
 **8 — Progress.** Song readiness (§6), its surfacing on the documents list, and run-through mode.
 
-*As built* (`study.py`, `card_content.py`, `RunThroughPage.tsx`, `ReadinessMeter.tsx`) — what later
+_As built_ (`study.py`, `card_content.py`, `RunThroughPage.tsx`, `ReadinessMeter.tsx`) — what later
 steps build on:
+
 - `cards.songs_words` is what harvest finds in each of a list of songs, split into the words the
   user has an unsuspended card for (each with its row) and those harvest would enroll, from one
   cards query and one gloss plan for all of them; `song_words` is the one-song form. A removed card
@@ -1226,7 +1233,7 @@ steps build on:
 
 **9 — Correction and deck management.** The "wrong reading?" flow from inside a session (§3), and
 the gloss popup's add / remove / restore affordance (§1).
-*Watch:* the popup is already crowded and its edge-nudge positioning is delicate — this is a real
+_Watch:_ the popup is already crowded and its edge-nudge positioning is delicate — this is a real
 UI change, not a bolt-on. A katakana word's gloss (§7) offers an add for each of its words whose
 lookup is a JMDict hit, though the harvest never adds them. `enroll_token` takes one word per
 token today, so it has to grow a way to name the piece as well as the token. "Wrong reading?"
@@ -1237,8 +1244,9 @@ JMDict entries with the piece's reading (合う for アイ). The pick is stored 
 piece, like a selected conflict, and becomes the piece's card key and `Line.written_as`.
 How the katakana splits into words still has no correction flow.
 
-*As built* (`cards.document_words` / `token_word`, `conflicts.pick_piece_word`, `study.correct_card`,
+_As built_ (`cards.document_words` / `token_word`, `conflicts.pick_piece_word`, `study.correct_card`,
 migrations 0027, 0029 and 0030, `CardCorrectionPanel.tsx`) — what later steps build on:
+
 - `GET /documents/{id}/words` is every word of the song the user could add (as a hand-add takes
   them), with the tokens it covers and their card for it, removed or not. The page loads it after
   the tokens and again whenever they change. The popup shows one control per word: add, remove
@@ -1284,12 +1292,12 @@ deployment · personal FSRS parameters from the accumulated review log.
 
 A heuristic about task shape, not a benchmark claim.
 
-**Model** answers *how subtle is this?* — **Opus 5** where a mistake is silent or the surrounding
+**Model** answers _how subtle is this?_ — **Opus 5** where a mistake is silent or the surrounding
 code is delicate; **Sonnet 5** where the spec is tight and the work is pattern application across
 breadth; **Haiku 4.5** for mechanical steps with one obvious right answer. Switch with `/model`;
 `/fast` gives Opus faster output without dropping to a smaller model.
 
-**Effort** answers a different question — *how much of this is already decided?* — and the two
+**Effort** answers a different question — _how much of this is already decided?_ — and the two
 are independent. Set it with `/effort`. Steps this document has fully specified can run at lower
 effort on a capable model; steps where the implementer still has to work something out need
 higher effort even when the code is ordinary. Effort trades time and tokens for thoroughness, so
@@ -1297,18 +1305,18 @@ these are **starting points, not floors**: escalate a step that stalls rather th
 everything at `max`. `xhigh` and `max` are deliberately absent below — reserve them for a step
 that has already failed at its recommended level, or for debugging something that makes no sense.
 
-| Step | Status | Model | Effort | Why |
-|---|---|---|---|---|
-| 0 — Doc | Done | Sonnet 5 | low | Prose and git mechanics, fully specified |
-| 1 — Users and ownership | Done | Sonnet 5 | medium | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing |
-| 2 — Card storage and harvest | Done | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails *silently* and shows up later as lost review history or a deck full of junk |
-| 3 — Scheduling | Done | Sonnet 5 | medium | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
-| 4 — Card content | Done | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones |
-| 5 — Kanji sidebar data | Done | Sonnet 5 | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step |
-| 6 — Study UI | Done | Sonnet 5 | medium | A new page is conventional React against a specified layout |
-| 7 — Gloss rendering extraction | Done | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional |
-| 8 — Progress | Done | Sonnet 5 | medium | SQL aggregation against a clearly specified definition |
-| 9 — Correction and deck management | Done | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker |
+| Step                               | Status | Model      | Effort   | Why                                                                                                                                                                             |
+| ---------------------------------- | ------ | ---------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Doc                            | Done   | Sonnet 5   | low      | Prose and git mechanics, fully specified                                                                                                                                        |
+| 1 — Users and ownership            | Done   | Sonnet 5   | medium   | Repetitive route scoping, but one trap earns the extra care: the current-user default that keeps the existing tests passing                                                     |
+| 2 — Card storage and harvest       | Done   | **Opus 5** | **high** | Interacts with the gloss cache. A wrong FK or a wrong harvest rule fails _silently_ and shows up later as lost review history or a deck full of junk                            |
+| 3 — Scheduling                     | Done   | Sonnet 5   | medium   | `py-fsrs` does the hard math and this document fixed the rating map, so most of it is transcription; the one subtlety is that a push-out is a reschedule, never a logged rating |
+| 4 — Card content                   | Done   | **Opus 5** | **high** | The most judgment-heavy logic in the feature — near-synonym rejection and distractor plausibility are semantic calls, not mechanical ones                                       |
+| 5 — Kanji sidebar data             | Done   | Sonnet 5   | **high** | Tightly specified, so an Opus-grade model isn't needed — but okurigana, rendaku, script and the radical variant mapping are four quiet failure modes in one step                |
+| 6 — Study UI                       | Done   | Sonnet 5   | medium   | A new page is conventional React against a specified layout                                                                                                                     |
+| 7 — Gloss rendering extraction     | Done   | **Opus 5** | **high** | Pulling the gloss rendering out of a 2,508-line file whose positioning already caused a flicker bug is not conventional                                                         |
+| 8 — Progress                       | Done   | Sonnet 5   | medium   | SQL aggregation against a clearly specified definition                                                                                                                          |
+| 9 — Correction and deck management | Done   | **Opus 5** | **high** | Lands in the crowded gloss popup and its `useLayoutEffect` edge-nudge — the exact code that needed a bug fix for initial-render flicker                                         |
 
 For the later items: Type C and OAuth/deployment suit Sonnet 5 at medium; typed conjugation
 production wants Opus 5 at high, since the ている/てる variant-matching problem is where it gets
@@ -1318,7 +1326,7 @@ The pattern worth noticing: the Opus steps are the ones touching **existing, sub
 (`glosses.py`'s caching, `DocumentViewPage.tsx`'s positioning) or making **semantic judgments**.
 The Sonnet steps are the ones where this document has already done the deciding.
 
-Model and effort *mostly* line up here, which is a sign this document did its job rather than a
+Model and effort _mostly_ line up here, which is a sign this document did its job rather than a
 rule to generalize. **Step 5 is where they come apart, and it is the instructive case:** the kanji
 data work is specified down to the wrinkles, so Sonnet is the right model — but four kinds of
 silent wrongness share one step, so the effort stays high anyway.
