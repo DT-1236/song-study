@@ -6,6 +6,7 @@ import {
   check,
   DESKTOP,
   PHONE,
+  playerReady,
   sidewaysOverflow,
   smallTapTargets,
   tapOrClick,
@@ -31,18 +32,13 @@ await check('player-bar', async (h) => {
     page.locator(`.player-controls button[aria-label="${label}"]`)
   const isPressed = (page, label) =>
     button(page, label).evaluate((el) => el.classList.contains('pressed'))
-  // Waits until the player is ready, which enables its buttons.
-  const ready = (page) =>
-    button(page, 'Play').and(page.locator(':enabled')).waitFor({
-      timeout: 20_000,
-    })
 
   for (const device of [DESKTOP, PHONE]) {
     const tag = `[${device.name}]`
     h.step(`${device.name}: hidden video plays from the bar`)
     const page = await h.open(path, device)
     await tokenized(page)
-    await ready(page)
+    await playerReady(page)
     const box = await page.$eval('.youtube-player', (el) => {
       const r = el.getBoundingClientRect()
       return { width: r.width, height: r.height, hidden: el.inert }
@@ -107,7 +103,7 @@ await check('player-bar', async (h) => {
   h.step('desktop: keys press the buttons')
   const desk = await h.open(path, DESKTOP)
   await tokenized(desk)
-  await ready(desk)
+  await playerReady(desk)
   h.expect(
     await desk.$eval('.player-controls kbd', (el) => el.offsetWidth > 0),
     'the buttons show their keys',

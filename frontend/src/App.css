@@ -95,8 +95,11 @@
   min-width: 0;
   height: 100%;
   overflow-y: auto;
-  /* Scrolling something into view stops above a docked player bar. */
-  scroll-padding-bottom: var(--player-bar-height, 0px);
+  /* Scrolling something into view stops above a docked player bar, and
+     above a gloss open as a sheet over it (see .gloss-sheet). */
+  scroll-padding-bottom: calc(
+    var(--player-bar-height, 0px) + var(--sheet-height, 0px)
+  );
 }
 
 .content-inner {
@@ -221,7 +224,8 @@
   }
 }
 
-/* iOS zooms in on focusing a text field under 16px. */
+/* iOS zooms in on focusing a text field under 16px. A platform minimum,
+   not a style, so it outranks any field's own size. */
 @media (hover: none) {
   input:not([type]),
   input[type='text'],
@@ -229,7 +233,7 @@
   input[type='number'],
   textarea,
   select {
-    font-size: 16px;
+    font-size: 16px !important;
   }
 }
 
@@ -970,6 +974,8 @@ li.grammar-legend-item {
   white-space: pre-wrap;
   font-size: var(--lyrics-font-size, 18px);
   margin: 0;
+  /* Room to scroll the last lines above a gloss open as a sheet. */
+  padding-bottom: calc(0.75rem + var(--sheet-height, 0px));
 }
 
 /* A line's play button hangs in the lyrics box's left padding and takes no
@@ -1160,10 +1166,11 @@ li.grammar-legend-item {
   border-radius: inherit;
 }
 
-/* Scrolling a token into view from below stops at the top of its line, not
-   of its text, so the furigana above the text shows too. */
+/* Scrolling a token into view stops at the edge of its line, not of its
+   text: from below, so the furigana above the text shows too, and from
+   above, so it doesn't end flush against a gloss open as a sheet. */
 .lyrics-box .token {
-  scroll-margin-top: calc((var(--lyrics-line-height) - 1) / 2 * 1em);
+  scroll-margin-block: calc((var(--lyrics-line-height) - 1) / 2 * 1em);
 }
 
 .token.needs-review {
@@ -1181,15 +1188,16 @@ li.grammar-legend-item {
   border-radius: 2px;
 }
 
-/* Stronger than .phrase-outline's mere boundary, so the exact token being
-   looked at (as opposed to the rest of its token group, see .phrase-outline
-   below) is never in doubt. Solid, not tinted, so it isn't lost against
-   the page's own dark background. */
-.token.has-gloss.pinned {
+/* The token whose gloss is open, pinned or not: on touch this stands in
+   for :hover. Stronger than .phrase-outline's mere boundary, so the exact
+   token being looked at (as opposed to the rest of its token group, see
+   .phrase-outline below) is never in doubt. Solid, not tinted, so it isn't
+   lost against the page's own dark background. */
+.token.has-gloss.gloss-open {
   color: var(--accent-text);
 }
 
-.token.has-gloss.pinned::before {
+.token.has-gloss.gloss-open::before {
   background-color: var(--accent);
 }
 
@@ -1300,6 +1308,56 @@ li.grammar-legend-item {
     inset 2px 0 0 0 var(--success),
     inset -2px 0 0 0 var(--success);
   border-radius: 3px;
+}
+
+/* The countdown while a token is held to pin its gloss: .phrase-outline's
+   green border drawing itself in, clockwise, over the press. Box-shadows
+   can't be drawn partway, so it's a conic gradient up to an animated angle,
+   masked to a ring. On the held token alone, even in a group: when the pin
+   lands, the group's outline takes its place. */
+@property --press-angle {
+  syntax: '<angle>';
+  inherits: false;
+  initial-value: 0deg;
+}
+
+@keyframes press-countdown {
+  to {
+    --press-angle: 360deg;
+  }
+}
+
+.token.pressing::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  padding: 2px;
+  border-radius: 3px;
+  background: conic-gradient(var(--success) var(--press-angle), transparent 0);
+  mask:
+    linear-gradient(#000 0 0) content-box exclude,
+    linear-gradient(#000 0 0);
+  animation: press-countdown var(--long-press-duration) linear forwards;
+  pointer-events: none;
+}
+
+/* A long press on a token pins its gloss, so it mustn't start the
+   platform's text selection or its copy / Look Up menu instead. The cost is
+   that lyrics can't be copied on a phone. */
+@media (hover: none) {
+  .lyrics-box .token {
+    -webkit-user-select: none;
+    user-select: none;
+    -webkit-touch-callout: none;
+  }
+
+  /* The gloss inside the token isn't held to pin, so its text keeps both,
+     and iOS won't let a field be typed in under user-select: none. */
+  .lyrics-box .gloss-popup {
+    -webkit-user-select: text;
+    user-select: text;
+    -webkit-touch-callout: default;
+  }
 }
 
 /* A token that starts a phrase suggestion: dashed, unlike an accepted
@@ -1579,6 +1637,77 @@ label.apply-to-all {
   white-space: normal;
   cursor: default;
   text-align: left;
+}
+
+/* Without a mouse, the gloss is a sheet across the bottom of the screen,
+   directly above the player bar, scrolling inside. It's still rendered
+   inside its token (fixed, since no ancestor makes fixed relative to
+   itself), so the lyrics' own rules keep styling it. At most 60% of the
+   screen, and short enough to leave about three lyric lines between it and
+   the top bar, so the token it belongs to can stay in view. */
+.gloss-popup.gloss-sheet {
+  position: fixed;
+  top: auto;
+  left: 0;
+  right: 0;
+  bottom: var(--player-bar-height, 0px);
+  transform: none;
+  margin: 0;
+  min-width: 0;
+  max-width: none;
+  max-height: 60vh;
+  max-height: min(
+    60dvh,
+    100dvh - var(--top-bar-height, 0px) - var(--player-bar-height, 0px) - 3 *
+      var(--lyrics-line-height) * var(--lyrics-font-size, 18px)
+  );
+  box-sizing: border-box;
+  overflow-y: auto;
+  /* Scrolling a long gloss past its end doesn't move the lyrics. */
+  overscroll-behavior: contain;
+  padding: 0.5rem 1rem 0.75rem;
+  border-width: 1px 0 0;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.4);
+  font-size: 0.95rem;
+}
+
+.gloss-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.25rem;
+  margin-bottom: 0.25rem;
+}
+
+/* Each pushes the study-list icon and Close to the right. */
+.gloss-sheet-header .gloss-pinned,
+.gloss-hold-hint {
+  margin: 0 auto 0 0;
+}
+
+.gloss-hold-hint {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+}
+
+.gloss-sheet-header .study-list {
+  margin: 0;
+}
+
+/* Qualified to outrank .new-document-form button's margin and padding, and
+   .study-list .study-list-icon's. */
+.gloss-sheet-header .study-list .study-list-icon,
+.gloss-sheet-header .gloss-close {
+  justify-content: center;
+  align-items: center;
+  min-width: 44px;
+  min-height: 44px;
+  margin: 0;
+}
+
+.gloss-sheet-header .gloss-close {
+  padding: 0.4rem 0.8rem;
 }
 
 .dictionary-form-line {

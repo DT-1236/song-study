@@ -71,7 +71,7 @@ import { useLrclibChoice } from './useLrclibChoice'
 import { usePersistentState } from './usePersistentState'
 import { useSave } from './useSave'
 import { useTransient } from './useTransient'
-import { NARROW_SCREEN, useMediaQuery } from './media'
+import { NARROW_SCREEN, NO_HOVER, useMediaQuery } from './media'
 import { ViewSettings } from './ViewSettings'
 import { displayStyle, useViewSettings } from './useViewSettings'
 import { usePlayingLine } from './usePlayingLine'
@@ -1306,7 +1306,8 @@ function mouseOnly(handler: () => void) {
   }
 }
 
-// Says the gloss was pinned (by a click) rather than just hovered.
+// Says the gloss was pinned (by a click, or by holding a word) rather than
+// just hovered or previewed.
 function PinnedMarker() {
   return (
     <span className="gloss-pinned">
@@ -1337,6 +1338,7 @@ function GlossPopup({
   onTokensUpdated,
   onCardChanged,
   pinned,
+  onClose,
   onHoverEnter,
   onHoverLeave,
 }: {
@@ -1350,11 +1352,23 @@ function GlossPopup({
   onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
   pinned: boolean
+  onClose: () => void
   onHoverEnter?: () => void
   onHoverLeave?: () => void
 }) {
   const popupRef = useRef<HTMLDivElement>(null)
+  // Without a mouse the gloss is a sheet at the bottom of the screen: a
+  // phone has no room for it under its token.
+  const sheet = useMediaQuery(NO_HOVER)
+  const [heldToPin] = usePersistentState('heldToPin', false)
   const ownWord = words.find((word) => word.piece === null)
+  const studyList = ownWord && (
+    <StudyListControl
+      word={ownWord}
+      documentId={documentId}
+      onCardChanged={onCardChanged}
+    />
+  )
   const pieceWords = new Map<number, DocumentWord>()
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
@@ -1366,11 +1380,34 @@ function GlossPopup({
       ? token.gloss.pieces.flatMap((piece, i) => (piece.is_word ? [i] : []))
       : []
 
+  // As a sheet: its height is set on the scroll container, as
+  // --sheet-height, so the lyrics can scroll their last lines above it and
+  // what's scrolled into view (the token, the line being sung) stops above
+  // it. Set directly, like the transform below, so it lands before paint.
+  useLayoutEffect(() => {
+    const popup = popupRef.current
+    const container = popup?.closest<HTMLElement>('.content')
+    if (!sheet || !popup || !container) return
+    const setHeight = () =>
+      container.style.setProperty('--sheet-height', `${popup.offsetHeight}px`)
+    setHeight()
+    // The popup's parent is its token, which stays outlined: out from under
+    // the sheet, if it opened over it.
+    popup.parentElement?.scrollIntoView({ block: 'nearest' })
+    const observer = new ResizeObserver(setHeight)
+    observer.observe(popup)
+    return () => {
+      observer.disconnect()
+      container.style.removeProperty('--sheet-height')
+    }
+  }, [sheet])
+
   // Sets the popup's own transform directly (not through React state), so
   // this never costs a second render: the shift lands within the same
   // pre-paint layout-effect pass that measures it, with nothing for the
   // browser to paint in between.
   useLayoutEffect(() => {
+    if (sheet) return
     function reposition() {
       const popup = popupRef.current
       const container = popup?.closest('.content')
@@ -1393,28 +1430,45 @@ function GlossPopup({
     // size observed, so this neither flickers nor loops.
     const observer = new ResizeObserver(reposition)
     if (popupRef.current) observer.observe(popupRef.current)
+    const popup = popupRef.current
     return () => {
       window.removeEventListener('resize', reposition)
       observer.disconnect()
+      // So a sheet, which isn't placed under its token, isn't shifted.
+      if (popup) popup.style.transform = ''
     }
-  }, [])
+  }, [sheet])
 
   return (
     <div
       ref={popupRef}
-      className="gloss-popup"
+      className={sheet ? 'gloss-popup gloss-sheet' : 'gloss-popup'}
       onClick={(e) => e.stopPropagation()}
       onPointerEnter={onHoverEnter && mouseOnly(onHoverEnter)}
       onPointerLeave={onHoverLeave && mouseOnly(onHoverLeave)}
     >
-      {ownWord && (
-        <StudyListControl
-          word={ownWord}
-          documentId={documentId}
-          onCardChanged={onCardChanged}
-        />
+      {/* Its own way to close: on iOS a tap on the lyrics' text never sends
+          a click, so tapping elsewhere can't close a pin. */}
+      {sheet && (
+        <div className="gloss-sheet-header">
+          {pinned ? (
+            <PinnedMarker />
+          ) : (
+            // Nothing else says that a long press pins.
+            !heldToPin && (
+              <span className="gloss-hold-hint">
+                Hold a word to pin its gloss
+              </span>
+            )
+          )}
+          {studyList}
+          <button type="button" className="gloss-close" onClick={onClose}>
+            Close
+          </button>
+        </div>
       )}
-      {pinned && <PinnedMarker />}
+      {!sheet && studyList}
+      {pinned && !sheet && <PinnedMarker />}
       <GlossDetails
         token={token}
         pieceControls={(piece) => {
@@ -1594,15 +1648,17 @@ const TokenSpan = memo(function TokenSpan({
   documentId,
   onTokensUpdated,
   onCardChanged,
+  onPointerDown,
   onClick,
   onHoverEnter,
   onHoverLeave,
+  onClose,
 }: {
   token: Token
   index: number
   className: string
   showPopup: boolean
-  // Whether its popup was pinned by a click, as opposed to hovered.
+  // Whether its popup was pinned, as opposed to hovered or previewed.
   pinned: boolean
   // Every token in this token's group (see groupKey), itself included.
   instances: Token[]
@@ -1611,9 +1667,11 @@ const TokenSpan = memo(function TokenSpan({
   documentId: number
   onTokensUpdated: TokensUpdated
   onCardChanged: (card: StudyCard) => void
+  onPointerDown: (index: number, event: React.PointerEvent<HTMLElement>) => void
   onClick: (index: number, event: React.MouseEvent<HTMLElement>) => void
   onHoverEnter: (tokenId: number) => void
   onHoverLeave: (tokenId: number) => void
+  onClose: () => void
 }) {
   const interactive = hasPopup(token)
 
@@ -1626,6 +1684,7 @@ const TokenSpan = memo(function TokenSpan({
       onPointerLeave={
         interactive ? mouseOnly(() => onHoverLeave(token.id)) : undefined
       }
+      onPointerDown={interactive ? (e) => onPointerDown(index, e) : undefined}
       // Keeps a shift-click from selecting text.
       onMouseDown={
         interactive
@@ -1646,6 +1705,7 @@ const TokenSpan = memo(function TokenSpan({
           onTokensUpdated={onTokensUpdated}
           onCardChanged={onCardChanged}
           pinned={pinned}
+          onClose={onClose}
           onHoverEnter={() => onHoverEnter(token.id)}
           onHoverLeave={() => onHoverLeave(token.id)}
         />
@@ -1653,6 +1713,11 @@ const TokenSpan = memo(function TokenSpan({
     </span>
   )
 })
+
+// How long a touch held on a token takes to pin its gloss.
+const LONG_PRESS_MS = 500
+// How far a held touch can move and still count as held in place.
+const PRESS_SLOP_PX = 10
 
 const TokenizedText = memo(function TokenizedText({
   tokens,
@@ -1677,8 +1742,12 @@ const TokenizedText = memo(function TokenizedText({
   lineTimings: (LineTiming | null)[] | null
   onPlayLine: (start: number) => void
 }) {
+  // On touch, a tapped token's preview is hoveredId too.
   const [hoveredId, setHoveredId] = useState<number | null>(null)
   const [pinnedId, setPinnedId] = useState<number | null>(null)
+  // The token being held, whose countdown to pinning is showing.
+  const [pressingId, setPressingId] = useState<number | null>(null)
+  const [, setHeldToPin] = usePersistentState('heldToPin', false)
   // Positions of the tokens shift-clicked together, ascending, to decide for
   // (or, later, group) at once. They stay valid while this is mounted:
   // tokens are only ever replaced in place, and new text remounts it.
@@ -1824,12 +1893,100 @@ const TokenizedText = memo(function TokenizedText({
   // otherwise changing hover behavior.
   const hoverLeaveTimeoutRef = useRef<number | null>(null)
 
+  // Which kind of pointer the latest press came from, read by the click
+  // that follows it: a click isn't a PointerEvent in every browser.
+  const pointerTypeRef = useRef('mouse')
+  // Set when a long press pins, so the click its release may send does
+  // nothing: on the token it would unpin it again, and the sheet may have
+  // opened under the finger. Cleared on the next press, as browsers differ
+  // on whether that click comes at all.
+  const swallowClickRef = useRef(false)
+  // Ends the press being held, if any.
+  const endPressRef = useRef<(() => void) | null>(null)
+
   useEffect(() => {
     return () => {
       if (hoverLeaveTimeoutRef.current !== null) {
         window.clearTimeout(hoverLeaveTimeoutRef.current)
       }
+      endPressRef.current?.()
     }
+  }, [])
+
+  // A touch (or pen) pressing a token: held in place for LONG_PRESS_MS, it
+  // pins the token's gloss.
+  function handlePointerDown(
+    index: number,
+    event: React.PointerEvent<HTMLElement>,
+  ) {
+    // Holding the text of the token's gloss, which is inside the token,
+    // isn't holding the token. While selecting, a hold is just a tap.
+    if (
+      event.pointerType === 'mouse' ||
+      (event.target as Element).closest('.gloss-popup') ||
+      selected.length > 0
+    )
+      return
+    endPressRef.current?.()
+    const id = tokens[index].id
+    const { pointerId, clientX, clientY } = event
+    const timer = window.setTimeout(() => {
+      endPress()
+      swallowClickRef.current = true
+      setHoveredId(null)
+      setPinnedId(id)
+      setHeldToPin(true)
+    }, LONG_PRESS_MS)
+    setPressingId(id)
+
+    const stopCountdown = () => {
+      window.clearTimeout(timer)
+      setPressingId(null)
+    }
+    // Ends the countdown once the touch moves off, but keeps listening for
+    // the cancel a scroll ends in.
+    const handleMove = (e: PointerEvent) => {
+      if (
+        e.pointerId === pointerId &&
+        Math.hypot(e.clientX - clientX, e.clientY - clientY) > PRESS_SLOP_PX
+      ) {
+        stopCountdown()
+        window.removeEventListener('pointermove', handleMove)
+      }
+    }
+    const handleUp = (e: PointerEvent) => {
+      if (e.pointerId === pointerId) endPress()
+    }
+    // The browser took the touch over to scroll: a swipe, which closes a
+    // preview as one starting anywhere else does.
+    const handleCancel = (e: PointerEvent) => {
+      if (e.pointerId !== pointerId) return
+      endPress()
+      setHoveredId(null)
+    }
+    const listening = new AbortController()
+    function endPress() {
+      stopCountdown()
+      listening.abort()
+      endPressRef.current = null
+    }
+    const { signal } = listening
+    window.addEventListener('pointermove', handleMove, { signal })
+    window.addEventListener('pointerup', handleUp, { signal })
+    window.addEventListener('pointercancel', handleCancel, { signal })
+    endPressRef.current = endPress
+  }
+
+  const handlePointerDownRef = useLatest(handlePointerDown)
+  const onTokenPointerDown = useCallback(
+    (index: number, event: React.PointerEvent<HTMLElement>) =>
+      handlePointerDownRef.current(index, event),
+    [handlePointerDownRef],
+  )
+
+  const closeGloss = useCallback(() => {
+    setPinnedId(null)
+    setHoveredId(null)
   }, [])
 
   const handleHoverEnter = useCallback((tokenId: number) => {
@@ -1867,7 +2024,15 @@ const TokenizedText = memo(function TokenizedText({
       setSelected([])
     }
     const id = tokens[index].id
-    setPinnedId((prev) => (prev === id ? null : id))
+    if (pointerTypeRef.current === 'mouse') {
+      setPinnedId((prev) => (prev === id ? null : id))
+      return
+    }
+    // A tap previews the token's gloss in place of whatever was showing, or
+    // closes it if it was this token's.
+    const showing = pinnedId ?? hoveredId
+    setPinnedId(null)
+    setHoveredId(showing === id ? null : id)
   }
 
   // Kept current by an effect, so onTokenClick can keep one identity (and
@@ -1879,16 +2044,51 @@ const TokenizedText = memo(function TokenizedText({
     [handleClickRef],
   )
 
-  // A click that reaches the document — anywhere but a token or the
+  // A mouse click that reaches the document — anywhere but a token or the
   // selection panel, which stop their own clicks — closes the pinned popup
-  // and ends the selection.
+  // and ends the selection. Not a tap: Android sends a click for a tap on
+  // blank space and iOS doesn't, so on touch a pin closes only on purpose.
   useEffect(() => {
     function dismiss() {
+      if (pointerTypeRef.current !== 'mouse') return
       setPinnedId(null)
       setSelected([])
     }
     document.addEventListener('click', dismiss)
     return () => document.removeEventListener('click', dismiss)
+  }, [])
+
+  // Every press and click, before anything else sees them. A press records
+  // its pointer for the click that may follow, and on touch, one anywhere
+  // but a token, its gloss or the player bar closes a preview. A scroll
+  // starts with a press too, so this covers swipes. Nothing listens for
+  // scroll itself: the line being sung and the keyboard opening for an
+  // input both scroll the page without a touch, and neither should close a
+  // preview.
+  useEffect(() => {
+    function handlePress(event: PointerEvent) {
+      pointerTypeRef.current = event.pointerType
+      swallowClickRef.current = false
+      if (
+        event.pointerType === 'mouse' ||
+        (event.target instanceof Element &&
+          event.target.closest('.token.has-gloss, .gloss-popup, .player-bar'))
+      )
+        return
+      setHoveredId(null)
+    }
+    function swallowClick(event: MouseEvent) {
+      if (!swallowClickRef.current) return
+      swallowClickRef.current = false
+      event.stopPropagation()
+      event.preventDefault()
+    }
+    document.addEventListener('pointerdown', handlePress, true)
+    document.addEventListener('click', swallowClick, true)
+    return () => {
+      document.removeEventListener('pointerdown', handlePress, true)
+      document.removeEventListener('click', swallowClick, true)
+    }
   }, [])
 
   useEffect(() => {
@@ -1919,6 +2119,23 @@ const TokenizedText = memo(function TokenizedText({
       <div
         ref={boxRef}
         className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}
+        style={
+          {
+            '--long-press-duration': `${LONG_PRESS_MS}ms`,
+          } as React.CSSProperties
+        }
+        onContextMenu={(e) => {
+          // A long press on a token pins it, rather than opening the
+          // platform's text menu over the countdown. The gloss's own text
+          // keeps its menu.
+          const target = e.target as Element
+          if (
+            pointerTypeRef.current !== 'mouse' &&
+            target.closest('.token') &&
+            !target.closest('.gloss-popup')
+          )
+            e.preventDefault()
+        }}
       >
         {tokens.map((token, index) => {
           // Lines past the last timing (blank ones at the end) have none.
@@ -1956,7 +2173,8 @@ const TokenizedText = memo(function TokenizedText({
           if (needsReadingReview(token)) classNames.push('needs-review')
           if (needsCorrection(token)) classNames.push('needs-correction')
           if (interactive) classNames.push('has-gloss')
-          if (isPinned) classNames.push('pinned')
+          if (showPopup) classNames.push('gloss-open')
+          if (pressingId === token.id) classNames.push('pressing')
           if (lineOf[index] === playingLine) classNames.push('playing')
           if (selected.includes(index)) classNames.push('selected')
           if (isEligible(index)) classNames.push('eligible')
@@ -2005,9 +2223,11 @@ const TokenizedText = memo(function TokenizedText({
                 documentId={documentId}
                 onTokensUpdated={onTokensUpdated}
                 onCardChanged={onCardChanged}
+                onPointerDown={onTokenPointerDown}
                 onClick={onTokenClick}
                 onHoverEnter={handleHoverEnter}
                 onHoverLeave={handleHoverLeave}
+                onClose={closeGloss}
               />
             </Fragment>
           )

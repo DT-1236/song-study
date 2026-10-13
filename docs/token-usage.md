@@ -98,6 +98,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Claim a document in one conditional UPDATE (backlog)             | #125 | initial pass                           | Opus 5.5, medium            | —    | 15    | 783k       | 7k     | S    |
 | 2026-10-13 | Claim a document in one conditional UPDATE (backlog)             | #125 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 21    | 952k       | 6k     | S    |
 | 2026-10-13 | Format Markdown and scripts/ with the repo's formatters          | #126 | initial pass                           | Sonnet 5.5, medium          | —    | 29    | 1.8M       | 15k    | M    |
+| 2026-10-13 | Mobile step 5b, tap to preview, long-press to pin, gloss sheet   | #127 | initial pass                           | Opus 5.5, high              | L    | 89    | 15.2M      | 103k   | XL   |
+| 2026-10-13 | Mobile step 5b, tap to preview, long-press to pin, gloss sheet   | #127 | /simplify (4 subagents)                | Opus 5.5, high              | —    | 52    | 6.9M       | 16k    | L    |
 
 ## Post-mortem log
 

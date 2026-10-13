@@ -93,7 +93,10 @@ And from `harness.mjs`, each taking a page: `isShown`, `settle` (waits for
 CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewaysOverflow`, `smallTapTargets` (under
 44×44), `smallInputFonts` (under 16px), `tokenized` (waits for the processed
 tokens), `token(page, surface, nth)`,
-`videoFrame`, `videoTime` and `rotate`.
+`playerReady`, `videoFrame`, `videoTime` and `rotate`. For touch gestures `tap()` can't
+make, `finger(page)` gives `down`, `move`, `up`, `hold` and `swipe` through CDP
+touch events, which scroll the page and end a press in `pointercancel` as a
+phone does; `center(locator)` is where to put it.
 
 ## Rules that keep checks from hanging
 
@@ -138,8 +141,8 @@ tokens), `token(page, surface, nth)`,
   `polling: 'raf'`. Pass `polling: 250`. The player is hidden by default
   (`.youtube-player.hidden`), and it still plays.
 - **The player bar's buttons are disabled until the player is ready.** Wait
-  for `.player-controls button[aria-label="Play"]:enabled` before pressing
-  one, or a key: a key pressed earlier does nothing.
+  for them with `playerReady(page)` before pressing one, or a key: a key
+  pressed earlier does nothing.
 - **A `goto` is a full load.** For Back or `useBlocker` checks, `goto` once
   and then move only by in-app clicks, or Back leaves the app. The sidebar's
   document tabs live in React state, so every `goto` loses them.
@@ -155,6 +158,20 @@ tokens), `token(page, surface, nth)`,
 - **`beforeunload` never fires on `page.close({ runBeforeUnload: true })`**
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).
+- **A touch lands on anything clickable within about 8px,** as on a phone
+  (Chromium's touch adjustment), so a "tap on blank space" needs about 12px
+  clear of tokens, buttons and the gloss sheet around it.
+  `checks/mobile-gloss-sheet.mjs`'s `blankPoint` finds one.
+- **A swipe can't scroll past the end.** A gloss sheet's room at the end of
+  the lyrics goes as soon as a touch closes it, so a check that swipes
+  near the end should swipe back toward the top.
+- **Chromium sends a click on releasing a long hold (about a second),** not
+  a shorter one. A check of what that click does has to hold well past the
+  app's own long press.
+- **The gloss stops its clicks' propagation,** so a listener on `window` or
+  `document` in the bubbling phase never sees a click inside it. Listen in
+  the capture phase and read `defaultPrevented` after dispatch (a
+  `setTimeout`).
 - **Phones are emulated in Chromium, not WebKit.** The phone contexts match
   `(hover: none)` and `(pointer: coarse)` and `tap()` sends touch pointer
   events, but `'ontouchstart' in window` is false, and iOS-only behavior
