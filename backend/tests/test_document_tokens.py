@@ -76,13 +76,13 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    # Includes both requests (starting the job, after an unlocked read of
-    # its state, then the poll that reads its tokens) with their ownership
-    # checks, the job's claim and its release, create_phrase_conflicts'
-    # INSERT (this text has phrase suggestions and predicate groups), one
-    # read of the cached glosses its uncached predicate groups are built
-    # from, and one of the lookups their pieces are shown from.
-    assert round_trips(cold) == 17
+    # Includes both requests (starting the job, after a read of its state,
+    # then the poll that reads its tokens) with their ownership checks, the
+    # job's claim and its release, create_phrase_conflicts' INSERT (this text
+    # has phrase suggestions and predicate groups), one read of the cached
+    # glosses its uncached predicate groups are built from, and one of the
+    # lookups their pieces are shown from.
+    assert round_trips(cold) == 15
     assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Changing the text deletes the tokens but keeps the gloss cache, so the
@@ -90,7 +90,7 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     update_document_text(document_id, DocumentTextUpdate(text=FIRST_SENTENCE))
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
     warm = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert round_trips(warm) == 15
+    assert round_trips(warm) == 13
     assert round_trips(warm, "INSERT INTO gloss_lookups") == 0
 
     viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
@@ -199,23 +199,23 @@ def test_a_request_during_the_jobs_write_gets_its_tokens(background_jobs, monkey
     assert [t.id for t in get_document_tokens(document_id)]
 
 
-def test_requests_that_both_read_before_locking_claim_once(
+def test_requests_that_both_read_before_claiming_claim_once(
     background_jobs, monkeypatch
 ):
-    """Two requests that both find the document unclaimed before taking the
-    lock start one job between them."""
+    """Two requests that both find the document unclaimed before claiming it
+    start one job between them."""
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
     held = hold_processing(monkeypatch)
 
-    # Holds each request after its unlocked read until both have made it:
-    # neither can go on to its locked read first, so the first two calls are
-    # the unlocked ones.
+    # Holds each request after its first read until both have made it:
+    # neither can go on to claim the document first, so the first two calls
+    # are those reads.
     both_read = threading.Barrier(2, timeout=30)
-    unlocked_reads = iter(range(2))
+    first_reads = iter(range(2))
     progress = processing._progress
 
     def progress_after_both_read(document, retry):
-        if next(unlocked_reads, None) is not None:
+        if next(first_reads, None) is not None:
             both_read.wait()
         return progress(document, retry)
 

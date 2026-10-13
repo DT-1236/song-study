@@ -139,48 +139,49 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
     """Start a job processing the document, unless it's processed, a job is
     already processing it, or — unless `retry` — its last job failed, and
     say which; None if there's no such document."""
-    # Without a lock first, so a poll during a job costs one statement. It
-    # only answers; anything it would claim is read again under the lock.
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        document = _read_state(conn, document_id)
-    if document is None:
-        return None
-    if (progress := _progress(document, retry)) is not None:
-        return progress
-
-    with engine.begin() as conn:
-        # Locks the document, so that two requests can't both claim it, and
-        # a job can't release its claim in between this reading it and
-        # claiming it.
-        locked = conn.execute(
-            text("SELECT 1 FROM documents WHERE id = :id FOR UPDATE"),
-            {"id": document_id},
-        ).scalar_one_or_none()
-        if locked is None:
-            return None
-        # Its own statement, not part of the locking one: under READ
-        # COMMITTED, only a statement started after the lock was granted
-        # sees what the lock's previous holder committed.
-        document = _read_state(conn, document_id)
-        if (progress := _progress(document, retry)) is not None:
-            return progress
-        claimed_at = conn.execute(
-            text(
-                """
-                UPDATE documents
-                SET processing_started_at = now(), processing_failed = FALSE
-                WHERE id = :id
-                RETURNING processing_started_at
-                """
-            ),
-            {"id": document_id},
-        ).scalar_one()
+        while True:
+            # Without a lock, so a poll during a job costs one statement.
+            document = _read_state(conn, document_id)
+            if document is None:
+                return None
+            if (progress := _progress(document, retry)) is not None:
+                return progress
+            if (claim := _claim(conn, document_id, retry)) is not None:
+                break
+            # The state changed since the read (another request claimed it,
+            # a job released it, its text changed): read it again to say how.
 
     # Once the claim is committed, for the job to see it.
-    _executor.submit(_run, document_id, claimed_at, document.text).add_done_callback(
-        _log_failure
-    )
+    _executor.submit(
+        _run, document_id, claim.processing_started_at, claim.text
+    ).add_done_callback(_log_failure)
     return "processing"
+
+
+def _claim(conn, document_id: int, retry: bool):
+    """Claim the document for a job, if it's in a state `_progress` would
+    claim it in, returning its text and when it was claimed; None, with
+    nothing changed, otherwise."""
+    # One statement, so the check can't go stale before the claim: an UPDATE
+    # that waits on another request's claim, a job's release or a text edit
+    # re-checks its WHERE against the row they committed. The WHERE matches
+    # the states _progress returns None for.
+    return conn.execute(
+        text(
+            """
+            UPDATE documents
+            SET processing_started_at = now(), processing_failed = FALSE
+            WHERE id = :id
+              AND processed_at IS NULL
+              AND (processing_started_at IS NULL
+                   OR processing_started_at <= now() - :lease)
+              AND (:retry OR NOT processing_failed)
+            RETURNING text, processing_started_at
+            """
+        ),
+        {"id": document_id, "lease": LEASE, "retry": retry},
+    ).one_or_none()
 
 
 def _read_state(conn, document_id: int):
