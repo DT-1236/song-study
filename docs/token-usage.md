@@ -97,6 +97,7 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | LRCLIB line timings stale-checked by text (backlog)              | #124 | /simplify (inline, no subagents)       | Sonnet 5.5, medium          | —    | 2     | 123k       | 1k     | S    |
 | 2026-10-13 | Claim a document in one conditional UPDATE (backlog)             | #125 | initial pass                           | Opus 5.5, medium            | —    | 15    | 783k       | 7k     | S    |
 | 2026-10-13 | Claim a document in one conditional UPDATE (backlog)             | #125 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 21    | 952k       | 6k     | S    |
+| 2026-10-13 | Format Markdown and scripts/ with the repo's formatters          | #126 | initial pass                           | Sonnet 5.5, medium          | —    | 29    | 1.8M       | 15k    | M    |
 
 ## Post-mortem log
 
