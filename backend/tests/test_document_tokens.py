@@ -12,6 +12,7 @@ from typing import NamedTuple
 from alembic import command
 from sqlalchemy import text
 
+from app import processing
 from app.glosses import is_glossable
 from app.main import PROCESSING_FAILED, DocumentCreate, DocumentTextUpdate
 from app.processing import (
@@ -34,7 +35,6 @@ from tests.support import (
     round_trips,
     statements_sent,
     update_document_text,
-    wait_for_lock_wait,
 )
 
 
@@ -76,13 +76,13 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    # Includes both requests (starting the job, then the poll that reads
-    # its tokens) with their ownership checks, the job's claim and its
-    # release, create_phrase_conflicts' INSERT (this text has phrase
-    # suggestions and predicate groups), one read of the cached glosses its
-    # uncached predicate groups are built from, and one of the lookups their
-    # pieces are shown from.
-    assert round_trips(cold) == 16
+    # Includes both requests (starting the job, after an unlocked read of
+    # its state, then the poll that reads its tokens) with their ownership
+    # checks, the job's claim and its release, create_phrase_conflicts'
+    # INSERT (this text has phrase suggestions and predicate groups), one
+    # read of the cached glosses its uncached predicate groups are built
+    # from, and one of the lookups their pieces are shown from.
+    assert round_trips(cold) == 17
     assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Changing the text deletes the tokens but keeps the gloss cache, so the
@@ -90,7 +90,7 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     update_document_text(document_id, DocumentTextUpdate(text=FIRST_SENTENCE))
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
     warm = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert round_trips(warm) == 14
+    assert round_trips(warm) == 15
     assert round_trips(warm, "INSERT INTO gloss_lookups") == 0
 
     viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
@@ -173,6 +173,8 @@ def test_requests_while_processing_start_no_second_job(background_jobs, monkeypa
 
 
 def test_a_request_during_the_jobs_write_gets_its_tokens(background_jobs, monkeypatch):
+    """A poll while the job's write is uncommitted reports processing
+    without waiting on it, and the next poll gets the committed tokens."""
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
 
     # Holds the job after it writes its tokens but before it commits, so
@@ -190,16 +192,41 @@ def test_a_request_during_the_jobs_write_gets_its_tokens(background_jobs, monkey
     try:
         assert process_document_tokens(document_id).status == "processing"
         assert tokens_written.wait(timeout=30)
-        request = BackgroundCall(fetch_document_tokens, document_id)
-        wait_for_lock_wait()
+        assert fetch_document_tokens(document_id).status == "processing"
     finally:
         release.set()
 
-    progress = request.outcome()
-    assert progress.status == "ready"
-    assert [t.id for t in progress.tokens] == [
-        t.id for t in get_document_tokens(document_id)
-    ]
+    assert [t.id for t in get_document_tokens(document_id)]
+
+
+def test_requests_that_both_read_before_locking_claim_once(
+    background_jobs, monkeypatch
+):
+    """Two requests that both find the document unclaimed before taking the
+    lock start one job between them."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    held = hold_processing(monkeypatch)
+
+    # Holds each request after its unlocked read until both have made it:
+    # neither can go on to its locked read first, so the first two calls are
+    # the unlocked ones.
+    both_read = threading.Barrier(2, timeout=30)
+    unlocked_reads = iter(range(2))
+    progress = processing._progress
+
+    def progress_after_both_read(document, retry):
+        if next(unlocked_reads, None) is not None:
+            both_read.wait()
+        return progress(document, retry)
+
+    monkeypatch.setattr("app.processing._progress", progress_after_both_read)
+
+    requests = [BackgroundCall(process_document_tokens, document_id) for _ in range(2)]
+    assert [r.outcome().status for r in requests] == ["processing", "processing"]
+
+    monkeypatch.setattr("app.processing._progress", progress)
+    assert get_document_tokens(document_id)
+    assert held.texts == [FIRST_SENTENCE]
 
 
 def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
