@@ -426,38 +426,34 @@ export function tokenized(page) {
   return page.waitForSelector('.lyrics-box:not(.synced-lyrics) .token')
 }
 
-// A token's surface: its text without furigana or an open gloss popup.
-// Written as a string because it runs inside the page, where it can't close
-// over this module.
-const SURFACE_TEXT = `(element) => {
-  const copy = element.cloneNode(true)
-  copy.querySelectorAll('rt, .gloss-popup').forEach((n) => n.remove())
-  return copy.textContent
-}`
+// Every token's surface (its text without furigana or an open gloss popup),
+// in order, and whether its gloss is open.
+function tokenSurfaces(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.token')].map((element) => {
+      const copy = element.cloneNode(true)
+      copy.querySelectorAll('rt, .gloss-popup').forEach((n) => n.remove())
+      return {
+        surface: copy.textContent,
+        open: element.querySelector(':scope > .gloss-popup') !== null,
+      }
+    }),
+  )
+}
 
 // The surface of the token whose gloss is open, or null.
-export function openGlossSurface(page) {
-  return page.evaluate(`(() => {
-    const popup = document.querySelector('.gloss-popup')
-    if (!popup) return null
-    // A popup's parent is the token it belongs to.
-    return (${SURFACE_TEXT})(popup.parentElement)
-  })()`)
+export async function openGlossSurface(page) {
+  return (await tokenSurfaces(page)).find((t) => t.open)?.surface ?? null
 }
 
 // A locator for the `nth` token reading `surface`. A token's text includes
 // its furigana (and an open gloss popup), so matching on Playwright's
 // `hasText` alone would miss it.
 export async function token(page, surface, nth = 0) {
-  const index = await page.evaluate(`(() => {
-    const surfaceText = ${SURFACE_TEXT}
-    return [...document.querySelectorAll('.token')]
-      .map(surfaceText)
-      .reduce(
-        (found, text, i) => (text === ${JSON.stringify(surface)} ? [...found, i] : found),
-        [],
-      )[${Number(nth)}] ?? -1
-  })()`)
+  const index =
+    (await tokenSurfaces(page)).flatMap((t, i) =>
+      t.surface === surface ? [i] : [],
+    )[nth] ?? -1
   if (index === -1) throw new Error(`no token #${nth} reading ${surface}`)
   return page.locator('.token').nth(index)
 }
