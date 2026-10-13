@@ -703,9 +703,10 @@ li.grammar-legend-item {
     flex: 1;
   }
 
-  /* A bare icon button is small by design, so its tap area is padded out to
-     44px tall on touch. Its width is its own, unless a control reaches into
-     free space beside it (kept off the row's other taps). */
+  /* A bare icon button is small by design, so a 44px square is laid over it
+     on touch to take its taps. A control that can reach into free space
+     beside it (kept off the row's other taps), or must stay inside a tight
+     row, overrides the overlay's box. */
   .icon-button {
     position: relative;
   }
@@ -714,14 +715,30 @@ li.grammar-legend-item {
     content: '';
     position: absolute;
     top: 50%;
-    right: 0;
-    left: 0;
+    left: 50%;
+    width: 44px;
     height: 44px;
-    transform: translateY(-50%);
+    transform: translate(-50%, -50%);
   }
 
   .lyrics-box .timing-delete::after {
+    right: 0;
     left: -0.9rem;
+    width: auto;
+    transform: translateY(-50%);
+  }
+
+  /* Hangs left into the box's padding: extending right would take taps
+     meant for the line's first token. Held to the line's own height, since
+     the lines above and below paint over any overlap. */
+  .lyrics-box .line-play::after {
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: auto;
+    width: 44px;
+    height: auto;
+    transform: none;
   }
 }
 
@@ -1075,19 +1092,6 @@ li.grammar-legend-item {
 
 .lyrics-box .line-play:hover {
   color: var(--accent);
-}
-
-/* A 44px-wide hit area, extended left into the box's padding: extending right
-   would take taps meant for the line's first token. */
-@media (hover: none) {
-  .lyrics-box .line-play::before {
-    content: '';
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    right: 0;
-    width: 44px;
-  }
 }
 
 .edit-timings-blocker {
@@ -1786,9 +1790,9 @@ label.apply-to-all {
   margin: 0;
 }
 
-/* Qualified to outrank .new-document-form button's margin and padding, and
-   .study-list .study-list-icon's. */
-.gloss-sheet-header .study-list .study-list-icon,
+/* Qualified to outrank .new-document-form button's margin and padding. The
+   text buttons are 44px in layout; the icon gets its 44px from .icon-button's
+   overlay. */
 .gloss-sheet-header .gloss-select,
 .gloss-sheet-header .gloss-close,
 .selection-sheet .lyrics-edit-toggle {
@@ -1796,6 +1800,10 @@ label.apply-to-all {
   align-items: center;
   min-width: 44px;
   min-height: 44px;
+  margin: 0;
+}
+
+.gloss-sheet-header .study-list .study-list-icon {
   margin: 0;
 }
 
