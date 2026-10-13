@@ -65,7 +65,6 @@ function RunThroughPlayer({
   const videoId = run.youtube_video_id
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
-  const [ready, setReady] = useState(false)
   const [status, setStatus] = useState<Status>('idle')
   // Which of the playable lines is being played, or was last.
   const [position, setPosition] = useState(0)
@@ -145,7 +144,7 @@ function RunThroughPlayer({
 
       <div className="study-toolbar">
         {status === 'idle' && (
-          <button type="button" disabled={!ready} onClick={() => playLine(0)}>
+          <button type="button" onClick={() => playLine(0)}>
             ▸ Start
           </button>
         )}
@@ -204,11 +203,7 @@ function RunThroughPlayer({
       </ol>
 
       {/* Hidden: the lines above follow the song. */}
-      <YouTubePlayer
-        ref={playerRef}
-        videoId={videoId}
-        onReadyChange={setReady}
-      />
+      <YouTubePlayer ref={playerRef} videoId={videoId} />
     </div>
   )
 }
