@@ -338,18 +338,8 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
 
 def _delete_tokens(conn, document_id: int) -> None:
     """Delete the document's tokens and their conflicts, for the next
-    tokens request to regenerate from its current text. A job processing
-    the old text loses its claim, so it writes nothing, and a job that
-    failed on it is forgotten."""
-    conn.execute(
-        text(
-            """
-            UPDATE documents SET processing_started_at = NULL, processing_error = NULL
-            WHERE id = :id
-            """
-        ),
-        {"id": document_id},
-    )
+    tokens request to regenerate from its current text."""
+    processing.cancel(conn, document_id)
     conn.execute(
         text(
             """
@@ -948,6 +938,10 @@ class DocumentTokens(BaseModel):
     detail: str | None = None
 
 
+# A failed job's details are in the server's log.
+PROCESSING_FAILED = "Adding furigana and glosses failed."
+
+
 def _document_tokens(document_id: int, *, retry: bool) -> DocumentTokens:
     """The document's tokens, if it's been processed; otherwise starts it
     processing, unless it already is or — unless `retry` — it failed, and
@@ -958,29 +952,24 @@ def _document_tokens(document_id: int, *, retry: bool) -> DocumentTokens:
     if fetched.tokens:
         if not fetched.unlinked and not fetched.dropped_lookup:
             return DocumentTokens(status="ready", tokens=fetched.tokens)
-        with engine.begin() as conn:
-            # Tokens missing their gloss link: tokenized before gloss
-            # support existed, or unlinked by a migration that reset the
-            # gloss cache (as 0005 did).
-            if fetched.unlinked:
-                repair_gloss_links(conn, document_id)
-            # A piece of a composite gloss with no cached lookup is left
-            # alone by repair_gloss_links: the fetch, which can write, looks
-            # it up.
-            return DocumentTokens(
-                status="ready", tokens=_fetch_tokens(conn, document_id)
-            )
+    else:
+        progress = processing.start(document_id, retry=retry)
+        if progress is None:
+            raise study.DocumentNotFound()
+        if progress == "processing":
+            return DocumentTokens(status="processing")
+        if progress == "failed":
+            return DocumentTokens(status="failed", detail=PROCESSING_FAILED)
+        # Processed since its tokens were read above, or it has none to make.
 
-    progress = processing.start(document_id, retry=retry)
-    if progress is None:
-        raise study.DocumentNotFound()
-    if progress.status == "processing":
-        return DocumentTokens(status="processing")
-    if progress.status == "failed":
-        return DocumentTokens(status="failed", detail=progress.error)
-    # Processed since its tokens were read above, by a job that linked
-    # their glosses, or it has none to make.
     with engine.begin() as conn:
+        # Tokens missing their gloss link: tokenized before gloss support
+        # existed, or unlinked by a migration that reset the gloss cache (as
+        # 0005 did).
+        if fetched.unlinked:
+            repair_gloss_links(conn, document_id)
+        # A piece of a composite gloss with no cached lookup is left alone by
+        # repair_gloss_links: the fetch, which can write, looks it up.
         return DocumentTokens(status="ready", tokens=_fetch_tokens(conn, document_id))
 
 

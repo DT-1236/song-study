@@ -7,7 +7,7 @@ import json
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from datetime import datetime, timedelta
-from typing import Literal, NamedTuple
+from typing import Literal
 
 from sqlalchemy import text
 
@@ -33,9 +33,6 @@ logger = logging.getLogger(__name__)
 # under half a second for the browser checks' 800-character seed, with no
 # glosses cached and the tokenizer not yet loaded.
 LEASE = timedelta(minutes=5)
-
-# What a failed job tells the user, the details being in the server's log.
-FAILED_DETAIL = "Adding furigana and glosses failed."
 
 # Two at a time, as requests processed concurrently before there were jobs.
 _executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="processing")
@@ -134,11 +131,8 @@ def write_processed_document(
     create_phrase_conflicts(conn, document_id, processed.records, processed.groups)
 
 
-class Progress(NamedTuple):
-    # "processed" once the document has its tokens, or has none to make.
-    status: Literal["processing", "processed", "failed"]
-    # Why the last job failed, if it did.
-    error: str | None = None
+# "processed" once the document has its tokens, or has none to make.
+Progress = Literal["processing", "processed", "failed"]
 
 
 def start(document_id: int, *, retry: bool) -> Progress | None:
@@ -161,7 +155,7 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
         document = conn.execute(
             text(
                 """
-                SELECT text, processing_error,
+                SELECT text, processing_failed,
                        processing_started_at > now() - :lease AS running,
                        EXISTS (SELECT 1 FROM tokens WHERE document_id = :id) AS processed
                 FROM documents WHERE id = :id
@@ -171,16 +165,16 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
         ).one()
         # An empty text has no tokens to make.
         if document.processed or not document.text:
-            return Progress("processed")
+            return "processed"
         if document.running:
-            return Progress("processing")
-        if document.processing_error is not None and not retry:
-            return Progress("failed", document.processing_error)
+            return "processing"
+        if document.processing_failed and not retry:
+            return "failed"
         claimed_at = conn.execute(
             text(
                 """
                 UPDATE documents
-                SET processing_started_at = now(), processing_error = NULL
+                SET processing_started_at = now(), processing_failed = FALSE
                 WHERE id = :id
                 RETURNING processing_started_at
                 """
@@ -192,7 +186,22 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
     _executor.submit(_run, document_id, claimed_at, document.text).add_done_callback(
         _log_failure
     )
-    return Progress("processing")
+    return "processing"
+
+
+def cancel(conn, document_id: int) -> None:
+    """Drop the document's claim and whether its last job failed, for its
+    text changing: a job processing the old text writes nothing, and the
+    next request starts the new one."""
+    conn.execute(
+        text(
+            """
+            UPDATE documents SET processing_started_at = NULL, processing_failed = FALSE
+            WHERE id = :id
+            """
+        ),
+        {"id": document_id},
+    )
 
 
 def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
@@ -202,33 +211,33 @@ def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
     try:
         processed = process_document(document_text)
         with engine.begin() as conn:
-            # Editing the text drops the claim (see main._delete_tokens), so
-            # one that still holds is for the text as it is now.
-            current_text = _release(conn, document_id, claimed_at, error=None)
+            # Editing the text drops the claim (see cancel), so one that
+            # still holds is for the text as it is now.
+            current_text = _release(conn, document_id, claimed_at, failed=False)
             if current_text == document_text:
                 write_processed_document(conn, document_id, processed)
     except Exception:
         with engine.begin() as conn:
-            _release(conn, document_id, claimed_at, error=FAILED_DETAIL)
+            _release(conn, document_id, claimed_at, failed=True)
         raise
 
 
 def _release(
-    conn, document_id: int, claimed_at: datetime, *, error: str | None
+    conn, document_id: int, claimed_at: datetime, *, failed: bool
 ) -> str | None:
     """Release the claim made at `claimed_at` on the document, recording
-    `error` as why its job failed, and return the document's text; None,
-    with nothing changed, if the claim no longer holds."""
+    whether its job `failed`, and return the document's text; None, with
+    nothing changed, if the claim no longer holds."""
     return conn.execute(
         text(
             """
             UPDATE documents
-            SET processing_started_at = NULL, processing_error = :error
+            SET processing_started_at = NULL, processing_failed = :failed
             WHERE id = :id AND processing_started_at = :claimed_at
             RETURNING text
             """
         ),
-        {"id": document_id, "claimed_at": claimed_at, "error": error},
+        {"id": document_id, "claimed_at": claimed_at, "failed": failed},
     ).scalar_one_or_none()
 
 

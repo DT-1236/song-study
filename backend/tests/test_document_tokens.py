@@ -7,13 +7,13 @@ test sentences. The routes commit their own transactions, so these use
 from __future__ import annotations
 
 import threading
+from typing import NamedTuple
 
 from sqlalchemy import text
 
 from app.glosses import is_glossable
-from app.main import DocumentCreate, DocumentTextUpdate
+from app.main import PROCESSING_FAILED, DocumentCreate, DocumentTextUpdate
 from app.processing import (
-    FAILED_DETAIL,
     LEASE,
     _release,
     process_document,
@@ -34,6 +34,37 @@ from tests.support import (
     update_document_text,
     wait_for_lock_wait,
 )
+
+
+class HeldProcessing(NamedTuple):
+    # Each text a job processed, in order.
+    texts: list[str]
+    # Set as a job starts processing each held text.
+    started: dict[str, threading.Event]
+    # Set to let a job processing each held text go on.
+    release: dict[str, threading.Event]
+
+    def release_all(self) -> None:
+        for event in self.release.values():
+            event.set()
+
+
+def hold_processing(monkeypatch, *held: str) -> HeldProcessing:
+    """Record each text a job processes, holding a job processing any of
+    `held` until the test releases it."""
+    holds = HeldProcessing(
+        [], {t: threading.Event() for t in held}, {t: threading.Event() for t in held}
+    )
+
+    def process(document_text):
+        holds.texts.append(document_text)
+        if document_text in holds.release:
+            holds.started[document_text].set()
+            holds.release[document_text].wait(timeout=30)
+        return process_document(document_text)
+
+    monkeypatch.setattr("app.processing.process_document", process)
+    return holds
 
 
 def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
@@ -124,28 +155,18 @@ def test_requests_while_processing_start_no_second_job(background_jobs, monkeypa
     processing the document, wait for that job rather than starting their
     own."""
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
-    texts_processed = []
-    started = threading.Event()
-    release = threading.Event()
-
-    def held(document_text):
-        texts_processed.append(document_text)
-        started.set()
-        release.wait(timeout=30)
-        return process_document(document_text)
-
-    monkeypatch.setattr("app.processing.process_document", held)
+    held = hold_processing(monkeypatch, FIRST_SENTENCE)
 
     try:
         assert process_document_tokens(document_id).status == "processing"
-        assert started.wait(timeout=30)
+        assert held.started[FIRST_SENTENCE].wait(timeout=30)
         assert process_document_tokens(document_id).status == "processing"
         assert fetch_document_tokens(document_id).status == "processing"
     finally:
-        release.set()
+        held.release_all()
 
     assert get_document_tokens(document_id)
-    assert texts_processed == [FIRST_SENTENCE]
+    assert held.texts == [FIRST_SENTENCE]
 
 
 def test_a_request_during_the_jobs_write_gets_its_tokens(background_jobs, monkeypatch):
@@ -182,51 +203,40 @@ def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
     background_jobs, monkeypatch
 ):
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
-    texts_processed = []
-    started = {FIRST_SENTENCE: threading.Event(), SECOND_SENTENCE: threading.Event()}
-    release = {FIRST_SENTENCE: threading.Event(), SECOND_SENTENCE: threading.Event()}
-
-    def held(document_text):
-        texts_processed.append(document_text)
-        started[document_text].set()
-        release[document_text].wait(timeout=30)
-        return process_document(document_text)
-
+    held = hold_processing(monkeypatch, FIRST_SENTENCE, SECOND_SENTENCE)
     releases = []
     first_released = threading.Event()
 
-    def recorded_release(conn, document_id, claimed_at, *, error):
-        current_text = _release(conn, document_id, claimed_at, error=error)
+    def recorded_release(conn, document_id, claimed_at, *, failed):
+        current_text = _release(conn, document_id, claimed_at, failed=failed)
         releases.append(current_text)
         first_released.set()
         return current_text
 
-    monkeypatch.setattr("app.processing.process_document", held)
     monkeypatch.setattr("app.processing._release", recorded_release)
 
     try:
         process_document_tokens(document_id)
-        assert started[FIRST_SENTENCE].wait(timeout=30)
+        assert held.started[FIRST_SENTENCE].wait(timeout=30)
         # Would block until the job finished if it held a lock while
         # processing.
         update_document_text(document_id, DocumentTextUpdate(text=SECOND_SENTENCE))
         # The edit dropped the first job's claim, so the next poll starts a
         # job for the new text.
         assert fetch_document_tokens(document_id).status == "processing"
-        assert started[SECOND_SENTENCE].wait(timeout=30)
+        assert held.started[SECOND_SENTENCE].wait(timeout=30)
 
         # The first job finishes while the second is still processing: its
         # claim is gone, so it writes nothing and leaves the second's alone.
-        release[FIRST_SENTENCE].set()
+        held.release[FIRST_SENTENCE].set()
         assert first_released.wait(timeout=30)
         assert releases == [None]
         assert fetch_document_tokens(document_id).status == "processing"
     finally:
-        for event in release.values():
-            event.set()
+        held.release_all()
 
     tokens = get_document_tokens(document_id)
-    assert texts_processed == [FIRST_SENTENCE, SECOND_SENTENCE]
+    assert held.texts == [FIRST_SENTENCE, SECOND_SENTENCE]
     assert [t.surface for t in tokens] == [
         r.surface for r in tokenize_document(SECOND_SENTENCE)
     ]
@@ -252,7 +262,7 @@ def test_a_failed_job_is_reported_and_retried_only_when_asked(
     assert "the tokenizer broke" in caplog.text
     for _ in range(2):
         progress = fetch_document_tokens(document_id)
-        assert (progress.status, progress.detail) == ("failed", FAILED_DETAIL)
+        assert (progress.status, progress.detail) == ("failed", PROCESSING_FAILED)
     assert len(attempts) == 1
 
     monkeypatch.setattr("app.processing.process_document", process_document)
@@ -263,13 +273,7 @@ def test_a_job_that_outlived_its_claim_is_started_over(committed_engine, monkeyp
     """A claim taken within its lease stands for a job still running; one
     older, for a job that died with its process, which a poll starts over."""
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
-    attempts = []
-
-    def counted(document_text):
-        attempts.append(document_text)
-        return process_document(document_text)
-
-    monkeypatch.setattr("app.processing.process_document", counted)
+    processed = hold_processing(monkeypatch)
 
     def claim_since(age):
         with committed_engine.begin() as conn:
@@ -285,11 +289,11 @@ def test_a_job_that_outlived_its_claim_is_started_over(committed_engine, monkeyp
 
     claim_since(LEASE / 2)
     assert fetch_document_tokens(document_id).status == "processing"
-    assert attempts == []
+    assert processed.texts == []
 
     claim_since(LEASE * 2)
     fetch_document_tokens(document_id)
-    assert attempts == [FIRST_SENTENCE]
+    assert processed.texts == [FIRST_SENTENCE]
     assert fetch_document_tokens(document_id).status == "ready"
 
 

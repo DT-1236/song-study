@@ -102,6 +102,10 @@ def recreate_test_database() -> None:
 def alembic_config() -> Config:
     """The Alembic config for migrating the test database."""
     config = Config(str(BACKEND_DIR / "alembic.ini"))
+    # Leaves the logging of the process it migrates in (the tests', or the
+    # browser checks' server) as the app's would be, rather than disabling
+    # every logger the app has already made.
+    config.attributes["configure_logger"] = False
     # Config values go through configparser interpolation, so % is escaped.
     config.set_main_option(
         "sqlalchemy.url",

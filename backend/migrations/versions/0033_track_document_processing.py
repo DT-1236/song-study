@@ -1,8 +1,8 @@
 """track each document's processing job
 
 A document is processed (tokenized and glossed) by a background job rather
-than within the request that asks for its tokens, so the job's claim and the
-reason it last failed are kept on the document, for whichever request asks
+than within the request that asks for its tokens, so the job's claim and
+whether it last failed are kept on the document, for whichever request asks
 next.
 
 Revision ID: 0033
@@ -28,7 +28,7 @@ def upgrade() -> None:
         """
         ALTER TABLE documents
             ADD COLUMN processing_started_at TIMESTAMPTZ,
-            ADD COLUMN processing_error      TEXT;
+            ADD COLUMN processing_failed     BOOLEAN NOT NULL DEFAULT FALSE;
         """
     )
 
@@ -39,6 +39,6 @@ def downgrade() -> None:
         """
         ALTER TABLE documents
             DROP COLUMN processing_started_at,
-            DROP COLUMN processing_error;
+            DROP COLUMN processing_failed;
         """
     )
