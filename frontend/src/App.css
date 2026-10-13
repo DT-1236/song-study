@@ -657,11 +657,6 @@ li.grammar-legend-item {
   color: var(--accent);
 }
 
-/* Where the page adds its own buttons: transparent to the bar's flex row. */
-.player-extra-controls {
-  display: contents;
-}
-
 /* Keys are no use without a keyboard. */
 @media (hover: none) {
   .player-controls kbd {
@@ -670,7 +665,7 @@ li.grammar-legend-item {
 
   /* The timing buttons take the Video toggle's place, and Stamp the room
      left over. Padding narrows so six buttons fit at 320px. */
-  .player-controls:has(.player-extra-controls:not(:empty)) {
+  .player-controls.has-extra {
     gap: 0.3rem;
 
     button {

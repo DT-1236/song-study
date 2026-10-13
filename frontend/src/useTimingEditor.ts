@@ -1,0 +1,229 @@
+import { useEffect, useRef, useState } from 'react'
+import { PRESS_MS } from './PlayerBar'
+import { lineToStamp, nudgedStart, overlapFor, roundedToMs } from './timing'
+import type { LyricsLine } from './timing'
+import { useLatest } from './useLatest'
+import { isTypingTarget } from './usePlayerShortcuts'
+import { useTransient } from './useTransient'
+
+const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
+
+// What the timing editor's keys do, one for each of its bar buttons.
+export type TimingKey = 'earlier' | 'later' | 'stamp'
+
+// A change to a line's timing that's confirmed first.
+type TimingAction =
+  | { kind: 'delete'; line: number }
+  | { kind: 'overwrite'; line: number; start: number }
+
+// The state and keys of the timing editor for `lines`, whose starts are
+// `starts` (null once a line's timing is deleted), or inactive while `starts`
+// is null. Lives above the editor so the player bar's buttons can share it.
+//
+// The picked line follows playback; ↑/↓ or a click pick another and play from
+// it; ←/→ move the picked line's start by `nudgeMs` and play from there; /
+// starts the line after the one being sung at the current playback time (the
+// first line, before any is) and scrolls down a line.
+export function useTimingEditor({
+  lines,
+  starts,
+  onStartChange,
+  playingLine,
+  onPlayLine,
+  getTime,
+  nudgeMs,
+  onToast,
+  barButtons,
+}: {
+  lines: LyricsLine[] | null
+  starts: (number | null)[] | null
+  // Sets `line`'s start, null to leave it untimed.
+  onStartChange: (line: number, start: number | null) => void
+  playingLine: number | null
+  onPlayLine: (start: number) => void
+  // The current playback time, or null until the player is ready.
+  getTime: () => number | null
+  nudgeMs: number
+  // Shows why a key did nothing.
+  onToast: (message: string) => void
+  // Whether buttons for the keys are showing, to look pressed with them.
+  barButtons: boolean
+}) {
+  const editing = lines !== null && starts !== null
+  // Which button looks pressed, for the key that does the same.
+  const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
+  const [selected, setSelected] = useState(0)
+  // A change waiting on its confirmation.
+  const [pending, setPending] = useState<TimingAction | null>(null)
+  // The open confirmation's "don't ask again".
+  const [dontAskAgain, setDontAskAgain] = useState(false)
+  // Set by "don't ask again": that kind of change skips its confirmation
+  // until editing ends.
+  const [skipConfirm, setSkipConfirm] = useState({
+    delete: false,
+    overwrite: false,
+  })
+  const selectedRowRef = useRef<HTMLDivElement>(null)
+  // The rows' container: row i is its child i.
+  const rowsRef = useRef<HTMLDivElement>(null)
+
+  // Each editing session starts on the line being sung, with every
+  // confirmation asked again.
+  const playingLineRef = useLatest(playingLine)
+  useEffect(() => {
+    setSelected(playingLineRef.current ?? 0)
+    setSkipConfirm({ delete: false, overwrite: false })
+    setPending(null)
+  }, [editing, playingLineRef])
+
+  // The picked line follows the one being sung. Picking a line plays from
+  // it, so the two only part when an untimed line is picked.
+  useEffect(() => {
+    if (editing && playingLine !== null) setSelected(playingLine)
+  }, [editing, playingLine])
+
+  // Scrolls the picked line onto the screen when it moves off it, as little
+  // as possible.
+  useEffect(() => {
+    selectedRowRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [selected])
+
+  // Picks `line` and plays from its start, if it has one.
+  function pick(line: number) {
+    setSelected(line)
+    const start = starts?.[line] ?? null
+    if (start !== null) onPlayLine(start)
+  }
+
+  // Sets `line`'s start and picks it.
+  function setStart(line: number, start: number) {
+    onStartChange(line, start)
+    setSelected(line)
+  }
+
+  // Sets `line`'s start from /, and scrolls the page down by the line and
+  // the space after it, so the next line to time sits where this one was
+  // and timing along needs no scrolling by hand.
+  function stamp(line: number, start: number) {
+    setStart(line, start)
+    const rows = rowsRef.current?.children
+    const row = rows?.[line]
+    if (!rows || !row) return
+    const next = rows[line + 1]
+    const { top, height } = row.getBoundingClientRect()
+    row
+      .closest('.content')
+      ?.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
+    // Timing that began with the next line off screen brings it on.
+    next?.scrollIntoView({ block: 'nearest' })
+  }
+
+  function apply(action: TimingAction) {
+    if (action.kind === 'delete') onStartChange(action.line, null)
+    // Only / overwrites a start.
+    else stamp(action.line, action.start)
+  }
+
+  // Applies `action`, asking first unless "don't ask again" was checked for
+  // its kind.
+  function confirmThen(action: TimingAction) {
+    if (skipConfirm[action.kind]) return apply(action)
+    setDontAskAgain(false)
+    setPending(action)
+  }
+
+  function nudge(direction: number) {
+    if (!starts) return
+    const start = starts[selected] ?? null
+    if (start === null) return onToast('This line has no timing to nudge.')
+    const moved = nudgedStart(start, direction * nudgeMs)
+    const overlap = overlapFor(starts, selected, moved)
+    if (overlap) return onToast(overlap)
+    setStart(selected, moved)
+    onPlayLine(moved)
+  }
+
+  // Starts the line after the one being sung at the current playback time
+  // then, or the first line before any is, asking first if that replaces a
+  // time it already has.
+  function timeNextLine() {
+    if (!starts || !lines) return
+    const time = getTime()
+    if (time === null) return onToast("The video isn't ready yet.")
+    const start = roundedToMs(time)
+    const line = lineToStamp(starts, start)
+    if (line >= lines.length) return onToast('There are no more lines to time.')
+    const overlap = overlapFor(starts, line, start)
+    if (overlap) return onToast(overlap)
+    if ((starts[line] ?? null) === null) return stamp(line, start)
+    confirmThen({ kind: 'overwrite', line, start })
+  }
+
+  function handleKeyDown(event: KeyboardEvent) {
+    if (!lines) return
+    // / is typed with Shift on some layouts, so only the arrows rule it out.
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    if (event.key !== '/' && (!ARROW_KEYS.has(event.key) || event.shiftKey))
+      return
+    const active = document.activeElement
+    // A slider doesn't count as typing here, so the keys still work once
+    // one's been dragged; an open dialog's controls do. (A closed one's
+    // button keeps focus for a moment after it closes.)
+    if (active?.closest('dialog[open]')) return
+    if (
+      isTypingTarget(active) &&
+      !(active instanceof HTMLInputElement && active.type === 'range')
+    )
+      return
+    event.preventDefault()
+    if (event.key === '/') {
+      // Held down, it would time line after line at almost the same moment.
+      if (!event.repeat) {
+        // Pressing re-renders every row, so only when a button shows it.
+        if (barButtons) press('stamp')
+        timeNextLine()
+      }
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+      const earlier = event.key === 'ArrowLeft'
+      if (barButtons) press(earlier ? 'earlier' : 'later')
+      nudge(earlier ? -1 : 1)
+    } else {
+      const line = selected + (event.key === 'ArrowUp' ? -1 : 1)
+      if (line >= 0 && line < lines.length) pick(line)
+    }
+  }
+
+  // Kept current by an effect, so the listener can be added once and still
+  // see the latest state.
+  const handleKeyDownRef = useLatest(handleKeyDown)
+  useEffect(() => {
+    if (!editing) return
+    const listener = (event: KeyboardEvent) => handleKeyDownRef.current(event)
+    window.addEventListener('keydown', listener)
+    return () => window.removeEventListener('keydown', listener)
+  }, [editing, handleKeyDownRef])
+
+  return {
+    selected,
+    selectedRowRef,
+    rowsRef,
+    pressed,
+    pick,
+    nudge,
+    timeNextLine,
+    // Asks before deleting `line`'s timing.
+    confirmDelete: (line: number) => confirmThen({ kind: 'delete', line }),
+    pending,
+    dontAskAgain,
+    setDontAskAgain,
+    confirmPending() {
+      if (!pending) return
+      if (dontAskAgain) setSkipConfirm({ ...skipConfirm, [pending.kind]: true })
+      apply(pending)
+      setPending(null)
+    },
+    cancelPending: () => setPending(null),
+  }
+}
+
+export type TimingEditorState = ReturnType<typeof useTimingEditor>
