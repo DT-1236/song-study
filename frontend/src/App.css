@@ -617,6 +617,27 @@ li.grammar-legend-item {
   width: min(100%, 24rem);
 }
 
+/* A shown video beside the buttons rather than above them, since 24rem wide
+   it would take over half a phone's height in landscape. Only the layout
+   changes: the player stays in the same place in the JSX, so the iframe isn't
+   remounted. The query is NARROW_SCREEN in media.ts plus orientation. */
+@media ((max-width: 900px), (max-height: 500px)) and (orientation: landscape) {
+  .player-bar {
+    flex-direction: row;
+    align-items: center;
+  }
+
+  .player-bar .youtube-player:not(.hidden) {
+    flex: none;
+    width: 40vw;
+  }
+
+  .player-bar .player-controls {
+    flex: 1;
+    flex-wrap: wrap;
+  }
+}
+
 .player-controls {
   display: flex;
   gap: 0.5rem;
@@ -1054,6 +1075,24 @@ li.grammar-legend-item {
 
 .lyrics-box .line-play:hover {
   color: var(--accent);
+}
+
+/* A 44px-wide hit area, extended left into the box's padding: extending right
+   would take taps meant for the line's first token. */
+@media (hover: none) {
+  .lyrics-box .line-play::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: 0;
+    width: 44px;
+  }
+}
+
+.edit-timings-blocker {
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 /* The timing editor: one row per line, with the line's timing to its left. */

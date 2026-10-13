@@ -3084,6 +3084,12 @@ export function DocumentViewPage() {
                 >
                   Edit timings
                 </button>
+                {/* A phone never shows the button's title. */}
+                {editTimingsBlocker && (
+                  <span className="edit-timings-blocker">
+                    {editTimingsBlocker}
+                  </span>
+                )}
               </>
             )}
           </div>
