@@ -113,6 +113,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Backlog sweep 9: `revealBelowPanel` via scroll padding           | #130 | backlog item                           | Sonnet 5.5, medium          | —    | 7     | 310k       | 3k     | S    |
 | 2026-10-13 | Backlog sweep 9: gather and commit items                         | #130 | backlog sweep                          | Opus 5.5, medium            | —    | 18    | 895k       | 7k     | S    |
 | 2026-10-13 | Backlog sweep 9                                                  | #130 | /simplify (inline, no subagents)       | Opus 5.5, medium            | —    | 17    | 1.2M       | 9k     | M    |
+| 2026-10-13 | Backlog sweep 10: gather and commit items                        | —    | backlog sweep                          | Opus 5.5, medium            | —    | 13    | 625k       | 4k     | S    |
+| 2026-10-13 | Backlog sweep 10                                                 | —    | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 48    | 3.1M       | 15k    | M    |
 
 ## Post-mortem log
 

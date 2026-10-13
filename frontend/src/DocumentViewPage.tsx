@@ -2510,13 +2510,17 @@ function TimingEditor({
   starts,
   playingLine,
   timing,
+  touch,
 }: {
   lines: LyricsLine[]
   starts: (number | null)[]
   playingLine: number | null
   timing: TimingEditorState
+  // Whether the screen is touch-only, which changes the help note's words.
+  touch: boolean
 }) {
-  const touch = useMediaQuery(NO_HOVER)
+  // The open confirmation's "don't ask again", cleared as it closes.
+  const [dontAskAgain, setDontAskAgain] = useState(false)
   const {
     selected,
     selectedRowRef,
@@ -2524,8 +2528,6 @@ function TimingEditor({
     pick,
     confirmDelete,
     pending,
-    dontAskAgain,
-    setDontAskAgain,
     confirmPending,
     cancelPending,
   } = timing
@@ -2616,8 +2618,14 @@ function TimingEditor({
             : "Delete this line's timing?"
         }
         confirmLabel={pending?.kind === 'overwrite' ? 'Overwrite' : 'Delete'}
-        onConfirm={confirmPending}
-        onCancel={cancelPending}
+        onConfirm={() => {
+          confirmPending(dontAskAgain)
+          setDontAskAgain(false)
+        }}
+        onCancel={() => {
+          cancelPending()
+          setDontAskAgain(false)
+        }}
       >
         <label className="checkbox-option">
           <input
@@ -2866,7 +2874,7 @@ export function DocumentViewPage() {
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
   const barTimingButtons = touch && timingDraft !== null && hasVideo
   const timing = useTimingEditor({
-    lines: timingDraft && lyricsLines,
+    lines: lyricsLines,
     starts: timingDraft,
     onStartChange: handleStartChange,
     playingLine,
@@ -3146,6 +3154,7 @@ export function DocumentViewPage() {
               starts={timingDraft}
               playingLine={playingLine}
               timing={timing}
+              touch={touch}
             />
           ) : tokens && !lrclibPreview ? (
             <TokenizedText

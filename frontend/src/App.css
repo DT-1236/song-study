@@ -683,9 +683,8 @@ li.grammar-legend-item {
   }
 
   /* A bare icon button is small by design, so its tap area is padded out to
-     44px tall on touch. A control sets --hit-left to reach into free space
-     beside it (kept off the row's other taps), and the width is otherwise
-     its own. */
+     44px tall on touch. Its width is its own, unless a control reaches into
+     free space beside it (kept off the row's other taps). */
   .icon-button {
     position: relative;
   }
@@ -695,13 +694,13 @@ li.grammar-legend-item {
     position: absolute;
     top: 50%;
     right: 0;
-    left: calc(-1 * var(--hit-left, 0px));
+    left: 0;
     height: 44px;
     transform: translateY(-50%);
   }
 
-  .lyrics-box .timing-delete {
-    --hit-left: 0.9rem;
+  .lyrics-box .timing-delete::after {
+    left: -0.9rem;
   }
 }
 

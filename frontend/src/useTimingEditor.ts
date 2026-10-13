@@ -16,8 +16,11 @@ type TimingAction =
   | { kind: 'delete'; line: number }
   | { kind: 'overwrite'; line: number; start: number }
 
+// No kind of change skips its confirmation.
+const NO_SKIPS = { delete: false, overwrite: false }
+
 // The state and keys of the timing editor for `lines`, whose starts are
-// `starts` (null once a line's timing is deleted), or inactive while `starts`
+// `starts` (null once a line's timing is deleted), or inactive while either
 // is null. Lives above the editor so the player bar's buttons can share it.
 //
 // The picked line follows playback; ↑/↓ or a click pick another and play from
@@ -55,26 +58,21 @@ export function useTimingEditor({
   const [selected, setSelected] = useState(0)
   // A change waiting on its confirmation.
   const [pending, setPending] = useState<TimingAction | null>(null)
-  // The open confirmation's "don't ask again".
-  const [dontAskAgain, setDontAskAgain] = useState(false)
   // Set by "don't ask again": that kind of change skips its confirmation
   // until editing ends.
-  const [skipConfirm, setSkipConfirm] = useState({
-    delete: false,
-    overwrite: false,
-  })
+  const [skipConfirm, setSkipConfirm] = useState(NO_SKIPS)
   const selectedRowRef = useRef<HTMLDivElement>(null)
   // The rows' container: row i is its child i.
   const rowsRef = useRef<HTMLDivElement>(null)
 
-  // Each editing session starts on the line being sung, with every
-  // confirmation asked again.
-  const playingLineRef = useLatest(playingLine)
+  // Each editing session starts on the first line (the effect below moves it
+  // to the one being sung), with every confirmation asked again.
   useEffect(() => {
-    setSelected(playingLineRef.current ?? 0)
-    setSkipConfirm({ delete: false, overwrite: false })
+    if (!editing) return
+    setSelected(0)
+    setSkipConfirm(NO_SKIPS)
     setPending(null)
-  }, [editing, playingLineRef])
+  }, [editing])
 
   // The picked line follows the one being sung. Picking a line plays from
   // it, so the two only part when an untimed line is picked.
@@ -128,7 +126,6 @@ export function useTimingEditor({
   // its kind.
   function confirmThen(action: TimingAction) {
     if (skipConfirm[action.kind]) return apply(action)
-    setDontAskAgain(false)
     setPending(action)
   }
 
@@ -214,9 +211,9 @@ export function useTimingEditor({
     // Asks before deleting `line`'s timing.
     confirmDelete: (line: number) => confirmThen({ kind: 'delete', line }),
     pending,
-    dontAskAgain,
-    setDontAskAgain,
-    confirmPending() {
+    // Applies the change waiting on its confirmation, and with `dontAskAgain`
+    // skips asking for that kind of change until editing ends.
+    confirmPending(dontAskAgain: boolean) {
       if (!pending) return
       if (dontAskAgain) setSkipConfirm({ ...skipConfirm, [pending.kind]: true })
       apply(pending)

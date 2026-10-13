@@ -153,8 +153,13 @@ phone does; `center(locator)` is where to put it.
   `make frontend-install` in the worktree, or `make browser-up` will install
   into the main checkout through the link. `.gitignore`'s `.venv/`
   doesn't match a symlink, so add `backend/.venv` to
-  `$(git rev-parse --git-common-dir)/info/exclude`. Both checkouts share the
-  harness's ports and database, so run it from one at a time.
+  `$(git rev-parse --git-common-dir)/info/exclude`. Both checkouts default
+  to the same ports, and `up` only reuses servers this checkout started, so
+  it stops with "port … is held" while the other's are up. Leave those
+  running (another session may be using them) and set other ports on every
+  `make browser-*` call instead: `BROWSER_API_PORT=8011
+BROWSER_WEB_PORT=5211`. The test database is shared, so don't run two
+  checkouts' checks at once.
 - **`beforeunload` never fires on `page.close({ runBeforeUnload: true })`**
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).
