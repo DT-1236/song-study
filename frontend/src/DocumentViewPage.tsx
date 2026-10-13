@@ -10,7 +10,6 @@ import {
   useRef,
   useState,
 } from 'react'
-import { createPortal } from 'react-dom'
 import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
@@ -51,32 +50,25 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import type { LrclibSong } from './LrclibMatches'
-import { KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
+import { KeyButton, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
 import { useTabs } from './TabsContext'
-import {
-  formatTimestamp,
-  lineToStamp,
-  linesOf,
-  nudgedStart,
-  overlapFor,
-  roundedToMs,
-  timingsFromStarts,
-} from './timing'
+import { formatTimestamp, linesOf, timingsFromStarts } from './timing'
 import type { LyricsLine } from './timing'
 import { useHeightProperty } from './useHeightProperty'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { usePersistentState } from './usePersistentState'
 import { useSave } from './useSave'
+import { useTimingEditor } from './useTimingEditor'
+import type { TimingEditorState } from './useTimingEditor'
 import { useTransient } from './useTransient'
 import { NARROW_SCREEN, NO_HOVER, useMediaQuery } from './media'
 import { ViewSettings } from './ViewSettings'
 import { displayStyle, useViewSettings } from './useViewSettings'
 import { usePlayingLine } from './usePlayingLine'
-import { isTypingTarget } from './usePlayerShortcuts'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
 const REVIEW_REASON_LABELS: Record<string, string> = {
@@ -2461,8 +2453,6 @@ function LrclibSource({
   )
 }
 
-const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
-
 const TOAST_MS = 2500
 
 // The timing editor's help note up to "starts", in the words for each kind
@@ -2472,64 +2462,75 @@ const KEYS_HELP =
 const TOUCH_HELP =
   "Tap a line to pick it and play from it, the nudge buttons move the picked line's start and play from there, and Stamp starts"
 
-// What the timing editor's keys do, one for each of its bar buttons.
-type TimingKey = 'earlier' | 'later' | 'stamp'
-
-// A change to a line's timing that's confirmed first.
-type TimingAction =
-  | { kind: 'delete'; line: number }
-  | { kind: 'overwrite'; line: number; start: number }
+// The player bar's buttons for the timing editor's keys.
+function TimingBarButtons({
+  timing,
+  nudgeMs,
+}: {
+  timing: TimingEditorState
+  nudgeMs: number
+}) {
+  const { pressed, nudge, timeNextLine } = timing
+  return (
+    <>
+      <KeyButton
+        label="Nudge earlier"
+        keyName="←"
+        pressed={pressed === 'earlier'}
+        onClick={() => nudge(-1)}
+      >
+        −{nudgeMs}ms
+      </KeyButton>
+      <KeyButton
+        label="Nudge later"
+        keyName="→"
+        pressed={pressed === 'later'}
+        onClick={() => nudge(1)}
+      >
+        +{nudgeMs}ms
+      </KeyButton>
+      <KeyButton
+        className="timing-stamp"
+        label="Stamp"
+        keyName="/"
+        pressed={pressed === 'stamp'}
+        onClick={timeNextLine}
+      >
+        Stamp
+      </KeyButton>
+    </>
+  )
+}
 
 // The lyrics as one row per line while their timings are edited, `starts`
-// holding each line's start (null once its timing is deleted). The picked
-// line follows playback; ↑/↓ or a click pick another and play from it; ←/→
-// move the picked line's start by `nudgeMs` and play from there; / starts
-// the line after the one being sung at the current playback time (the first
-// line, before any is) and scrolls down a line. Memoized, so page updates
-// that don't touch it (a toast, say) don't re-render every row.
-const TimingEditor = memo(function TimingEditor({
+// holding each line's start (null once its timing is deleted); `timing` is
+// the editor's state (see `useTimingEditor`).
+function TimingEditor({
   lines,
   starts,
-  onStartChange,
   playingLine,
-  onPlayLine,
-  getTime,
-  nudgeMs,
-  onToast,
-  barControls,
+  timing,
+  touch,
 }: {
   lines: LyricsLine[]
   starts: (number | null)[]
-  // Sets `line`'s start, null to leave it untimed.
-  onStartChange: (line: number, start: number | null) => void
   playingLine: number | null
-  onPlayLine: (start: number) => void
-  // The current playback time, or null until the player is ready.
-  getTime: () => number | null
-  nudgeMs: number
-  // Shows why a key did nothing.
-  onToast: (message: string) => void
-  // The player bar's slot for these buttons, once it has rendered.
-  barControls: HTMLElement | null
+  timing: TimingEditorState
+  // Whether the screen is touch-only, which changes the help note's words.
+  touch: boolean
 }) {
-  const touch = useMediaQuery(NO_HOVER)
-  const hasBarButtons = touch && barControls !== null
-  // Which button looks pressed, for the key that does the same.
-  const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
-  const [selected, setSelected] = useState(() => playingLine ?? 0)
-  // A change waiting on its confirmation.
-  const [pending, setPending] = useState<TimingAction | null>(null)
-  // The open confirmation's "don't ask again".
+  // The open confirmation's "don't ask again", cleared as it closes.
   const [dontAskAgain, setDontAskAgain] = useState(false)
-  // Set by "don't ask again": that kind of change skips its confirmation
-  // until editing ends, which unmounts this.
-  const [skipConfirm, setSkipConfirm] = useState({
-    delete: false,
-    overwrite: false,
-  })
-  const selectedRowRef = useRef<HTMLDivElement>(null)
-  // The rows' container: row i is its child i.
-  const rowsRef = useRef<HTMLDivElement>(null)
+  const {
+    selected,
+    selectedRowRef,
+    rowsRef,
+    pick,
+    confirmDelete,
+    pending,
+    confirmPending,
+    cancelPending,
+  } = timing
 
   // Each line's text, built once: the rows re-render as playback moves, but
   // their furigana never changes.
@@ -2550,162 +2551,8 @@ const TimingEditor = memo(function TimingEditor({
     [lines],
   )
 
-  // The picked line follows the one being sung. Picking a line plays from
-  // it, so the two only part when an untimed line is picked.
-  useEffect(() => {
-    if (playingLine !== null) setSelected(playingLine)
-  }, [playingLine])
-
-  // Scrolls the picked line onto the screen when it moves off it, as little
-  // as possible.
-  useEffect(() => {
-    selectedRowRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [selected])
-
-  // Picks `line` and plays from its start, if it has one.
-  function pick(line: number) {
-    setSelected(line)
-    const start = starts[line] ?? null
-    if (start !== null) onPlayLine(start)
-  }
-
-  // Sets `line`'s start and picks it.
-  function setStart(line: number, start: number) {
-    onStartChange(line, start)
-    setSelected(line)
-  }
-
-  // Sets `line`'s start from /, and scrolls the page down by the line and
-  // the space after it, so the next line to time sits where this one was
-  // and timing along needs no scrolling by hand.
-  function stamp(line: number, start: number) {
-    setStart(line, start)
-    const rows = rowsRef.current?.children
-    const row = rows?.[line]
-    if (!rows || !row) return
-    const next = rows[line + 1]
-    const { top, height } = row.getBoundingClientRect()
-    row
-      .closest('.content')
-      ?.scrollBy(0, next ? next.getBoundingClientRect().top - top : height)
-    // Timing that began with the next line off screen brings it on.
-    next?.scrollIntoView({ block: 'nearest' })
-  }
-
-  function apply(action: TimingAction) {
-    if (action.kind === 'delete') onStartChange(action.line, null)
-    // Only / overwrites a start.
-    else stamp(action.line, action.start)
-  }
-
-  // Applies `action`, asking first unless "don't ask again" was checked for
-  // its kind.
-  function confirmThen(action: TimingAction) {
-    if (skipConfirm[action.kind]) return apply(action)
-    setDontAskAgain(false)
-    setPending(action)
-  }
-
-  function nudge(direction: number) {
-    const start = starts[selected] ?? null
-    if (start === null) return onToast('This line has no timing to nudge.')
-    const moved = nudgedStart(start, direction * nudgeMs)
-    const overlap = overlapFor(starts, selected, moved)
-    if (overlap) return onToast(overlap)
-    setStart(selected, moved)
-    onPlayLine(moved)
-  }
-
-  // Starts the line after the one being sung at the current playback time
-  // then, or the first line before any is, asking first if that replaces a
-  // time it already has.
-  function timeNextLine() {
-    const time = getTime()
-    if (time === null) return onToast("The video isn't ready yet.")
-    const start = roundedToMs(time)
-    const line = lineToStamp(starts, start)
-    if (line >= lines.length) return onToast('There are no more lines to time.')
-    const overlap = overlapFor(starts, line, start)
-    if (overlap) return onToast(overlap)
-    if ((starts[line] ?? null) === null) return stamp(line, start)
-    confirmThen({ kind: 'overwrite', line, start })
-  }
-
-  function handleKeyDown(event: KeyboardEvent) {
-    // / is typed with Shift on some layouts, so only the arrows rule it out.
-    if (event.altKey || event.ctrlKey || event.metaKey) return
-    if (event.key !== '/' && (!ARROW_KEYS.has(event.key) || event.shiftKey))
-      return
-    const active = document.activeElement
-    // A slider doesn't count as typing here, so the keys still work once
-    // one's been dragged; an open dialog's controls do. (A closed one's
-    // button keeps focus for a moment after it closes.)
-    if (active?.closest('dialog[open]')) return
-    if (
-      isTypingTarget(active) &&
-      !(active instanceof HTMLInputElement && active.type === 'range')
-    )
-      return
-    event.preventDefault()
-    if (event.key === '/') {
-      // Held down, it would time line after line at almost the same moment.
-      if (!event.repeat) {
-        // Pressing re-renders every row, so only when a button shows it.
-        if (hasBarButtons) press('stamp')
-        timeNextLine()
-      }
-    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      const earlier = event.key === 'ArrowLeft'
-      if (hasBarButtons) press(earlier ? 'earlier' : 'later')
-      nudge(earlier ? -1 : 1)
-    } else {
-      const line = selected + (event.key === 'ArrowUp' ? -1 : 1)
-      if (line >= 0 && line < lines.length) pick(line)
-    }
-  }
-
-  // Kept current by an effect, so the listener can be added once and still
-  // see the latest state.
-  const handleKeyDownRef = useLatest(handleKeyDown)
-  useEffect(() => {
-    const listener = (event: KeyboardEvent) => handleKeyDownRef.current(event)
-    window.addEventListener('keydown', listener)
-    return () => window.removeEventListener('keydown', listener)
-  }, [handleKeyDownRef])
-
   return (
     <>
-      {hasBarButtons &&
-        createPortal(
-          <>
-            <KeyButton
-              label="Nudge earlier"
-              keyName="←"
-              pressed={pressed === 'earlier'}
-              onClick={() => nudge(-1)}
-            >
-              −{nudgeMs}ms
-            </KeyButton>
-            <KeyButton
-              label="Nudge later"
-              keyName="→"
-              pressed={pressed === 'later'}
-              onClick={() => nudge(1)}
-            >
-              +{nudgeMs}ms
-            </KeyButton>
-            <KeyButton
-              className="timing-stamp"
-              label="Stamp"
-              keyName="/"
-              pressed={pressed === 'stamp'}
-              onClick={timeNextLine}
-            >
-              Stamp
-            </KeyButton>
-          </>,
-          barControls,
-        )}
       <p className="lyrics-editor-note">
         The picked line follows playback. {touch ? TOUCH_HELP : KEYS_HELP} the
         next line at the current playback time (the first line, if none has
@@ -2741,7 +2588,7 @@ const TimingEditor = memo(function TimingEditor({
                     onMouseDown={(e) => e.preventDefault()}
                     onClick={(e) => {
                       e.stopPropagation()
-                      confirmThen({ kind: 'delete', line })
+                      confirmDelete(line)
                     }}
                   >
                     <svg viewBox="0 0 10 10" aria-hidden="true">
@@ -2772,13 +2619,13 @@ const TimingEditor = memo(function TimingEditor({
         }
         confirmLabel={pending?.kind === 'overwrite' ? 'Overwrite' : 'Delete'}
         onConfirm={() => {
-          if (!pending) return
-          if (dontAskAgain)
-            setSkipConfirm({ ...skipConfirm, [pending.kind]: true })
-          apply(pending)
-          setPending(null)
+          confirmPending(dontAskAgain)
+          setDontAskAgain(false)
         }}
-        onCancel={() => setPending(null)}
+        onCancel={() => {
+          cancelPending()
+          setDontAskAgain(false)
+        }}
       >
         <label className="checkbox-option">
           <input
@@ -2794,7 +2641,7 @@ const TimingEditor = memo(function TimingEditor({
       </ConfirmDialog>
     </>
   )
-})
+}
 
 // What the document page is editing, which it does one thing at a time.
 type EditMode =
@@ -2849,8 +2696,6 @@ export function DocumentViewPage() {
   const [toast, showToast] = useTransient<string>(TOAST_MS)
 
   const youtubePlayerRef = useRef<YouTubePlayerHandle>(null)
-  // Where the timing editor puts its buttons in the player bar.
-  const [barControls, setBarControls] = useState<HTMLElement | null>(null)
   // The page content above the lyrics, whose height is the most the pinned
   // selection panel may cover (see .selection-anchor).
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
@@ -3024,6 +2869,21 @@ export function DocumentViewPage() {
     youtubePlayerRef,
     hasVideo ? shownTimings : null,
   )
+
+  const touch = useMediaQuery(NO_HOVER)
+  // On touch, the keys' buttons go in the player bar, which has no keyboard.
+  const barTimingButtons = touch && timingDraft !== null && hasVideo
+  const timing = useTimingEditor({
+    lines: lyricsLines,
+    starts: timingDraft,
+    onStartChange: handleStartChange,
+    playingLine,
+    onPlayLine: handlePlayLine,
+    getTime: getPlaybackTime,
+    nudgeMs,
+    onToast: showToast,
+    barButtons: barTimingButtons,
+  })
 
   // Whether the timings being edited differ from those saved, which leaving
   // them would lose.
@@ -3219,11 +3079,15 @@ export function DocumentViewPage() {
                 <button
                   type="button"
                   disabled={editTimingsBlocker !== undefined}
-                  title={editTimingsBlocker}
                   onClick={startEditingTimings}
                 >
                   Edit timings
                 </button>
+                {editTimingsBlocker && (
+                  <span className="edit-timings-blocker">
+                    {editTimingsBlocker}
+                  </span>
+                )}
               </>
             )}
           </div>
@@ -3292,13 +3156,9 @@ export function DocumentViewPage() {
             <TimingEditor
               lines={lyricsLines}
               starts={timingDraft}
-              onStartChange={handleStartChange}
               playingLine={playingLine}
-              onPlayLine={handlePlayLine}
-              getTime={getPlaybackTime}
-              nudgeMs={nudgeMs}
-              onToast={showToast}
-              barControls={barControls}
+              timing={timing}
+              touch={touch}
             />
           ) : tokens && !lrclibPreview ? (
             <TokenizedText
@@ -3335,8 +3195,11 @@ export function DocumentViewPage() {
           playerRef={youtubePlayerRef}
           videoId={doc.youtube_video_id}
           onSeek={handleSeek}
-          onExtraControls={setBarControls}
-        />
+        >
+          {barTimingButtons && (
+            <TimingBarButtons timing={timing} nudgeMs={nudgeMs} />
+          )}
+        </PlayerBar>
       )}
 
       <ConfirmDialog

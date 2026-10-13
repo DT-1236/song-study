@@ -73,7 +73,10 @@ show_logs() {
 up() {
   if [[ ${1-} == --fresh ]]; then
     down
-  elif api_up && web_up; then
+  # Only servers this checkout started: another worktree's harness answers the
+  # same way, but serves that worktree's code.
+  elif our_pid vite vite >/dev/null && our_pid backend tests.browser_server >/dev/null &&
+    api_up && web_up; then
     echo "already up at http://localhost:$WEB_PORT (seed: $(cat "$STATE/seed.json" 2>/dev/null))"
     return
   fi

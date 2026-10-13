@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import type { ButtonHTMLAttributes, RefObject } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, RefObject } from 'react'
 import { PlayIcon } from './LinePlayButton'
 import { useHeightProperty } from './useHeightProperty'
 import { usePersistentState } from './usePersistentState'
@@ -19,14 +19,13 @@ export function PlayerBar({
   playerRef,
   videoId,
   onSeek,
-  onExtraControls,
+  children,
 }: {
   playerRef: RefObject<YouTubePlayerHandle>
   videoId: string
   onSeek?: () => void
-  // Receives the element the page's own buttons are rendered into (by a
-  // portal), after the seek buttons.
-  onExtraControls?: (element: HTMLDivElement | null) => void
+  // The page's own buttons, after the seek buttons.
+  children?: ReactNode
 }) {
   const [seekSeconds] = useSeekSeconds()
   // Shared by every page, and hidden until it's asked for: most of these
@@ -54,7 +53,9 @@ export function PlayerBar({
         onPlayingChange={setPlaying}
         showVideo={showVideo}
       />
-      <div className="player-controls">
+      <div
+        className={children ? 'player-controls has-extra' : 'player-controls'}
+      >
         <KeyButton
           label={`Back ${seekSeconds}s`}
           keyName=","
@@ -88,7 +89,7 @@ export function PlayerBar({
         >
           +{seekSeconds}s
         </KeyButton>
-        <div ref={onExtraControls} className="player-extra-controls" />
+        {children}
         <BarButton
           className="player-video-toggle"
           aria-pressed={showVideo}
