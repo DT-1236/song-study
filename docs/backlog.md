@@ -19,7 +19,7 @@ so it can be picked up without re-deriving the reasoning.
   places, with the study page's line-playing effect as the only thing to
   keep working.
 
-## /simplify on the background-processing branch (documents processed by a background job)
+## /simplify on PR #117 (documents processed by a background job)
 
 - **Text changes rely on each writer calling `_delete_tokens`.**
   `update_document_text` and `_store_lrclib_lyrics` each pair their
