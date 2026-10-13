@@ -131,7 +131,7 @@ def write_processed_document(
     create_phrase_conflicts(conn, document_id, processed.records, processed.groups)
 
 
-# "processed" once the document has its tokens, or has none to make.
+# "processed" once a job has finished with the document's current text.
 Progress = Literal["processing", "processed", "failed"]
 
 
@@ -151,20 +151,19 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
             return None
         # Its own statement, not part of the locking one: under READ
         # COMMITTED, only a statement started after the lock was granted
-        # sees tokens that the lock's previous holder committed.
+        # sees what the lock's previous holder committed.
         document = conn.execute(
             text(
                 """
                 SELECT text, processing_failed,
                        processing_started_at > now() - :lease AS running,
-                       EXISTS (SELECT 1 FROM tokens WHERE document_id = :id) AS processed
+                       processed_at IS NOT NULL AS processed
                 FROM documents WHERE id = :id
                 """
             ),
             {"id": document_id, "lease": LEASE},
         ).one()
-        # An empty text has no tokens to make.
-        if document.processed or not document.text:
+        if document.processed:
             return "processed"
         if document.running:
             return "processing"
@@ -208,13 +207,14 @@ def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
 
 def _release(conn, document_id: int, claimed_at: datetime, *, failed: bool) -> bool:
     """Release the claim made at `claimed_at` on the document, recording
-    whether its job `failed`; False, with nothing changed, if the claim no
-    longer holds."""
+    whether its job `failed` and, if not, that the document is processed;
+    False, with nothing changed, if the claim no longer holds."""
     released = conn.execute(
         text(
             """
             UPDATE documents
-            SET processing_started_at = NULL, processing_failed = :failed
+            SET processing_started_at = NULL, processing_failed = :failed,
+                processed_at = CASE WHEN :failed THEN NULL ELSE now() END
             WHERE id = :id AND processing_started_at = :claimed_at
             """
         ),
