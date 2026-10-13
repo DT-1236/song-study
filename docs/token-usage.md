@@ -100,11 +100,11 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Format Markdown and scripts/ with the repo's formatters          | #126 | initial pass                           | Sonnet 5.5, medium          | —    | 29    | 1.8M       | 15k    | M    |
 | 2026-10-13 | Mobile step 5b, tap to preview, long-press to pin, gloss sheet   | #127 | initial pass                           | Opus 5.5, high              | L    | 89    | 15.2M      | 103k   | XL   |
 | 2026-10-13 | Mobile step 5b, tap to preview, long-press to pin, gloss sheet   | #127 | /simplify (4 subagents)                | Opus 5.5, high              | —    | 52    | 6.9M       | 16k    | L    |
-| 2026-10-13 | Backlog sweep 8: held token marked on its element                | —    | backlog item                           | Sonnet 5.5, medium          | —    | 7     | 315k       | 2k     | S    |
-| 2026-10-13 | Backlog sweep 8: `useHeightProperty`                             | —    | backlog item                           | Sonnet 5.5, medium          | —    | 12    | 554k       | 4k     | S    |
-| 2026-10-13 | Backlog sweep 8: `openGlossSurface` in the harness               | —    | backlog item                           | Haiku 5.5, low              | —    | 11    | 528k       | 7k     | S    |
-| 2026-10-13 | Backlog sweep 8: gather and commit items                         | —    | backlog sweep                          | Opus 5.5, medium            | —    | 26    | 1.4M       | 7k     | M    |
-| 2026-10-13 | Backlog sweep 8 and #113, #115, #118                             | —    | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 39    | 2.2M       | 8k     | M    |
+| 2026-10-13 | Backlog sweep 8: held token marked on its element                | #128 | backlog item                           | Sonnet 5.5, medium          | —    | 7     | 315k       | 2k     | S    |
+| 2026-10-13 | Backlog sweep 8: `useHeightProperty`                             | #128 | backlog item                           | Sonnet 5.5, medium          | —    | 12    | 554k       | 4k     | S    |
+| 2026-10-13 | Backlog sweep 8: `openGlossSurface` in the harness               | #128 | backlog item                           | Haiku 5.5, low              | —    | 11    | 528k       | 7k     | S    |
+| 2026-10-13 | Backlog sweep 8: gather and commit items                         | #128 | backlog sweep                          | Opus 5.5, medium            | —    | 26    | 1.4M       | 7k     | M    |
+| 2026-10-13 | Backlog sweep 8 and #113, #115, #118                             | #128 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 39    | 2.2M       | 8k     | M    |
 
 ## Post-mortem log
 
