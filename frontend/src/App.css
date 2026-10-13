@@ -1327,7 +1327,7 @@ li.grammar-legend-item {
   }
 }
 
-.token.pressing::after {
+.token[data-pressing]::after {
   content: '';
   position: absolute;
   inset: 0;

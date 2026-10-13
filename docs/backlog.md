@@ -6,17 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on PR #127 (mobile step 5b: tap to preview, long-press to pin, gloss sheet)
 
-- **The held token's countdown re-renders the lyrics.** `pressingId` in
-  `TokenizedText` (`frontend/src/DocumentViewPage.tsx`) is set on every
-  touch of a glossed token and cleared on release, so a tap costs three
-  renders of the token loop instead of one, and a swipe starting on the
-  lyrics two. Each skips the memoized `TokenSpan`s, but the loop itself
-  still runs over every token. The fix sets the `pressing` mark directly on
-  the token element (a data attribute, which React's `className` doesn't
-  overwrite) and drops the state. Measure a long document on a phone first:
-  hover already costs one render per token entered, so this may not be
-  worth the less conventional form. Sonnet 5, medium: the measurement
-  decides it, and the change is small either way.
 - **Two copies of "publish an element's height on `.content`".**
   `PlayerBar` sets `--player-bar-height` through `useElementHeight` and an
   effect; `GlossPopup`'s sheet sets `--sheet-height` with its own
