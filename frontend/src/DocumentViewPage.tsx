@@ -66,6 +66,7 @@ import {
 } from './timing'
 import type { LyricsLine } from './timing'
 import { useElementHeight } from './useElementHeight'
+import { useHeightProperty } from './useHeightProperty'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { usePersistentState } from './usePersistentState'
@@ -1380,26 +1381,15 @@ function GlossPopup({
       ? token.gloss.pieces.flatMap((piece, i) => (piece.is_word ? [i] : []))
       : []
 
-  // As a sheet: its height is set on the scroll container, as
-  // --sheet-height, so the lyrics can scroll their last lines above it and
-  // what's scrolled into view (the token, the line being sung) stops above
-  // it. Set directly, like the transform below, so it lands before paint.
+  // As a sheet: its height is published as --sheet-height, so the lyrics can
+  // scroll their last lines above it and what's scrolled into view (the
+  // token, the line being sung) stops above it.
+  useHeightProperty(popupRef, '--sheet-height', sheet)
   useLayoutEffect(() => {
-    const popup = popupRef.current
-    const container = popup?.closest<HTMLElement>('.content')
-    if (!sheet || !popup || !container) return
-    const setHeight = () =>
-      container.style.setProperty('--sheet-height', `${popup.offsetHeight}px`)
-    setHeight()
+    if (!sheet) return
     // The popup's parent is its token, which stays outlined: out from under
     // the sheet, if it opened over it.
-    popup.parentElement?.scrollIntoView({ block: 'nearest' })
-    const observer = new ResizeObserver(setHeight)
-    observer.observe(popup)
-    return () => {
-      observer.disconnect()
-      container.style.removeProperty('--sheet-height')
-    }
+    popupRef.current?.parentElement?.scrollIntoView({ block: 'nearest' })
   }, [sheet])
 
   // Sets the popup's own transform directly (not through React state), so

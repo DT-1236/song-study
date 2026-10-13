@@ -6,16 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on PR #127 (mobile step 5b: tap to preview, long-press to pin, gloss sheet)
 
-- **Two copies of "publish an element's height on `.content`".**
-  `PlayerBar` sets `--player-bar-height` through `useElementHeight` and an
-  effect; `GlossPopup`'s sheet sets `--sheet-height` with its own
-  `ResizeObserver` in a layout effect, since it needs the value before its
-  `scrollIntoView` and before paint. A shared hook (say
-  `useHeightProperty(element, name)`) writing the property from a layout
-  effect would serve both, and would move the bar's update before paint.
-  Touches `PlayerBar.tsx` and both callers' tests in
-  `frontend/browser/checks/player-bar.mjs` and `mobile-gloss-sheet.mjs`.
-  Sonnet 5, medium.
 - **A token's surface is read two ways in the browser checks.**
   `openSurface` in `frontend/browser/checks/mobile-gloss-sheet.mjs` repeats
   the rule `token()` in `frontend/browser/harness.mjs` uses (clone, drop
