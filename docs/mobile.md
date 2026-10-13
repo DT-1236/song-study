@@ -186,8 +186,8 @@ it in the JSX remounts the iframe and stops playback.
 Already done by the player bar: the video is hidden by default and docked
 at the bottom when shown, so nothing is pinned at the top and no
 `--offset-top` is needed; `YouTubePlayer` passes `playsinline: 1`; and the
-bar's height is `--player-bar-height` on the page, which the playing line's
-`scroll-margin-bottom`, `.timing-row`'s and the toast's `bottom` read.
+bar sets its height as `--player-bar-height` on `.content`, whose
+`scroll-padding-bottom` and the toast's `bottom` read it.
 
 ## Step 4 — Settings page
 
@@ -351,7 +351,7 @@ playback. A preview is for a quick look.
 - The sheet measures itself (a `ResizeObserver`, set imperatively as
   `reposition` sets its transform) and sets `--sheet-height` on the lyrics
   box. The box gets that much bottom padding, so the last lines can still be
-  scrolled above it. The lyrics' `scroll-margin-bottom` adds it to
+  scrolled above it. `.content`'s `scroll-padding-bottom` adds it to
   `--player-bar-height`, so the playing line's auto-scroll stops above the
   sheet. The sheet sits directly above the bar.
 - The token whose gloss is open keeps its outline while its sheet is open.

@@ -28,9 +28,11 @@ await check('player-bar', async (h) => {
   }
   const button = (page, label) =>
     page.locator(`.player-controls button[aria-label="${label}"]`)
+  const isPressed = (page, label) =>
+    button(page, label).evaluate((el) => el.classList.contains('pressed'))
   // Waits until the player is ready, which enables its buttons.
   const ready = (page) =>
-    page.waitForSelector('.player-controls button[aria-label="Play"]:enabled', {
+    button(page, 'Play').and(page.locator(':enabled')).waitFor({
       timeout: 20_000,
     })
 
@@ -57,6 +59,17 @@ await check('player-bar', async (h) => {
       Math.abs(bar.bottom - bar.screen) <= 1,
       `${tag} the bar is docked at the bottom of the screen at scroll top`,
       JSON.stringify(bar),
+    )
+    const padding = await page.$eval('.player-bar', (el) => ({
+      bar: el.offsetHeight,
+      padding: parseFloat(
+        getComputedStyle(el.closest('.content')).scrollPaddingBottom,
+      ),
+    }))
+    h.expect(
+      padding.bar > 0 && padding.padding === padding.bar,
+      `${tag} what's scrolled into view stops above the bar`,
+      JSON.stringify(padding),
     )
     h.expectNone(
       await smallTapTargets(page, '.player-bar'),
@@ -99,23 +112,13 @@ await check('player-bar', async (h) => {
     'the buttons show their keys',
   )
   await desk.keyboard.press('Period')
-  h.expect(
-    await button(desk, 'Forward 3s').evaluate((el) =>
-      el.classList.contains('pressed'),
-    ),
-    '. presses Forward',
-  )
+  h.expect(await isPressed(desk, 'Forward 3s'), '. presses Forward')
   await desk.waitForSelector('.player-controls button.pressed', {
     state: 'detached',
   })
   h.expect(true, 'and lets it go')
   await desk.keyboard.press('Space')
-  h.expect(
-    await button(desk, 'Play').evaluate((el) =>
-      el.classList.contains('pressed'),
-    ),
-    'Space presses Play',
-  )
+  h.expect(await isPressed(desk, 'Play'), 'Space presses Play')
   await playedPast(desk, 4)
   h.expect(true, 'and plays')
   await desk.keyboard.press('Space')

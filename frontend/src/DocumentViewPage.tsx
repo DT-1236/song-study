@@ -69,6 +69,7 @@ import { useElementHeight } from './useElementHeight'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { useSave } from './useSave'
+import { useTransient } from './useTransient'
 import { NARROW_SCREEN, useMediaQuery } from './media'
 import { ViewSettings } from './ViewSettings'
 import { displayStyle, useViewSettings } from './useViewSettings'
@@ -2531,25 +2532,14 @@ export function DocumentViewPage() {
     save: saveTimings,
   } = useSave()
 
-  // A short notice at the bottom of the screen: an object, so showing the
-  // same message again restarts its timer.
-  const [toast, setToast] = useState<{ message: string } | null>(null)
-  const showToast = useCallback((message: string) => setToast({ message }), [])
-  useEffect(() => {
-    if (!toast) return
-    const timeout = window.setTimeout(() => setToast(null), TOAST_MS)
-    return () => window.clearTimeout(timeout)
-  }, [toast])
+  // A short notice at the bottom of the screen.
+  const [toast, showToast] = useTransient<string>(TOAST_MS)
 
   const youtubePlayerRef = useRef<YouTubePlayerHandle>(null)
   // The page content above the lyrics, and its height: the most the pinned
   // selection panel may cover (see .selection-anchor).
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
   const headerHeight = useElementHeight(headerEl)
-  // The player docked at the bottom, and its height: what the lyrics scroll
-  // to above and the toast sits on.
-  const [playerBarEl, setPlayerBarEl] = useState<HTMLDivElement | null>(null)
-  const playerBarHeight = useElementHeight(playerBarEl)
 
   useEffect(() => {
     let cancelled = false
@@ -2851,14 +2841,7 @@ export function DocumentViewPage() {
   }
 
   return (
-    <div
-      className="new-document-form"
-      style={
-        {
-          '--player-bar-height': `${playerBarHeight}px`,
-        } as React.CSSProperties
-      }
-    >
+    <div className="new-document-form">
       <div className="document-header" ref={setHeaderEl}>
         <h1>{doc.title}</h1>
         <Link to={`/documents/${doc.id}/study`}>Study this song</Link>
@@ -3039,7 +3022,6 @@ export function DocumentViewPage() {
 
       {doc.youtube_video_id && (
         <PlayerBar
-          ref={setPlayerBarEl}
           playerRef={youtubePlayerRef}
           videoId={doc.youtube_video_id}
           onSeek={handleSeek}
@@ -3065,7 +3047,7 @@ export function DocumentViewPage() {
       />
       {toast && (
         <div className="toast" role="status">
-          {toast.message}
+          {toast}
         </div>
       )}
     </div>

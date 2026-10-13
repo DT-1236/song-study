@@ -1,27 +1,29 @@
-import { forwardRef, useEffect, useState } from 'react'
-import type { ReactNode, RefObject } from 'react'
+import { useEffect, useState } from 'react'
+import type { ButtonHTMLAttributes, RefObject } from 'react'
+import { PlayIcon } from './LinePlayButton'
+import { useElementHeight } from './useElementHeight'
 import { usePersistentState } from './usePersistentState'
 import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import type { PlayerShortcut } from './usePlayerShortcuts'
+import { useTransient } from './useTransient'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
 // How long a button looks pressed after its key is.
 const PRESS_MS = 150
 
-type Props = {
-  playerRef: RefObject<YouTubePlayerHandle>
-  videoId: string
-  onSeek?: () => void
-}
-
 // The song's player, docked to the bottom of the screen: its video, hidden
 // unless shown, and a button for each of the player's keys (Space, , and .),
 // which looks pressed when its key is.
-export const PlayerBar = forwardRef<HTMLDivElement, Props>(function PlayerBar(
-  { playerRef, videoId, onSeek },
-  ref,
-) {
+export function PlayerBar({
+  playerRef,
+  videoId,
+  onSeek,
+}: {
+  playerRef: RefObject<YouTubePlayerHandle>
+  videoId: string
+  onSeek?: () => void
+}) {
   const [seekSeconds] = useSeekSeconds()
   // Shared by every page, and hidden until it's asked for: most of these
   // songs are found through YouTube Music, whose videos are just the cover.
@@ -31,25 +33,25 @@ export const PlayerBar = forwardRef<HTMLDivElement, Props>(function PlayerBar(
   // before then.
   const [readyVideoId, setReadyVideoId] = useState<string | null>(null)
   const ready = readyVideoId === videoId
-  // The key last pressed: an object, so pressing it again restarts the press.
-  const [pressed, setPressed] = useState<{ shortcut: PlayerShortcut } | null>(
-    null,
-  )
+  const [pressed, press] = useTransient<PlayerShortcut>(PRESS_MS)
 
-  usePlayerShortcuts(playerRef, seekSeconds, (shortcut) =>
-    setPressed({ shortcut }),
-  )
+  usePlayerShortcuts(playerRef, seekSeconds, press)
 
+  // Set on the scroll container, which the page's scroll padding and toast
+  // read, so what's scrolled into view stops above the bar.
+  const [barEl, setBarEl] = useState<HTMLDivElement | null>(null)
+  const height = useElementHeight(barEl)
   useEffect(() => {
-    if (!pressed) return
-    const timeout = window.setTimeout(() => setPressed(null), PRESS_MS)
-    return () => window.clearTimeout(timeout)
-  }, [pressed])
-
-  const isPressed = (shortcut: PlayerShortcut) => pressed?.shortcut === shortcut
+    const container = barEl?.closest<HTMLElement>('.content')
+    if (!container) return
+    container.style.setProperty('--player-bar-height', `${height}px`)
+    return () => {
+      container.style.removeProperty('--player-bar-height')
+    }
+  }, [barEl, height])
 
   return (
-    <div ref={ref} className="player-bar">
+    <div ref={setBarEl} className="player-bar">
       <YouTubePlayer
         ref={playerRef}
         videoId={videoId}
@@ -61,79 +63,83 @@ export const PlayerBar = forwardRef<HTMLDivElement, Props>(function PlayerBar(
       <div className="player-controls">
         <KeyButton
           label={`Back ${seekSeconds}s`}
-          disabled={!ready}
           keyName=","
-          pressed={isPressed('back')}
+          pressed={pressed === 'back'}
+          disabled={!ready}
           onClick={() => playerRef.current?.seekBy(-seekSeconds)}
         >
           −{seekSeconds}s
         </KeyButton>
         <KeyButton
           label={playing ? 'Pause' : 'Play'}
-          disabled={!ready}
           keyName="Space"
-          pressed={isPressed('play')}
+          pressed={pressed === 'play'}
+          disabled={!ready}
           onClick={() => playerRef.current?.togglePlay()}
         >
-          <svg viewBox="0 0 10 10" aria-hidden="true">
-            <path
-              d={playing ? 'M2 1h2.5v8H2ZM5.5 1H8v8H5.5Z' : 'M2 1 9 5 2 9Z'}
-            />
-          </svg>
+          {playing ? (
+            <svg viewBox="0 0 10 10" aria-hidden="true">
+              <path d="M2 1h2.5v8H2ZM5.5 1H8v8H5.5Z" />
+            </svg>
+          ) : (
+            <PlayIcon />
+          )}
         </KeyButton>
         <KeyButton
           label={`Forward ${seekSeconds}s`}
-          disabled={!ready}
           keyName="."
-          pressed={isPressed('forward')}
+          pressed={pressed === 'forward'}
+          disabled={!ready}
           onClick={() => playerRef.current?.seekBy(seekSeconds)}
         >
           +{seekSeconds}s
         </KeyButton>
-        <button
-          type="button"
+        <BarButton
           className="player-video-toggle"
           aria-pressed={showVideo}
-          onMouseDown={(e) => e.preventDefault()}
           onClick={() => setShowVideo(!showVideo)}
         >
           Video
-        </button>
+        </BarButton>
       </div>
     </div>
   )
-})
+}
+
+// A button in the bar.
+function BarButton(props: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      type="button"
+      // Leaves focus where it was, so Space keeps playing and pausing rather
+      // than pressing this again.
+      onMouseDown={(e) => e.preventDefault()}
+      {...props}
+    />
+  )
+}
 
 // A button doing what the key `keyName` does, showing that key.
 function KeyButton({
   label,
   keyName,
   pressed,
-  disabled,
-  onClick,
   children,
-}: {
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
   label: string
   keyName: string
   pressed: boolean
-  disabled: boolean
-  onClick: () => void
-  children: ReactNode
 }) {
   return (
-    <button
-      type="button"
+    <BarButton
       className={pressed ? 'pressed' : undefined}
       aria-label={label}
       title={`${label} (${keyName})`}
-      disabled={disabled}
-      // Leaves focus where it was, so Space keeps playing and pausing rather
-      // than pressing this again.
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
+      {...props}
     >
       {children}
       <kbd>{keyName}</kbd>
-    </button>
+    </BarButton>
   )
 }

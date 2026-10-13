@@ -95,6 +95,8 @@
   min-width: 0;
   height: 100%;
   overflow-y: auto;
+  /* Scrolling something into view stops above a docked player bar. */
+  scroll-padding-bottom: var(--player-bar-height, 0px);
 }
 
 .content-inner {
@@ -583,10 +585,11 @@ li.grammar-legend-item {
   width: 1px;
   height: 1px;
   clip-path: inset(50%);
-  pointer-events: none;
 }
 
-/* Docked to the bottom of the screen while the page above it is in view. */
+/* Docked to the bottom of the screen while the page above it is in view.
+   PlayerBar sets its height on the scroll container, as --player-bar-height,
+   so what's scrolled into view stops above it. */
 .player-bar {
   position: sticky;
   bottom: 0;
@@ -628,10 +631,6 @@ li.grammar-legend-item {
 }
 
 .player-controls kbd {
-  padding: 0 0.3em;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  font-family: inherit;
   font-size: 0.8em;
   color: var(--text-muted);
 }
@@ -889,7 +888,8 @@ li.grammar-legend-item {
 }
 
 /* Keys that use a setting, drawn as keycaps so a lone , or . reads as one. */
-.text-size-controls kbd {
+.text-size-controls kbd,
+.player-controls kbd {
   padding: 0 0.3em;
   border: 1px solid var(--border);
   border-radius: 3px;
@@ -1007,8 +1007,6 @@ li.grammar-legend-item {
   gap: 0.75rem;
   border-radius: 4px;
   cursor: pointer;
-  /* Scrolled to above the player docked at the bottom. */
-  scroll-margin-bottom: var(--player-bar-height, 0px);
 }
 
 /* LRCLIB's lyrics, as a pick on the new-document form or a track being
@@ -1159,8 +1157,6 @@ li.grammar-legend-item {
    of its text, so the furigana above the text shows too. */
 .lyrics-box .token {
   scroll-margin-top: calc((var(--lyrics-line-height) - 1) / 2 * 1em);
-  /* Stops above the player docked at the bottom. */
-  scroll-margin-bottom: var(--player-bar-height, 0px);
 }
 
 .token.needs-review {
