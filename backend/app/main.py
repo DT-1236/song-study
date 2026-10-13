@@ -254,11 +254,13 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
                 text(
                     f"""
                     INSERT INTO documents (
-                        owner_id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines
+                        owner_id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines,
+                        lrclib_lines_text
                     )
                     VALUES (
                         :owner_id, :title, :text, :youtube_video_id, :lrclib_uri, :lrclib_replaces_text,
-                        CAST(:lrclib_lines AS JSONB)
+                        CAST(:lrclib_lines AS JSONB),
+                        CASE WHEN :lrclib_lines IS NOT NULL THEN :text END
                     )
                     RETURNING {DOCUMENT_COLUMNS}
                     """
@@ -377,7 +379,8 @@ def _store_lrclib_lyrics(
             f"""
             UPDATE documents
             SET text = :text, lrclib_uri = :uri, lrclib_replaces_text = :replace_text,
-                lrclib_lines = CAST(:lines AS JSONB)
+                lrclib_lines = CAST(:lines AS JSONB),
+                lrclib_lines_text = CASE WHEN :lines IS NOT NULL THEN :text END
             WHERE id = :id
             RETURNING {DOCUMENT_COLUMNS}
             """
@@ -416,12 +419,11 @@ def update_document_text(
     A document whose lyrics LRCLIB replaces takes them from there, so its
     text can't be edited until it's unlinked."""
     with engine.begin() as conn:
-        # Its line timings were for the old text. Its tokens are dropped by
-        # the trigger from migration 0034.
+        # Its tokens are dropped by the trigger from migration 0034.
         row = conn.execute(
             text(
                 f"""
-                UPDATE documents SET text = :text, lrclib_lines = NULL
+                UPDATE documents SET text = :text
                 WHERE id = :id AND owner_id = :owner_id AND lrclib_replaces_text IS NOT TRUE
                 RETURNING {DOCUMENT_COLUMNS}
                 """

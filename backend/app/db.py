@@ -17,8 +17,9 @@ def json_param(value) -> str | None:
 
 
 DOCUMENT_COLUMNS = (
-    "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines, "
-    # Edits only apply to the text they were made for.
+    "id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, "
+    # Timings and edits only apply to the text they were made for.
+    "CASE WHEN lrclib_lines_text = text THEN lrclib_lines END AS lrclib_lines, "
     "CASE WHEN edited_lines_text = text THEN edited_lines END AS edited_lines, created_at"
 )
 

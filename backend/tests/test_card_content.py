@@ -369,7 +369,7 @@ def _song_with_timings(
     with engine.begin() as conn:
         conn.execute(
             text(
-                "UPDATE documents SET lrclib_lines = CAST(:lines AS JSONB) WHERE id = :id"
+                "UPDATE documents SET lrclib_lines = CAST(:lines AS JSONB), lrclib_lines_text = text WHERE id = :id"
             ),
             {"id": document_id, "lines": json.dumps(timings)},
         )
