@@ -75,7 +75,7 @@ async function loadChoices(
 }
 
 // What a correction did, said as it happens, since otherwise the card the
-// user was studying would seem to vanish (docs/flashcards.md, §4).
+// user was studying would seem to vanish (docs/completed/flashcards.md, §4).
 function correctionMessage(
   from: string,
   to: string,

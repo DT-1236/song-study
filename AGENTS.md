@@ -125,7 +125,7 @@
   where it is, and what fixing it would cost, so it can be picked up later
   without re-deriving the reasoning.
 - End each entry with the model and effort expected to complete it, chosen
-  as `docs/flashcards.md` does ("Which model to run each step with"): the
+  as `docs/completed/flashcards.md` does ("Which model to run each step with"): the
   model by how subtle the change is (Opus 5 where a mistake is silent or the
   surrounding code is delicate, Sonnet 5 for pattern application against a
   clear spec, Haiku 4.5 for a mechanical change with one obvious answer),

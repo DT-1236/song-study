@@ -974,7 +974,7 @@ dates are shared state. Default parameters are fitted on ~727M reviews and are f
 - **Kanji get a reveal-side sidebar, never cards of their own** — all on'yomi, the contextual
   kun'yomi, meanings, grade and frequency, the classical radical with its English name over a
   muted component breakdown, and links to other words in your deck (§3).
-- **The doc lives at `docs/flashcards.md`.**
+- **The doc lives at `docs/completed/flashcards.md`.**
 
 ## 10. Still open
 
@@ -999,7 +999,7 @@ dates are shared state. Default parameters are fitted on ~727M reviews and are f
 Each step is a PR that stands on its own. Per the working agreement, **start each only when
 asked**.
 
-**0 — This document** → `docs/flashcards.md`. The repo has no `docs/` directory yet, so this
+**0 — This document** → `docs/completed/flashcards.md`. The repo has no `docs/` directory yet, so this
 creates it. Everything below references it.
 
 **1 — Users and ownership.** Migration adding `users`, a seeded local user, and

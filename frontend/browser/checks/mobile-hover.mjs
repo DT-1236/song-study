@@ -1,4 +1,4 @@
-// Step 5a of docs/mobile.md: hover only from a mouse, no sticky :hover on
+// Step 5a of docs/ongoing/mobile.md: hover only from a mouse, no sticky :hover on
 // touch, and the "Pinned" marker in a pinned gloss on every device.
 import {
   check,
