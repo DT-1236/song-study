@@ -1,9 +1,12 @@
 repos:
   # Pinned to the ruff the backend's venv installs, so the hook and the
   # `ruff format` AGENTS.md tells you to run can't disagree about a file.
-  # Both are scoped to backend/, as AGENTS.md's `ruff format app tests
-  # migrations` is: this ruff also formats Python inside markdown, which would
-  # reflow the hand-aligned snippets in docs/.
+  # Both are scoped to backend/ and scripts/, as AGENTS.md's `ruff format app
+  # tests migrations ../scripts` is: this ruff also formats Python inside
+  # markdown, which would reflow the hand-aligned snippets in docs/. The config
+  # is passed explicitly because ruff.toml lives in backend/, and ruff only
+  # finds one above the file it checks. `src` is pinned for the same reason:
+  # with an explicit config, `app` and `tests` stop counting as first-party.
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.8
     hooks:
@@ -11,19 +14,23 @@ repos:
       # findings worth having are the ones you read (see the B023 and BLE001
       # in the adoption commit). `ruff check --fix` by hand is still fine.
       - id: ruff-check
-        files: ^backend/
+        args: [--config, backend/ruff.toml, --config, 'src=["backend"]']
+        files: ^(backend|scripts)/
       - id: ruff-format
-        files: ^backend/
+        args: [--config, backend/ruff.toml, --config, 'src=["backend"]']
+        files: ^(backend|scripts)/
 
   # The repo's own prettier, not pre-commit's mirror: the mirror is archived,
   # has no v3.1.1, and pins a prettier of its own that would fight the 3.9.8
-  # in frontend/package.json. Scoped to frontend/, the only tree prettier is
-  # configured for (.prettierrc.json and .prettierignore live there).
+  # in frontend/package.json. Covers frontend/ plus the Markdown outside it
+  # (README.md, AGENTS.md, docs/), the same files `npm run format` does. The
+  # config is passed explicitly because .prettierrc.json lives in frontend/
+  # and prettier only finds a config above the file it formats.
   - repo: local
     hooks:
       - id: prettier
         name: prettier
-        entry: frontend/node_modules/.bin/prettier --write
+        entry: frontend/node_modules/.bin/prettier --config frontend/.prettierrc.json --write
         language: system
-        files: ^frontend/
+        files: ^(frontend/|docs/|README\.md$|AGENTS\.md$)
         types_or: [javascript, jsx, ts, tsx, css, json, markdown]

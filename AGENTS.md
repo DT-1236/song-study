@@ -17,9 +17,9 @@
 
 ## Function descriptions (docstrings)
 
-- Limit a docstring to the function's *intended effect*, phrased in terms
+- Limit a docstring to the function's _intended effect_, phrased in terms
   of its inputs — what it does/returns, not how. Add one to two lines of
-  reasoning only when the *why* isn't obvious from the signature/effect
+  reasoning only when the _why_ isn't obvious from the signature/effect
   alone (a non-obvious constraint, a domain rule the caller needs to know).
 - Keep implementation details — which helper it delegates to, a specific
   data-shape quirk being worked around, an algorithmic choice — out of the
@@ -53,14 +53,17 @@
 
 - Both halves of the repo are formatted by a tool, so don't hand-align code or
   argue with the output: run the formatter before committing.
-  - Frontend: `npm run format` in `frontend/` (Prettier). The config keeps the
-    style the code was already written in — no semicolons, single quotes.
-  - Backend: `.venv/bin/ruff format app tests migrations` in `backend/`. Ruff's
-    formatter is Black-compatible and left on its defaults (88 columns, double
+  - Frontend and Markdown: `npm run format` in `frontend/` (Prettier). It
+    covers `frontend/` plus `README.md`, `AGENTS.md` and `docs/`. The config
+    keeps the style the code was already written in — no semicolons, single
+    quotes. Prettier aligns Markdown tables, so a table you edit is rewritten
+    to the widest cell on the next run; edit the row and let it re-pad the rest.
+  - Backend: `.venv/bin/ruff format --config ruff.toml app tests migrations
+../scripts` in `backend/` (`make format` there runs it). Ruff's formatter is Black-compatible and left on its defaults (88 columns, double
     quotes), so `backend/ruff.toml` only pins the target Python version.
 - `npm run format:check` and `ruff format --check` are the read-only versions,
   for confirming a branch is clean without rewriting files.
-- Ruff's *linter* (`ruff check app tests migrations`) is adopted and clean —
+- Ruff's _linter_ (`ruff check --config ruff.toml app tests migrations ../scripts`) is adopted and clean —
   keep it that way, and don't add a `# noqa` without a comment saying why the
   rule is wrong here rather than the code.
   - It runs as a pre-commit hook, reporting without `--fix`. A hook that
@@ -157,7 +160,7 @@
   `pulls/{pr}/reviews` endpoint with a `comments` array) so reviewers get
   file-specific context even for files the UI doesn't auto-display. This
   works for any file/line GitHub actually computed a diff for.
-- It does *not* work for files GitHub refuses to diff at all (files past
+- It does _not_ work for files GitHub refuses to diff at all (files past
   its hard size limits, or marked `linguist-generated`) — for those, only
   a general PR-level comment is possible, since there's no diff to anchor
   a line comment to.

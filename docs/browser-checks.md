@@ -58,8 +58,14 @@ await check('gloss-on-phone', async (h) => {
     const page = await h.open(`/documents/${h.seed.document_id}`, device)
     await tokenized(page)
     await tapOrClick(page, await token(page, '蜘蛛'))
-    h.expect(await isShown(page, '.gloss-popup'), `[${device.name}] gloss opens`)
-    h.expectNone(await sidewaysOverflow(page), `[${device.name}] no sideways scroll`)
+    h.expect(
+      await isShown(page, '.gloss-popup'),
+      `[${device.name}] gloss opens`,
+    )
+    h.expectNone(
+      await sidewaysOverflow(page),
+      `[${device.name}] no sideways scroll`,
+    )
     await h.screenshot(page, 'gloss')
   }
 })
@@ -72,16 +78,16 @@ absolute path.
 
 `check(name, body)` calls `body(h)` with:
 
-| | |
-|---|---|
-| `h.open(path, device)` | A page at `path` in a fresh context for `device` (`PHONE`, `NARROW`, `LANDSCAPE`, `DESKTOP`; `PHONES` and `ALL_DEVICES` are lists). Uncaught page errors and 5xx responses fail the check; console errors are reported as notes. Requests to any origin but the harness's and YouTube's are blocked. |
-| `h.step(label)` | Names what comes next, so a failure says where it happened. |
-| `h.expect(ok, message, detail?)` | One `PASS`/`FAIL` line. |
-| `h.expectNone(list, message)` | Passes when a measurement's list of offenders is empty. |
-| `h.screenshot(page, label)` | Saves a full-page PNG and prints its path; Read it to look. |
-| `h.api(method, path, body)` | Calls `/api` as the test user, for setup beyond the seed. |
-| `h.seed` | `{ document_id, user_id }`. |
-| `h.videoDocument()` | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none. |
+|                                  |                                                                                                                                                                                                                                                                                                      |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `h.open(path, device)`           | A page at `path` in a fresh context for `device` (`PHONE`, `NARROW`, `LANDSCAPE`, `DESKTOP`; `PHONES` and `ALL_DEVICES` are lists). Uncaught page errors and 5xx responses fail the check; console errors are reported as notes. Requests to any origin but the harness's and YouTube's are blocked. |
+| `h.step(label)`                  | Names what comes next, so a failure says where it happened.                                                                                                                                                                                                                                          |
+| `h.expect(ok, message, detail?)` | One `PASS`/`FAIL` line.                                                                                                                                                                                                                                                                              |
+| `h.expectNone(list, message)`    | Passes when a measurement's list of offenders is empty.                                                                                                                                                                                                                                              |
+| `h.screenshot(page, label)`      | Saves a full-page PNG and prints its path; Read it to look.                                                                                                                                                                                                                                          |
+| `h.api(method, path, body)`      | Calls `/api` as the test user, for setup beyond the seed.                                                                                                                                                                                                                                            |
+| `h.seed`                         | `{ document_id, user_id }`.                                                                                                                                                                                                                                                                          |
+| `h.videoDocument()`              | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none.                                                                                                                                                                                                  |
 
 And from `harness.mjs`, each taking a page: `isShown`, `settle` (waits for
 CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewaysOverflow`, `smallTapTargets` (under

@@ -7,6 +7,7 @@ definitions, with playback synced alongside the text.
 ## Features
 
 ### Documents
+
 - Create a document from a title, lyrics, and an optional YouTube video ID.
 - Lyrics are cleaned up before they're saved, whether pasted or loaded from
   LRCLIB: look-alikes of Latin letters (a Roman numeral ⅿ, a ligature ﬁ)
@@ -20,6 +21,7 @@ definitions, with playback synced alongside the text.
   evicting the least-recently-used one once the limit is reached.
 
 ### Furigana & reading analysis
+
 - Lyrics are tokenized with [SudachiPy](https://github.com/WorksApplications/SudachiPy),
   and each token is annotated with furigana, its dictionary form/reading,
   and part of speech (with a POS legend in the sidebar).
@@ -42,6 +44,7 @@ definitions, with playback synced alongside the text.
   of joining them into one gloss (not supported yet).
 
 ### Dictionary glosses
+
 - Hovering or clicking a token shows its [JMDict](https://www.edrdg.org/jmdict/j_jmdict.html)
   definitions, tagged with part of speech and usage notes.
 - Compounds with no single JMDict entry are broken down and glossed piece by
@@ -52,6 +55,7 @@ definitions, with playback synced alongside the text.
   lowercase for hiragana, capitals for katakana.
 
 ### LRCLIB lyrics
+
 - A document can be linked to an [LRCLIB](https://lrclib.net) track (its ID,
   or its `https://lrclib.net/api/get/{id}` address), at creation or later.
 - Linking an existing document either keeps its own lyrics and readings,
@@ -68,6 +72,7 @@ definitions, with playback synced alongside the text.
   being sung is highlighted.
 
 ### YouTube playback
+
 - An embedded player syncs alongside the lyrics for a linked video.
 - Keyboard shortcuts mirror YouTube's own: Space to play/pause, `,`/`.` to
   seek backward/forward by an adjustable step.

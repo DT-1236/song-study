@@ -8,8 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "format": "prettier --write .",
-    "format:check": "prettier --check .",
+    "format": "prettier --config .prettierrc.json --write . ../README.md ../AGENTS.md ../docs",
+    "format:check": "prettier --config .prettierrc.json --check . ../README.md ../AGENTS.md ../docs",
     "preview": "vite preview"
   },
   "dependencies": {

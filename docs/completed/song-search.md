@@ -26,8 +26,7 @@ The manual fields stay as a fallback (decided 2026-10-07).
 - Matching is **whole-token only**. `夜に駆` → 0 results, and `駆ける` doesn't find
   夜に駆ける, because a Japanese title with no spaces counts as one token.
   Partial matching has to come from sending a few query variants (title +
-  artist, title alone, the title with decorations like `(feat. …)` / `(TV
-  Size)` removed), merging them by id, and checking title containment
+  artist, title alone, the title with decorations like `(feat. …)` / `(TV Size)` removed), merging them by id, and checking title containment
   ourselves.
 - Uploaders' titles are messy (`YOASOBI「アイドル」 Official Music Video`).
   Starting from clean song metadata helps a lot, which is why YouTube Music's
@@ -44,13 +43,13 @@ depend on each other. Step 3 needs both, and step 4 needs step 3. The
 the spec for the last. Each step runs its own tests plus the relevant part of
 Verification.
 
-| Step | Status | Ships | Model | Effort | Why |
-|---|---|---|---|---|---|
-| 0 — Doc | Done | This plan committed as `docs/completed/song-search.md`, so each step's session reads the same spec | Haiku 4.5 | low | Mechanical: copy the plan into the repo |
-| 1 — YouTube Music song search | Done | `ytmusicapi` dep, `app/youtube_music.py`, `GET /api/songs/search`, `SongSearch.tsx`; a pick fills Title + YouTube video ID. Usable on its own | Sonnet 5 | medium | Wrapping a library against a clear spec. Its result shape is loose (missing album/duration), but that's visible, not silent |
-| 2 — LRCLIB track search | Done | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail *silently*: the right track just never shows up |
-| 3 — LRCLIB matches in the form | Done | `LrclibMatches.tsx`, NewDocumentForm wiring, manual fields under `<details>`, CSS | Sonnet 5 | medium | Conventional React. The traps are a typed title being overwritten and a required lyrics box hidden in `<details>`, and the browser check catches both |
-| 4 — LRCLIB lyrics and playback highlight | Done | `GET /api/lrclib/tracks/{id}`; picking an LRCLIB option fills a disabled lyrics field, and timed lyrics highlight the playing line beside the video; `usePlayingLine` and the highlight settings shared with `DocumentViewPage` | **Opus 5** | medium | The shared hook is lifted out of `DocumentViewPage`'s playback effect, whose seek and nudge handling fails silently (a highlight a line late, or stuck). The rest is conventional React |
+| Step                                     | Status | Ships                                                                                                                                                                                                                           | Model      | Effort   | Why                                                                                                                                                                                     |
+| ---------------------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 0 — Doc                                  | Done   | This plan committed as `docs/completed/song-search.md`, so each step's session reads the same spec                                                                                                                              | Haiku 4.5  | low      | Mechanical: copy the plan into the repo                                                                                                                                                 |
+| 1 — YouTube Music song search            | Done   | `ytmusicapi` dep, `app/youtube_music.py`, `GET /api/songs/search`, `SongSearch.tsx`; a pick fills Title + YouTube video ID. Usable on its own                                                                                   | Sonnet 5   | medium   | Wrapping a library against a clear spec. Its result shape is loose (missing album/duration), but that's visible, not silent                                                             |
+| 2 — LRCLIB track search                  | Done   | `search_tracks` in `app/lrclib.py`, `GET /api/lrclib/search`, tests. No UI yet; check it with curl against the test backend                                                                                                     | **Opus 5** | **high** | The subtle part. The query variants, title normalization (NFKC, Japanese brackets, `feat.`), and partial-failure handling all fail _silently_: the right track just never shows up      |
+| 3 — LRCLIB matches in the form           | Done   | `LrclibMatches.tsx`, NewDocumentForm wiring, manual fields under `<details>`, CSS                                                                                                                                               | Sonnet 5   | medium   | Conventional React. The traps are a typed title being overwritten and a required lyrics box hidden in `<details>`, and the browser check catches both                                   |
+| 4 — LRCLIB lyrics and playback highlight | Done   | `GET /api/lrclib/tracks/{id}`; picking an LRCLIB option fills a disabled lyrics field, and timed lyrics highlight the playing line beside the video; `usePlayingLine` and the highlight settings shared with `DocumentViewPage` | **Opus 5** | medium   | The shared hook is lifted out of `DocumentViewPage`'s playback effect, whose seek and nudge handling fails silently (a highlight a line late, or stuck). The rest is conventional React |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Steps fully specified here can run at
@@ -64,6 +63,7 @@ the listed effort; escalate a step that stalls rather than starting higher.
 current version with `pip index versions ytmusicapi` when implementing.
 
 **New `backend/app/youtube_music.py`**
+
 - `search_songs(query: str) -> list[Song]` calls
   `YTMusic().search(query, filter="songs", limit=10)` without auth. Create the
   client lazily at module level.
@@ -76,6 +76,7 @@ current version with `pip index versions ytmusicapi` when implementing.
 
 **Extend `backend/app/lrclib.py`** (reuses `_get_json`, `USER_AGENT`,
 `_API_GET`, `sanitize_text`)
+
 - `search_tracks(title, artist, duration) -> list[LrclibCandidate]`:
   - Build query variants with no duplicates:
     `track_name=title&artist_name=artist`, `q=f"{title} {artist}"`,
@@ -105,6 +106,7 @@ current version with `pip index versions ytmusicapi` when implementing.
 
 **New endpoints in `backend/app/main.py`**. Both take `user_id: CurrentUser`
 so they aren't an open proxy:
+
 - `GET /api/songs/search?q=` → `list[SongResult]`. Raises 502 on
   `YouTubeMusicUnavailable`.
 - `GET /api/lrclib/search?title=&artist=&duration=` → `list[LrclibCandidate]`.
@@ -135,6 +137,7 @@ option, "None — I'll paste the lyrics", is always there. The component calls
 when it's within tolerance and synced.
 
 **`frontend/src/NewDocumentForm.tsx`:**
+
 - Top: `<SongSearch>`. Picking a song sets `youtubeVideoId` and sets `title`
   when the title is empty or was itself auto-filled (tracked with a flag, so
   a typed title is never overwritten). It then renders `<LrclibMatches>`.
@@ -156,6 +159,7 @@ commented "Qualified to outrank .new-document-form button" do (e.g.
 this work.
 
 ### Tests (`backend/tests/`, no network, no lyrics in fixtures)
+
 - `test_lrclib.py`: extend `FakeLrclib` to route `/api/search` URLs by their
   query params. Cover: merging and deduping across variants; dropping
   non-matching titles; whole vs partial ranking; the tolerance flag and sort
@@ -266,6 +270,7 @@ shown the way the YouTube results are.
   browser check carries it. If `usePlayingLine` has pure parts worth testing,
   they live in `timing.ts` beside `lastStartedBy`.
 - Browser check, extending the Verification flow above:
+
   0. Confirm the LRCLIB matches look like the song results (rows, not
      radios), that a click picks one and closes the list, and that clicking
      into the LRCLIB search box reopens it.
@@ -282,6 +287,7 @@ shown the way the YouTube results are.
      since its effect was refactored.
 
 ## Verification
+
 - `cd backend && .venv/bin/pytest`, `.venv/bin/ruff check app tests migrations`,
   `.venv/bin/ruff format --check …`
 - `cd frontend && npm run lint && npm run build && npm test && npm run format:check`
@@ -296,6 +302,7 @@ shown the way the YouTube results are.
 
   (YouTube Music and LRCLIB are called live here, which is fine because
   neither touches the DB.)
+
 - Steps 1, 3 and 4 get the browser check (step 1 covers only points 1 and 3;
   step 4 adds the checks in its own section).
   Step 2 is checked with pytest, plus a curl to the test backend's
