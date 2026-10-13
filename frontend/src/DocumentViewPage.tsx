@@ -1,10 +1,13 @@
 import {
   Fragment,
+  type ForwardedRef,
   type ReactNode,
+  forwardRef,
   memo,
   useCallback,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -50,7 +53,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import type { LrclibSong } from './LrclibMatches'
-import { KeyButton, PlayerBar } from './PlayerBar'
+import { KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -62,8 +65,8 @@ import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { usePersistentState } from './usePersistentState'
 import { useSave } from './useSave'
-import { useTimingEditor } from './useTimingEditor'
-import type { TimingEditorState } from './useTimingEditor'
+import { useTimingEditor, useTimingKeyPresses } from './useTimingEditor'
+import type { TimingKey } from './useTimingEditor'
 import { useTransient } from './useTransient'
 import { NARROW_SCREEN, NO_HOVER, useMediaQuery } from './media'
 import { ViewSettings } from './ViewSettings'
@@ -2462,22 +2465,27 @@ const KEYS_HELP =
 const TOUCH_HELP =
   "Tap a line to pick it and play from it, the nudge buttons move the picked line's start and play from there, and Stamp starts"
 
-// The player bar's buttons for the timing editor's keys.
+// The player bar's buttons for the timing editor's keys, which look pressed
+// when their key is.
 function TimingBarButtons({
-  timing,
   nudgeMs,
+  onNudge,
+  onStamp,
 }: {
-  timing: TimingEditorState
   nudgeMs: number
+  // Moves the picked line's start by `nudgeMs` in `direction` (-1 or 1).
+  onNudge: (direction: number) => void
+  onStamp: () => void
 }) {
-  const { pressed, nudge, timeNextLine } = timing
+  const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
+  useTimingKeyPresses(press)
   return (
     <>
       <KeyButton
         label="Nudge earlier"
         keyName="←"
         pressed={pressed === 'earlier'}
-        onClick={() => nudge(-1)}
+        onClick={() => onNudge(-1)}
       >
         −{nudgeMs}ms
       </KeyButton>
@@ -2485,7 +2493,7 @@ function TimingBarButtons({
         label="Nudge later"
         keyName="→"
         pressed={pressed === 'later'}
-        onClick={() => nudge(1)}
+        onClick={() => onNudge(1)}
       >
         +{nudgeMs}ms
       </KeyButton>
@@ -2494,7 +2502,7 @@ function TimingBarButtons({
         label="Stamp"
         keyName="/"
         pressed={pressed === 'stamp'}
-        onClick={timeNextLine}
+        onClick={onStamp}
       >
         Stamp
       </KeyButton>
@@ -2502,23 +2510,38 @@ function TimingBarButtons({
   )
 }
 
+// What the timing editor's bar buttons do, which its handle exposes.
+type TimingEditorHandle = {
+  // Moves the picked line's start by `nudgeMs` in `direction` (-1 or 1).
+  nudge: (direction: number) => void
+  // Starts the next line at the current playback time.
+  timeNextLine: () => void
+}
+
 // The lyrics as one row per line while their timings are edited, `starts`
-// holding each line's start (null once its timing is deleted); `timing` is
-// the editor's state (see `useTimingEditor`).
-function TimingEditor({
-  lines,
-  starts,
-  playingLine,
-  timing,
-  touch,
-}: {
+// holding each line's start (null once its timing is deleted), with the keys
+// and confirmations `useTimingEditor` describes.
+type TimingEditorProps = {
   lines: LyricsLine[]
   starts: (number | null)[]
+  // Sets `line`'s start, null to leave it untimed.
+  onStartChange: (line: number, start: number | null) => void
   playingLine: number | null
-  timing: TimingEditorState
+  onPlayLine: (start: number) => void
+  // The current playback time, or null until the player is ready.
+  getTime: () => number | null
+  nudgeMs: number
+  // Shows why a key did nothing.
+  onToast: (message: string) => void
   // Whether the screen is touch-only, which changes the help note's words.
   touch: boolean
-}) {
+}
+
+function TimingEditorRows(
+  { touch, ...editorProps }: TimingEditorProps,
+  ref: ForwardedRef<TimingEditorHandle>,
+) {
+  const { lines, starts, playingLine } = editorProps
   // The open confirmation's "don't ask again", cleared as it closes.
   const [dontAskAgain, setDontAskAgain] = useState(false)
   const {
@@ -2526,11 +2549,14 @@ function TimingEditor({
     selectedRowRef,
     rowsRef,
     pick,
+    nudge,
+    timeNextLine,
     confirmDelete,
     pending,
     confirmPending,
     cancelPending,
-  } = timing
+  } = useTimingEditor(editorProps)
+  useImperativeHandle(ref, () => ({ nudge, timeNextLine }))
 
   // Each line's text, built once: the rows re-render as playback moves, but
   // their furigana never changes.
@@ -2642,6 +2668,10 @@ function TimingEditor({
     </>
   )
 }
+
+// Memoized, so page updates that don't touch it (a toast, say) don't
+// re-render every row.
+const TimingEditor = memo(forwardRef(TimingEditorRows))
 
 // What the document page is editing, which it does one thing at a time.
 type EditMode =
@@ -2873,17 +2903,7 @@ export function DocumentViewPage() {
   const touch = useMediaQuery(NO_HOVER)
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
   const barTimingButtons = touch && timingDraft !== null && hasVideo
-  const timing = useTimingEditor({
-    lines: lyricsLines,
-    starts: timingDraft,
-    onStartChange: handleStartChange,
-    playingLine,
-    onPlayLine: handlePlayLine,
-    getTime: getPlaybackTime,
-    nudgeMs,
-    onToast: showToast,
-    barButtons: barTimingButtons,
-  })
+  const timingEditorRef = useRef<TimingEditorHandle>(null)
 
   // Whether the timings being edited differ from those saved, which leaving
   // them would lose.
@@ -3154,10 +3174,15 @@ export function DocumentViewPage() {
           )}
           {timingDraft && lyricsLines ? (
             <TimingEditor
+              ref={timingEditorRef}
               lines={lyricsLines}
               starts={timingDraft}
+              onStartChange={handleStartChange}
               playingLine={playingLine}
-              timing={timing}
+              onPlayLine={handlePlayLine}
+              getTime={getPlaybackTime}
+              nudgeMs={nudgeMs}
+              onToast={showToast}
               touch={touch}
             />
           ) : tokens && !lrclibPreview ? (
@@ -3197,7 +3222,11 @@ export function DocumentViewPage() {
           onSeek={handleSeek}
         >
           {barTimingButtons && (
-            <TimingBarButtons timing={timing} nudgeMs={nudgeMs} />
+            <TimingBarButtons
+              nudgeMs={nudgeMs}
+              onNudge={(direction) => timingEditorRef.current?.nudge(direction)}
+              onStamp={() => timingEditorRef.current?.timeNextLine()}
+            />
           )}
         </PlayerBar>
       )}
