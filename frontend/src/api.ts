@@ -352,8 +352,43 @@ export type Token = {
   group_kind: 'phrase' | 'predicate' | null
 }
 
-export async function fetchTokens(documentId: number): Promise<Token[]> {
-  const response = await fetch(`${API_URL}/documents/${documentId}/tokens`)
+// A document's tokens once they're ready, or how processing them is going.
+type DocumentTokens = {
+  status: 'processing' | 'ready' | 'failed'
+  // Empty until they're ready.
+  tokens: Token[]
+  // Why processing failed, if it did.
+  detail: string | null
+}
+
+// How often to ask how processing a document is going.
+const PROCESSING_POLL_MS = 1000
+
+// The document's tokens, waiting for them to be processed first if they
+// haven't been.
+export async function processedTokens(documentId: number): Promise<Token[]> {
+  // Retries processing that failed, which only this does: a poll that did
+  // would fail again every time.
+  let progress = await documentTokens(documentId, 'POST', '/processing')
+  while (progress.status === 'processing') {
+    await new Promise((resolve) => setTimeout(resolve, PROCESSING_POLL_MS))
+    progress = await documentTokens(documentId, 'GET')
+  }
+  if (progress.status === 'failed') {
+    throw new ApiError(progress.detail ?? 'Failed to load furigana.')
+  }
+  return progress.tokens
+}
+
+async function documentTokens(
+  documentId: number,
+  method: 'GET' | 'POST',
+  path = '',
+): Promise<DocumentTokens> {
+  const response = await fetch(
+    `${API_URL}/documents/${documentId}/tokens${path}`,
+    { method },
+  )
 
   await assertOk(response)
 

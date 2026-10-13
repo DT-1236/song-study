@@ -139,7 +139,10 @@ tokens), `token(page, surface, nth)`,
   document tabs live in React state, so every `goto` loses them.
 - **From a git worktree** (a backlog sweep's, say), the harness serves that
   worktree's code but needs the main checkout's untracked setup: symlink in
-  `frontend/node_modules`, `backend/.venv` and `.env`. `.gitignore`'s `.venv/`
+  `backend/.venv` and `.env`. Symlink `frontend/node_modules` only if the
+  main checkout's is installed (it can be empty). Otherwise run
+  `make frontend-install` in the worktree, or `make browser-up` will install
+  into the main checkout through the link. `.gitignore`'s `.venv/`
   doesn't match a symlink, so add `backend/.venv` to
   `$(git rev-parse --git-common-dir)/info/exclude`. Both checkouts share the
   harness's ports and database, so run it from one at a time.

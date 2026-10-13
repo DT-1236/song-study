@@ -9,9 +9,14 @@ which is dropped and re-created from the migrations once per session.
   and the test user is put back as new.
 - `other_user`: the id of a second user, for tests that act as someone else
   (see `as_user` in tests/support.py).
+- `background_jobs`: processing jobs run on their own threads, as deployed.
+  Otherwise a job runs inline (see `inline_jobs`), so the request that
+  starts one returns once it's done.
 """
 
 from __future__ import annotations
+
+from concurrent.futures import Future, ThreadPoolExecutor
 
 import pytest
 from sqlalchemy import MetaData, text
@@ -65,3 +70,33 @@ def other_user(committed_engine):
         return conn.execute(
             text("INSERT INTO users (name) VALUES ('other') RETURNING id")
         ).scalar_one()
+
+
+class _InlineExecutor:
+    """Runs each job as it's submitted, keeping its outcome in the future
+    returned, as a pool's thread would."""
+
+    def submit(self, fn, *args) -> Future:
+        future = Future()
+        try:
+            future.set_result(fn(*args))
+        except Exception as exc:  # noqa: BLE001
+            # Deliberately anything a job raises: a pool's future holds it
+            # the same way, for the job's done callback to log.
+            future.set_exception(exc)
+        return future
+
+
+@pytest.fixture(autouse=True)
+def inline_jobs(monkeypatch):
+    monkeypatch.setattr("app.processing._executor", _InlineExecutor())
+
+
+@pytest.fixture
+def background_jobs(committed_engine, monkeypatch):
+    """A pool of the test's own, finished before committed_engine empties
+    the tables a job writes to."""
+    executor = ThreadPoolExecutor(max_workers=2)
+    monkeypatch.setattr("app.processing._executor", executor)
+    yield executor
+    executor.shutdown(wait=True)

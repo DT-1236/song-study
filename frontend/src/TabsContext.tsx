@@ -9,7 +9,7 @@ import {
 } from 'react'
 import type { ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { fetchTokens } from './api'
+import { processedTokens } from './api'
 import type { Token } from './api'
 
 const MAX_OPEN_TABS = 5
@@ -95,7 +95,7 @@ export function TabsProvider({ children }: { children: ReactNode }) {
 
       setProcessingIds((prev) => new Set(prev).add(documentId))
 
-      const promise = fetchTokens(documentId).finally(() => {
+      const promise = processedTokens(documentId).finally(() => {
         inFlightRef.current.delete(documentId)
         setProcessingIds((prev) => {
           const next = new Set(prev)
