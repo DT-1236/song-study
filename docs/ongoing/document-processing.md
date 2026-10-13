@@ -48,8 +48,10 @@ records how that works and plans the follow-ups.
     or when `retry` is set and the only thing recorded is a failure.
   - `_run` processes the text, then releases its claim. It writes the tokens
     only if the claim still held, and records a failure if it raised.
-  - `cancel` drops the claim and the failure. `main._delete_tokens` calls it
-    whenever the text changes, so a job on the old text writes nothing.
+- **Migration 0034:** a trigger on `documents.text` deletes the tokens and
+  their conflicts and drops the claim and the failure whenever the text
+  changes, by whatever statement. A job on the old text then finds its claim
+  gone and writes nothing.
 - **Routes:**
   - `POST /documents/{id}/tokens/processing` starts processing, retrying a
     failure.
@@ -71,13 +73,12 @@ tokens, detail}`.
 | ------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------- | ---------- | ------ | ---- | ------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | 1 — Background job, polled                  | Done (#117) | `processing.py`, migration 0033, POST/GET tokens routes, polling in `api.ts`                                          | Opus 5     | high   | L    | L; simplify L | The claim, lease and release race each other, and a mistake there shows up as a document processed twice or never                |
 | 2 — Open documents from the list at once    | Done (#120) | A click in the documents list opens the page straight away, which shows the plain lyrics while they process           | Sonnet 5   | low    | M    | S; simplify S | One obvious change in two files; the browser check is most of the cost                                                           |
-| 3 — One path for changing a document's text |             | Every text write goes through one helper that drops what was derived from the old text; the job checks only its claim | **Opus 5** | medium | M    |               | A path that skips the helper serves stale tokens without any error to notice                                                     |
+| 3 — One path for changing a document's text | Done        | Every text write goes through one helper that drops what was derived from the old text; the job checks only its claim | **Opus 5** | medium | M    | M             | A path that skips the helper serves stale tokens without any error to notice                                                     |
 | 4 — Record when processing finished         |             | `processed_at` replaces "has tokens" as the sign a document is processed, ending the empty-text special case          | Sonnet 5   | medium | M    |               | The rule is clear; the backfill and the gloss-repair path need care                                                              |
 | 5 — Polls read before locking               |             | A poll during a job reads the state without a lock, and only locks to claim                                           | **Opus 5** | low    | S    |               | Only worth doing if jobs get long or pollers many. The unlocked read must not decide anything the locked one doesn't check again |
 
 Steps 2 to 5 don't depend on each other. Step 3 makes step 4's
-invalidation one line in the shared helper, so do 3 first if both are
-planned.
+invalidation one line in the trigger, so do 3 first if both are planned.
 
 ## Step 2 — Open documents from the list at once
 
@@ -127,6 +128,11 @@ FROM NEW.text` trigger that deletes the tokens and resets the claim, which
 - **Tests:** `test_text_edited_mid_processing_gets_tokens_for_the_new_text`
   still covers the race. For the trigger, add a test that a raw `UPDATE`
   of the text drops the tokens and the claim.
+- **Chose the trigger.** With a helper, dropping `_run`'s text comparison
+  removes the only guard against a path that skips the helper. A trigger
+  can't be skipped, so the comparison has nothing left to guard against.
+  Saving an unchanged text now keeps its tokens, and the readings picked
+  for them.
 
 ## Step 4 — Record when processing finished
 
@@ -137,8 +143,8 @@ filter on what becomes a token), every poll would start another job.
 
 - New migration: `documents.processed_at TIMESTAMPTZ`, backfilled to `now()`
   for documents that have tokens.
-- `_run` sets it in the transaction that writes the tokens, and
-  `processing.cancel` (or step 3's helper) clears it.
+- `_run` sets it in the transaction that writes the tokens, and the
+  trigger from migration 0034 clears it.
 - `start` checks `processed_at IS NOT NULL` in place of the tokens `EXISTS`
   and the empty-text rule.
 - `main._document_tokens` still reads the tokens first. Check that its

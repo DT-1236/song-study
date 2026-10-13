@@ -336,24 +336,6 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
         )
 
 
-def _delete_tokens(conn, document_id: int) -> None:
-    """Delete the document's tokens and their conflicts, for the next
-    tokens request to regenerate from its current text."""
-    processing.cancel(conn, document_id)
-    conn.execute(
-        text(
-            """
-            DELETE FROM conflicts
-            WHERE token_id IN (SELECT id FROM tokens WHERE document_id = :id)
-            """
-        ),
-        {"id": document_id},
-    )
-    conn.execute(
-        text("DELETE FROM tokens WHERE document_id = :id"), {"id": document_id}
-    )
-
-
 def _linked_lyrics(
     document_text: str, replaces_text: bool, lyrics: LrclibLyrics
 ) -> tuple[str, list[dict] | None]:
@@ -389,8 +371,7 @@ def _store_lrclib_lyrics(
     regenerated if the text changes, so readings picked for them survive an
     update to just the line timings."""
     new_text, lines = _linked_lyrics(current.text, replace_text, lyrics)
-    if new_text != current.text:
-        _delete_tokens(conn, current.id)
+    # Changing the text drops its tokens, by the trigger from migration 0034.
     row = conn.execute(
         text(
             f"""
@@ -440,7 +421,8 @@ def update_document_text(
     A document whose lyrics LRCLIB replaces takes them from there, so its
     text can't be edited until it's unlinked."""
     with engine.begin() as conn:
-        # Its line timings were for the old text.
+        # Its line timings were for the old text. Its tokens are dropped by
+        # the trigger from migration 0034.
         row = conn.execute(
             text(
                 f"""
@@ -460,7 +442,6 @@ def update_document_text(
                 status_code=409,
                 detail="This document's lyrics come from LRCLIB — unlink it to edit them.",
             )
-        _delete_tokens(conn, document_id)
 
     return Document(**row._mapping)
 
