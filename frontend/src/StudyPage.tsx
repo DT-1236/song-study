@@ -404,15 +404,14 @@ function StudySession({
         </button>
       )}
 
+      {/* Hidden: it's only there for each card's line of audio. */}
       {videoId && (
-        <div className="study-player">
-          <YouTubePlayer
-            key={videoId}
-            ref={playerRef}
-            videoId={videoId}
-            onReady={() => setReadyVideoId(videoId)}
-          />
-        </div>
+        <YouTubePlayer
+          key={videoId}
+          ref={playerRef}
+          videoId={videoId}
+          onReady={() => setReadyVideoId(videoId)}
+        />
       )}
     </div>
   )

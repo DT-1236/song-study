@@ -8,6 +8,10 @@ import { fileURLToPath } from 'node:url'
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 const STATE = join(REPO, '.browser-harness')
+// Big Buck Bunny, from the Blender Foundation (CC BY 3.0): any embeddable
+// video does, since checks only read its playback time.
+const VIDEO_ID = 'aqz-KE-bpKQ'
+
 export const BASE = `http://localhost:${process.env.BROWSER_WEB_PORT ?? 5199}`
 const BRAVE =
   process.env.BRAVE_PATH ??
@@ -218,6 +222,22 @@ class Harness {
       throw new Error(`${method} ${path}: ${response.status} ${text}`)
     }
     return text ? JSON.parse(text) : null
+  }
+
+  // The id of a document of the seeded text with a YouTube video, made on
+  // first use and found again after that: the seed has no video, and a video
+  // ID can belong to only one document.
+  async videoDocument() {
+    const { items } = await this.api('GET', '/documents?page=1&page_size=100')
+    const found = items.find((doc) => doc.youtube_video_id === VIDEO_ID)
+    if (found) return found.id
+    const seeded = await this.api('GET', `/documents/${this.seed.document_id}`)
+    const created = await this.api('POST', '/documents', {
+      title: `${seeded.title} (video)`,
+      text: seeded.text,
+      youtube_video_id: VIDEO_ID,
+    })
+    return created.id
   }
 
   async screenshotPagesAfterFailure() {

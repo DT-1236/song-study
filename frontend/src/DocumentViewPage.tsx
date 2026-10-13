@@ -50,6 +50,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import type { LrclibSong } from './LrclibMatches'
+import { PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -64,6 +65,7 @@ import {
   timingsFromStarts,
 } from './timing'
 import type { LyricsLine } from './timing'
+import { useElementHeight } from './useElementHeight'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { useSave } from './useSave'
@@ -71,8 +73,7 @@ import { NARROW_SCREEN, useMediaQuery } from './media'
 import { ViewSettings } from './ViewSettings'
 import { displayStyle, useViewSettings } from './useViewSettings'
 import { usePlayingLine } from './usePlayingLine'
-import { isTypingTarget, usePlayerShortcuts } from './usePlayerShortcuts'
-import { YouTubePlayer } from './YouTubePlayer'
+import { isTypingTarget } from './usePlayerShortcuts'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
 const REVIEW_REASON_LABELS: Record<string, string> = {
@@ -2505,7 +2506,7 @@ export function DocumentViewPage() {
 
   // Viewing settings: the same for every document, and kept across reloads.
   const viewSettings = useViewSettings()
-  const { seekSeconds, nudgeMs } = viewSettings
+  const { nudgeMs } = viewSettings
   const narrow = useMediaQuery(NARROW_SCREEN)
 
   const [mode, setMode] = useState<EditMode>(VIEWING)
@@ -2544,9 +2545,11 @@ export function DocumentViewPage() {
   // The page content above the lyrics, and its height: the most the pinned
   // selection panel may cover (see .selection-anchor).
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
-  const [headerHeight, setHeaderHeight] = useState(0)
-
-  usePlayerShortcuts(youtubePlayerRef, seekSeconds)
+  const headerHeight = useElementHeight(headerEl)
+  // The player docked at the bottom, and its height: what the lyrics scroll
+  // to above and the toast sits on.
+  const [playerBarEl, setPlayerBarEl] = useState<HTMLDivElement | null>(null)
+  const playerBarHeight = useElementHeight(playerBarEl)
 
   useEffect(() => {
     let cancelled = false
@@ -2721,15 +2724,6 @@ export function DocumentViewPage() {
     hasVideo ? shownTimings : null,
   )
 
-  useEffect(() => {
-    if (!headerEl) return
-    const observer = new ResizeObserver(() =>
-      setHeaderHeight(headerEl.offsetHeight),
-    )
-    observer.observe(headerEl)
-    return () => observer.disconnect()
-  }, [headerEl])
-
   // Whether the timings being edited differ from those saved, which leaving
   // them would lose.
   const timingsChanged =
@@ -2857,7 +2851,14 @@ export function DocumentViewPage() {
   }
 
   return (
-    <div className="new-document-form">
+    <div
+      className="new-document-form"
+      style={
+        {
+          '--player-bar-height': `${playerBarHeight}px`,
+        } as React.CSSProperties
+      }
+    >
       <div className="document-header" ref={setHeaderEl}>
         <h1>{doc.title}</h1>
         <Link to={`/documents/${doc.id}/study`}>Study this song</Link>
@@ -3036,15 +3037,13 @@ export function DocumentViewPage() {
         </div>
       )}
 
-      <label htmlFor="youtube-video-id">YouTube video ID</label>
-      {doc.youtube_video_id ? (
-        <YouTubePlayer
-          ref={youtubePlayerRef}
+      {doc.youtube_video_id && (
+        <PlayerBar
+          ref={setPlayerBarEl}
+          playerRef={youtubePlayerRef}
           videoId={doc.youtube_video_id}
           onSeek={handleSeek}
         />
-      ) : (
-        <input type="text" value="—" readOnly />
       )}
 
       <ConfirmDialog

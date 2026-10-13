@@ -80,6 +80,7 @@ absolute path.
 | `h.screenshot(page, label)` | Saves a full-page PNG and prints its path; Read it to look. |
 | `h.api(method, path, body)` | Calls `/api` as the test user, for setup beyond the seed. |
 | `h.seed` | `{ document_id, user_id }`. |
+| `h.videoDocument()` | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none. |
 
 And from `harness.mjs`, each taking a page: `isShown`, `settle` (waits for
 CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewaysOverflow`, `smallTapTargets` (under
@@ -120,6 +121,13 @@ CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewa
   waits for its `<video>`. Playwright can evaluate inside the cross-origin
   iframe, which is how `videoTime()` confirms a seek or that playback runs.
   The browser launches with autoplay allowed.
+- **A hidden video's frame gets no animation frames,** so a
+  `frame.waitForFunction` on its `<video>` never re-checks with the default
+  `polling: 'raf'`. Pass `polling: 250`. The player is hidden by default
+  (`.youtube-player.hidden`), and it still plays.
+- **The player bar's buttons are disabled until the player is ready.** Wait
+  for `.player-controls button[aria-label="Play"]:enabled` before pressing
+  one, or a key: a key pressed earlier does nothing.
 - **A `goto` is a full load.** For Back or `useBlocker` checks, `goto` once
   and then move only by in-app clicks, or Back leaves the app. The sidebar's
   document tabs live in React state, so every `goto` loses them.

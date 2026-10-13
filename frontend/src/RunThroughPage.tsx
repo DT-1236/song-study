@@ -203,13 +203,12 @@ function RunThroughPlayer({
         ))}
       </ol>
 
-      <div className="study-player">
-        <YouTubePlayer
-          ref={playerRef}
-          videoId={videoId}
-          onReady={() => setReady(true)}
-        />
-      </div>
+      {/* Hidden: the lines above follow the song. */}
+      <YouTubePlayer
+        ref={playerRef}
+        videoId={videoId}
+        onReady={() => setReady(true)}
+      />
     </div>
   )
 }
