@@ -139,6 +139,15 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
     """Start a job processing the document, unless it's processed, a job is
     already processing it, or — unless `retry` — its last job failed, and
     say which; None if there's no such document."""
+    # Without a lock first, so a poll during a job costs one statement. It
+    # only answers; anything it would claim is read again under the lock.
+    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
+        document = _read_state(conn, document_id)
+    if document is None:
+        return None
+    if (progress := _progress(document, retry)) is not None:
+        return progress
+
     with engine.begin() as conn:
         # Locks the document, so that two requests can't both claim it, and
         # a job can't release its claim in between this reading it and
@@ -152,23 +161,9 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
         # Its own statement, not part of the locking one: under READ
         # COMMITTED, only a statement started after the lock was granted
         # sees what the lock's previous holder committed.
-        document = conn.execute(
-            text(
-                """
-                SELECT text, processing_failed,
-                       processing_started_at > now() - :lease AS running,
-                       processed_at IS NOT NULL AS processed
-                FROM documents WHERE id = :id
-                """
-            ),
-            {"id": document_id, "lease": LEASE},
-        ).one()
-        if document.processed:
-            return "processed"
-        if document.running:
-            return "processing"
-        if document.processing_failed and not retry:
-            return "failed"
+        document = _read_state(conn, document_id)
+        if (progress := _progress(document, retry)) is not None:
+            return progress
         claimed_at = conn.execute(
             text(
                 """
@@ -186,6 +181,34 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
         _log_failure
     )
     return "processing"
+
+
+def _read_state(conn, document_id: int):
+    """The document's text and how far processing it has got, or None if
+    there's no such document."""
+    return conn.execute(
+        text(
+            """
+            SELECT text, processing_failed,
+                   processing_started_at > now() - :lease AS running,
+                   processed_at IS NOT NULL AS processed
+            FROM documents WHERE id = :id
+            """
+        ),
+        {"id": document_id, "lease": LEASE},
+    ).one_or_none()
+
+
+def _progress(document, retry: bool) -> Progress | None:
+    """What `start` reports for a document in this state, or None if it
+    should claim the document."""
+    if document.processed:
+        return "processed"
+    if document.running:
+        return "processing"
+    if document.processing_failed and not retry:
+        return "failed"
+    return None
 
 
 def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:

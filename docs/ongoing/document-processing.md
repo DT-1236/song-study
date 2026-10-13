@@ -39,7 +39,9 @@ records how that works and plans the follow-ups.
 ## How it works
 
 - **`backend/app/processing.py`:**
-  - `start(document_id, retry)` locks the document's row. Then, in a
+  - `start(document_id, retry)` first reads the state without a lock, and
+    answers from that unless it would claim. Only then does it lock the
+    document's row. Then, in a
     statement of its own (under READ COMMITTED, only a statement that starts
     after the lock is granted sees what the lock's previous holder
     committed), it reads whether the document has tokens, a live claim or a
@@ -75,7 +77,7 @@ tokens, detail}`.
 | 2 — Open documents from the list at once    | Done (#120) | A click in the documents list opens the page straight away, which shows the plain lyrics while they process           | Sonnet 5   | low    | M    | S; simplify S | One obvious change in two files; the browser check is most of the cost                                                           |
 | 3 — One path for changing a document's text | Done (#121) | Every text write goes through one helper that drops what was derived from the old text; the job checks only its claim | **Opus 5** | medium | M    | M; simplify M | A path that skips the helper serves stale tokens without any error to notice                                                     |
 | 4 — Record when processing finished         | Done (#122) | `processed_at` replaces "has tokens" as the sign a document is processed, ending the empty-text special case          | Sonnet 5   | medium | M    | S; simplify S | The rule is clear; the backfill and the gloss-repair path need care                                                              |
-| 5 — Polls read before locking               |             | A poll during a job reads the state without a lock, and only locks to claim                                           | **Opus 5** | low    | S    |               | Only worth doing if jobs get long or pollers many. The unlocked read must not decide anything the locked one doesn't check again |
+| 5 — Polls read before locking               | Done (#123) | A poll during a job reads the state without a lock, and only locks to claim                                           | **Opus 5** | low    | S    |               | Only worth doing if jobs get long or pollers many. The unlocked read must not decide anything the locked one doesn't check again |
 
 Steps 2 to 5 don't depend on each other. Step 3 makes step 4's
 invalidation one line in the trigger, so do 3 first if both are planned.

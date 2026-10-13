@@ -91,6 +91,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Document text changes reset processing (trigger)                 | #121 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 34    | 2.1M       | 7k     | M    |
 | 2026-10-13 | Document processing step 4, record when processing finished      | #122 | initial pass                           | Sonnet 5.5, medium          | M    | 11    | 598k       | 6k     | S    |
 | 2026-10-13 | Document processing step 4, record when processing finished      | #122 | /simplify (inline, no subagents)       | Sonnet 5.5, medium          | —    | 2     | 134k       | 1k     | S    |
+| 2026-10-13 | Document processing step 5, polls read before locking            | #123 | initial pass                           | Opus 5.5, low               | S    | 13    | 0.7M       | 5k     | S    |
+| 2026-10-13 | Document processing step 5, polls read before locking            | #123 | /simplify (4 subagents)                | Opus 5.5, low               | —    | 18    | 0.7M       | 4k     | S    |
 
 ## Post-mortem log
 
