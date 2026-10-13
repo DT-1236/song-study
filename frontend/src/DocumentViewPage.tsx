@@ -3079,12 +3079,10 @@ export function DocumentViewPage() {
                 <button
                   type="button"
                   disabled={editTimingsBlocker !== undefined}
-                  title={editTimingsBlocker}
                   onClick={startEditingTimings}
                 >
                   Edit timings
                 </button>
-                {/* A phone never shows the button's title. */}
                 {editTimingsBlocker && (
                   <span className="edit-timings-blocker">
                     {editTimingsBlocker}
