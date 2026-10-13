@@ -10,6 +10,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
   LRCLIB_URI_PLACEHOLDER,
@@ -50,7 +51,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import type { LrclibSong } from './LrclibMatches'
-import { PlayerBar } from './PlayerBar'
+import { KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -2464,6 +2465,16 @@ const ARROW_KEYS = new Set(['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'])
 
 const TOAST_MS = 2500
 
+// The timing editor's help note up to "starts", in the words for each kind
+// of device.
+const KEYS_HELP =
+  "↑/↓ or a click pick another and play from it, ←/→ nudge the picked line's start and play from there, and / starts"
+const TOUCH_HELP =
+  "Tap a line to pick it and play from it, the nudge buttons move the picked line's start and play from there, and Stamp starts"
+
+// What the timing editor's keys do, one for each of its bar buttons.
+type TimingKey = 'earlier' | 'later' | 'stamp'
+
 // A change to a line's timing that's confirmed first.
 type TimingAction =
   | { kind: 'delete'; line: number }
@@ -2485,6 +2496,7 @@ const TimingEditor = memo(function TimingEditor({
   getTime,
   nudgeMs,
   onToast,
+  barControls,
 }: {
   lines: LyricsLine[]
   starts: (number | null)[]
@@ -2497,7 +2509,13 @@ const TimingEditor = memo(function TimingEditor({
   nudgeMs: number
   // Shows why a key did nothing.
   onToast: (message: string) => void
+  // The player bar's slot for these buttons, once it has rendered.
+  barControls: HTMLElement | null
 }) {
+  const touch = useMediaQuery(NO_HOVER)
+  const hasBarButtons = touch && barControls !== null
+  // Which button looks pressed, for the key that does the same.
+  const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
   const [selected, setSelected] = useState(() => playingLine ?? 0)
   // A change waiting on its confirmation.
   const [pending, setPending] = useState<TimingAction | null>(null)
@@ -2631,9 +2649,15 @@ const TimingEditor = memo(function TimingEditor({
     event.preventDefault()
     if (event.key === '/') {
       // Held down, it would time line after line at almost the same moment.
-      if (!event.repeat) timeNextLine()
+      if (!event.repeat) {
+        // Pressing re-renders every row, so only when a button shows it.
+        if (hasBarButtons) press('stamp')
+        timeNextLine()
+      }
     } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
-      nudge(event.key === 'ArrowLeft' ? -1 : 1)
+      const earlier = event.key === 'ArrowLeft'
+      if (hasBarButtons) press(earlier ? 'earlier' : 'later')
+      nudge(earlier ? -1 : 1)
     } else {
       const line = selected + (event.key === 'ArrowUp' ? -1 : 1)
       if (line >= 0 && line < lines.length) pick(line)
@@ -2651,14 +2675,44 @@ const TimingEditor = memo(function TimingEditor({
 
   return (
     <>
+      {hasBarButtons &&
+        createPortal(
+          <>
+            <KeyButton
+              label="Nudge earlier"
+              keyName="←"
+              pressed={pressed === 'earlier'}
+              onClick={() => nudge(-1)}
+            >
+              −{nudgeMs}ms
+            </KeyButton>
+            <KeyButton
+              label="Nudge later"
+              keyName="→"
+              pressed={pressed === 'later'}
+              onClick={() => nudge(1)}
+            >
+              +{nudgeMs}ms
+            </KeyButton>
+            <KeyButton
+              className="timing-stamp"
+              label="Stamp"
+              keyName="/"
+              pressed={pressed === 'stamp'}
+              onClick={timeNextLine}
+            >
+              Stamp
+            </KeyButton>
+          </>,
+          barControls,
+        )}
       <p className="lyrics-editor-note">
-        The picked line follows playback. ↑/↓ or a click pick another and play
-        from it, ←/→ nudge the picked line's start and play from there, and /
-        starts the next line at the current playback time (the first line, if
-        none has started yet) and moves the page down a line. Outlined lines
-        have no time yet, and need one before saving. A blank line between
-        stanzas can be timed too, to end the line before it there (for an
-        instrumental break), but needn't be.
+        The picked line follows playback. {touch ? TOUCH_HELP : KEYS_HELP} the
+        next line at the current playback time (the first line, if none has
+        started yet) and moves the page down a line. Outlined lines have no time
+        yet, and need one before saving. A blank line between stanzas can be
+        timed too, to end the line before it there (for an instrumental break),
+        but needn't be.
       </p>
       <div ref={rowsRef} className="lyrics-box">
         {lines.map(({ hasText }, line) => {
@@ -2795,6 +2849,8 @@ export function DocumentViewPage() {
   const [toast, showToast] = useTransient<string>(TOAST_MS)
 
   const youtubePlayerRef = useRef<YouTubePlayerHandle>(null)
+  // Where the timing editor puts its buttons in the player bar.
+  const [barControls, setBarControls] = useState<HTMLElement | null>(null)
   // The page content above the lyrics, whose height is the most the pinned
   // selection panel may cover (see .selection-anchor).
   const [headerEl, setHeaderEl] = useState<HTMLDivElement | null>(null)
@@ -3242,6 +3298,7 @@ export function DocumentViewPage() {
               getTime={getPlaybackTime}
               nudgeMs={nudgeMs}
               onToast={showToast}
+              barControls={barControls}
             />
           ) : tokens && !lrclibPreview ? (
             <TokenizedText
@@ -3278,6 +3335,7 @@ export function DocumentViewPage() {
           playerRef={youtubePlayerRef}
           videoId={doc.youtube_video_id}
           onSeek={handleSeek}
+          onExtraControls={setBarControls}
         />
       )}
 

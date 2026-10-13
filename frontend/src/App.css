@@ -657,10 +657,50 @@ li.grammar-legend-item {
   color: var(--accent);
 }
 
+/* Where the page adds its own buttons: transparent to the bar's flex row. */
+.player-extra-controls {
+  display: contents;
+}
+
 /* Keys are no use without a keyboard. */
 @media (hover: none) {
   .player-controls kbd {
     display: none;
+  }
+
+  /* The timing buttons take the Video toggle's place, and Stamp the room
+     left over. Padding narrows so six buttons fit at 320px. */
+  .player-controls:has(.player-extra-controls:not(:empty)) {
+    gap: 0.3rem;
+
+    button {
+      padding-inline: 0.25rem;
+      font-size: 0.8rem;
+    }
+
+    .player-video-toggle {
+      display: none;
+    }
+  }
+
+  .player-controls .timing-stamp {
+    flex: 1;
+  }
+
+  /* A 44px hit area, extended into the free space left of the button within
+     the gutter, so it doesn't reach the row's other taps. */
+  .lyrics-box .timing-delete {
+    position: relative;
+  }
+
+  .lyrics-box .timing-delete::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    right: 0;
+    width: 1.8rem;
+    height: 44px;
+    transform: translateY(-50%);
   }
 }
 
