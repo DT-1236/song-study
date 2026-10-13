@@ -47,8 +47,8 @@ await check('player-bar', async (h) => {
       return { width: r.width, height: r.height, hidden: el.inert }
     })
     h.expect(
-      box.width <= 1 && box.height <= 1 && box.hidden,
-      `${tag} the video is hidden and inert by default`,
+      box.width === 200 && box.height === 200 && box.hidden,
+      `${tag} the video is a hidden, inert 200x200 by default`,
       JSON.stringify(box),
     )
     const bar = await page.$eval('.player-bar', (el) => ({
