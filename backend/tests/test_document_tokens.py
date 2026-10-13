@@ -212,19 +212,20 @@ def test_requests_that_both_read_before_claiming_claim_once(
     # are those reads.
     both_read = threading.Barrier(2, timeout=30)
     first_reads = iter(range(2))
-    progress = processing._progress
+    read_progress = processing._read_progress
 
-    def progress_after_both_read(document, retry):
+    def read_progress_then_wait(conn, params):
+        document = read_progress(conn, params)
         if next(first_reads, None) is not None:
             both_read.wait()
-        return progress(document, retry)
+        return document
 
-    monkeypatch.setattr("app.processing._progress", progress_after_both_read)
+    monkeypatch.setattr("app.processing._read_progress", read_progress_then_wait)
 
     requests = [BackgroundCall(process_document_tokens, document_id) for _ in range(2)]
     assert [r.outcome().status for r in requests] == ["processing", "processing"]
 
-    monkeypatch.setattr("app.processing._progress", progress)
+    monkeypatch.setattr("app.processing._read_progress", read_progress)
     assert get_document_tokens(document_id)
     assert held.texts == [FIRST_SENTENCE]
 

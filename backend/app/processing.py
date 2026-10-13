@@ -139,15 +139,17 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
     """Start a job processing the document, unless it's processed, a job is
     already processing it, or — unless `retry` — its last job failed, and
     say which; None if there's no such document."""
+    params = {"id": document_id, "lease": LEASE, "retry": retry}
     with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
         while True:
-            # Without a lock, so a poll during a job costs one statement.
-            document = _read_state(conn, document_id)
+            # Read before claiming, so a poll during a job costs one
+            # statement and writes nothing.
+            document = _read_progress(conn, params)
             if document is None:
                 return None
-            if (progress := _progress(document, retry)) is not None:
-                return progress
-            if (claim := _claim(conn, document_id, retry)) is not None:
+            if document.progress is not None:
+                return document.progress
+            if (claim := _claim(conn, params)) is not None:
                 break
             # The state changed since the read (another request claimed it,
             # a job released it, its text changed): read it again to say how.
@@ -159,57 +161,45 @@ def start(document_id: int, *, retry: bool) -> Progress | None:
     return "processing"
 
 
-def _claim(conn, document_id: int, retry: bool):
-    """Claim the document for a job, if it's in a state `_progress` would
-    claim it in, returning its text and when it was claimed; None, with
-    nothing changed, otherwise."""
+# What `start` reports for a document in each state, or NULL if it should
+# claim the document. Shared by the read and the claim, so the claim takes
+# exactly the documents the read found claimable.
+_PROGRESS = """
+    CASE
+        WHEN processed_at IS NOT NULL THEN 'processed'
+        WHEN processing_started_at > now() - :lease THEN 'processing'
+        WHEN processing_failed AND NOT :retry THEN 'failed'
+    END
+"""
+
+
+def _read_progress(conn, params: dict):
+    """The document's row, with what `start` reports for it as `progress`
+    (None if it should claim the document); None if there's no such
+    document."""
+    return conn.execute(
+        text(f"SELECT {_PROGRESS} AS progress FROM documents WHERE id = :id"),
+        params,
+    ).one_or_none()
+
+
+def _claim(conn, params: dict):
+    """Claim the document for a job if `start` should, returning its text
+    and when it was claimed; None, with nothing changed, otherwise."""
     # One statement, so the check can't go stale before the claim: an UPDATE
     # that waits on another request's claim, a job's release or a text edit
-    # re-checks its WHERE against the row they committed. The WHERE matches
-    # the states _progress returns None for.
+    # re-checks its WHERE against the row they committed.
     return conn.execute(
         text(
-            """
+            f"""
             UPDATE documents
             SET processing_started_at = now(), processing_failed = FALSE
-            WHERE id = :id
-              AND processed_at IS NULL
-              AND (processing_started_at IS NULL
-                   OR processing_started_at <= now() - :lease)
-              AND (:retry OR NOT processing_failed)
+            WHERE id = :id AND ({_PROGRESS}) IS NULL
             RETURNING text, processing_started_at
             """
         ),
-        {"id": document_id, "lease": LEASE, "retry": retry},
+        params,
     ).one_or_none()
-
-
-def _read_state(conn, document_id: int):
-    """The document's text and how far processing it has got, or None if
-    there's no such document."""
-    return conn.execute(
-        text(
-            """
-            SELECT text, processing_failed,
-                   processing_started_at > now() - :lease AS running,
-                   processed_at IS NOT NULL AS processed
-            FROM documents WHERE id = :id
-            """
-        ),
-        {"id": document_id, "lease": LEASE},
-    ).one_or_none()
-
-
-def _progress(document, retry: bool) -> Progress | None:
-    """What `start` reports for a document in this state, or None if it
-    should claim the document."""
-    if document.processed:
-        return "processed"
-    if document.running:
-        return "processing"
-    if document.processing_failed and not retry:
-        return "failed"
-    return None
 
 
 def _run(document_id: int, claimed_at: datetime, document_text: str) -> None:
