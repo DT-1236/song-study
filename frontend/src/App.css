@@ -578,12 +578,16 @@ li.grammar-legend-item {
 }
 
 /* Still laid out, since a browser may not load a player in a frame that
-   isn't, but clipped to nothing. At this size YouTube streams its lowest
-   resolution, which is all the audio needs. */
+   isn't, but clipped to nothing. The IFrame API requires a player of at
+   least 200x200, so it's that size, hung upward from the bar's bottom edge
+   so it adds nothing to the page's scrollable height. */
 .youtube-player.hidden {
   position: absolute;
-  width: 1px;
-  height: 1px;
+  bottom: 0;
+  left: 0;
+  width: 200px;
+  height: 200px;
+  aspect-ratio: auto;
   clip-path: inset(50%);
 }
 
