@@ -207,7 +207,7 @@ function RunThroughPlayer({
       <YouTubePlayer
         ref={playerRef}
         videoId={videoId}
-        onReady={() => setReady(true)}
+        onReadyChange={setReady}
       />
     </div>
   )

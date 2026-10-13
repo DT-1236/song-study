@@ -148,7 +148,7 @@ function StudySession({
   // The video the player was made for, kept through cards with no audio so
   // that it isn't reloaded for the next one.
   const [videoId, setVideoId] = useState<string | null>(null)
-  const [readyVideoId, setReadyVideoId] = useState<string | null>(null)
+  const [ready, setReady] = useState(false)
   // Bumped to play the line again.
   const [replays, setReplays] = useState(0)
 
@@ -158,13 +158,14 @@ function StudySession({
   useEffect(() => {
     if (audio && audio.youtube_video_id !== videoId) {
       setVideoId(audio.youtube_video_id)
-      setReadyVideoId(null)
     }
   }, [audio, videoId])
 
   // The card's line, while it's unmuted and the player has its video.
   const playing =
-    audio && !muted && readyVideoId === audio.youtube_video_id ? audio : null
+    audio && !muted && ready && audio.youtube_video_id === videoId
+      ? audio
+      : null
 
   // Plays the line from its start to its end, and stops it if the card goes
   // first.
@@ -410,7 +411,7 @@ function StudySession({
           key={videoId}
           ref={playerRef}
           videoId={videoId}
-          onReady={() => setReadyVideoId(videoId)}
+          onReadyChange={setReady}
         />
       )}
     </div>

@@ -32,8 +32,9 @@ type Props = {
   // Called after each seek made through the handle, so playback-time
   // readers can update at once rather than at their next check.
   onSeek?: () => void
-  // Called once the player's methods are usable, for the video it was made for.
-  onReady?: () => void
+  // Called with whether the player's methods are usable: true once they are
+  // for `videoId`, and false again when it is replaced by another video's.
+  onReadyChange?: (ready: boolean) => void
   // Called as the video starts and stops playing.
   onPlayingChange?: (playing: boolean) => void
   // Whether the video shows. Hidden, it plays on as audio: most of these
@@ -43,7 +44,7 @@ type Props = {
 
 export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
   function YouTubePlayer(
-    { videoId, onSeek, onReady, onPlayingChange, showVideo = false },
+    { videoId, onSeek, onReadyChange, onPlayingChange, showVideo = false },
     ref,
   ) {
     const wrapperRef = useRef<HTMLDivElement>(null)
@@ -56,7 +57,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
     const seekRef = useRef<{ seconds: number; at: number } | null>(null)
     // Read when the player becomes ready, which is after the render that
     // made it, so a later render's callback is the one that runs.
-    const onReadyRef = useLatest(onReady)
+    const onReadyChangeRef = useLatest(onReadyChange)
     // Read when the state changes, for the same reason: a callback in the
     // effect's deps would rebuild the player, stopping playback.
     const onPlayingChangeRef = useLatest(onPlayingChange)
@@ -80,7 +81,7 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
             onReady: (event) => {
               if (cancelled) return
               playerRef.current = event.target
-              onReadyRef.current?.()
+              onReadyChangeRef.current?.(true)
             },
             onStateChange: (event) => {
               if (cancelled) return
@@ -93,9 +94,13 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
       return () => {
         cancelled = true
         player?.destroy()
+        // The latest callback is wanted here, not the one from this effect's
+        // render, which is what the rule's ref-copy advice would give.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        if (playerRef.current) onReadyChangeRef.current?.(false)
         playerRef.current = null
       }
-    }, [videoId, onReadyRef, onPlayingChangeRef])
+    }, [videoId, onReadyChangeRef, onPlayingChangeRef])
 
     useImperativeHandle(ref, () => {
       // The playback time, counting a seek the player hasn't reported yet.

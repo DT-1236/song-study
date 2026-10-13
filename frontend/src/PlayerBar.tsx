@@ -29,10 +29,8 @@ export function PlayerBar({
   // songs are found through YouTube Music, whose videos are just the cover.
   const [showVideo, setShowVideo] = usePersistentState('showVideo', false)
   const [playing, setPlaying] = useState(false)
-  // The video the player last became ready for: its buttons do nothing
-  // before then.
-  const [readyVideoId, setReadyVideoId] = useState<string | null>(null)
-  const ready = readyVideoId === videoId
+  // Its buttons do nothing until the player is ready.
+  const [ready, setReady] = useState(false)
   const [pressed, press] = useTransient<PlayerShortcut>(PRESS_MS)
 
   usePlayerShortcuts(playerRef, seekSeconds, press)
@@ -56,7 +54,7 @@ export function PlayerBar({
         ref={playerRef}
         videoId={videoId}
         onSeek={onSeek}
-        onReady={() => setReadyVideoId(videoId)}
+        onReadyChange={setReady}
         onPlayingChange={setPlaying}
         showVideo={showVideo}
       />
