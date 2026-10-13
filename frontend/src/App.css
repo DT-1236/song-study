@@ -100,6 +100,9 @@
   scroll-padding-bottom: calc(
     var(--player-bar-height, 0px) + var(--sheet-height, 0px)
   );
+  /* ...and below the selection panel pinned to the top, with a gap that
+     only applies while there is one. */
+  scroll-padding-top: calc(var(--panel-height, -8px) + 8px);
 }
 
 .content-inner {

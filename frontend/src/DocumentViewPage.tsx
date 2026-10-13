@@ -1562,6 +1562,7 @@ function SelectionPanel({
     [panelRef],
   )
   useHeightProperty(panel, '--sheet-height', sheet)
+  useHeightProperty(panel, '--panel-height', !sheet)
   const selected = indices.map((i) => tokens[i])
   const kind = selectionKind(tokens, keys, indices)
   const title =
@@ -1814,17 +1815,8 @@ const TokenizedText = memo(function TokenizedText({
   // of the screen or, on touch, a sheet at the bottom, if it's there once
   // the panel has rendered.
   function revealBelowPanel(element: HTMLElement) {
-    requestAnimationFrame(() => {
-      // .content's scroll padding keeps it above the sheet.
-      if (sheet) {
-        element.scrollIntoView({ block: 'nearest' })
-        return
-      }
-      const coveredTo = panelRef.current?.getBoundingClientRect().bottom ?? 0
-      const top = element.getBoundingClientRect().top
-      if (top < coveredTo)
-        element.closest('.content')?.scrollBy({ top: top - coveredTo - 8 })
-    })
+    // .content's scroll padding keeps it clear of the panel either way.
+    requestAnimationFrame(() => element.scrollIntoView({ block: 'nearest' }))
   }
 
   function toggleSelected(index: number, element: HTMLElement) {
