@@ -11,6 +11,3 @@ so it can be picked up without re-deriving the reasoning.
   selector, setting a class from the prop instead. Needs `nudge` and
   `timeNextLine` lifted out of `TimingEditor`, against step 7's plan of
   leaving its state inside it. Sonnet 5, medium.
-- Turn `.lyrics-box .timing-delete::after`'s hand-tuned hit area into a
-  shared touch-target rule for every small control. Reaches well outside
-  the diff. Sonnet 5, medium.

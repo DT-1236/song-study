@@ -687,20 +687,26 @@ li.grammar-legend-item {
     flex: 1;
   }
 
-  /* A 44px hit area, extended into the free space left of the button within
-     the gutter, so it doesn't reach the row's other taps. */
-  .lyrics-box .timing-delete {
+  /* A bare icon button is small by design, so its tap area is padded out to
+     44px tall on touch. A control sets --hit-left to reach into free space
+     beside it (kept off the row's other taps), and the width is otherwise
+     its own. */
+  .icon-button {
     position: relative;
   }
 
-  .lyrics-box .timing-delete::after {
+  .icon-button::after {
     content: '';
     position: absolute;
     top: 50%;
     right: 0;
-    width: 1.8rem;
+    left: calc(-1 * var(--hit-left, 0px));
     height: 44px;
     transform: translateY(-50%);
+  }
+
+  .lyrics-box .timing-delete {
+    --hit-left: 0.9rem;
   }
 }
 
