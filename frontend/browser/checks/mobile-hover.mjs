@@ -1,5 +1,7 @@
 // Step 5a of docs/ongoing/mobile.md: hover only from a mouse, no sticky :hover on
-// touch, and the "Pinned" marker in a pinned gloss on every device.
+// touch, and the "Pinned" marker in a pinned gloss on every device. Since
+// step 5b a tap previews rather than pins; mobile-gloss-sheet checks the
+// rest of touch.
 import {
   check,
   DESKTOP,
@@ -25,8 +27,8 @@ await check('mobile-hover', async (h) => {
   await tok.tap()
   h.expect(await isShown(phone, '.gloss-popup'), 'a tap opens the gloss')
   h.expect(
-    (await phone.locator('.gloss-pinned').count()) === 1,
-    'a tapped (pinned) gloss shows the marker',
+    (await phone.locator('.gloss-pinned').count()) === 0,
+    'a tapped gloss is a preview, with no marker',
   )
   await tok.tap()
   await settle(phone)

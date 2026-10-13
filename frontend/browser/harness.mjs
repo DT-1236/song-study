@@ -471,6 +471,40 @@ export function tapOrClick(page, locator) {
   return page.device.options.hasTouch ? locator.tap() : locator.click()
 }
 
+// A finger on a touch page's screen, for gestures `tap()` can't make: a hold
+// (`down`, wait, `up`) or a swipe (`swipe`, or `down`, `move`s, `up`).
+// Points are CSS px in the viewport. Sent as CDP touch events, which go
+// through the browser's own input handling: a swipe scrolls the page and
+// ends a press with `pointercancel`, as on a phone.
+export async function finger(page) {
+  const cdp = await page.context().newCDPSession(page)
+  const send = (type, touchPoints) =>
+    cdp.send('Input.dispatchTouchEvent', { type, touchPoints })
+  const down = (x, y) => send('touchStart', [{ x, y }])
+  const move = (x, y) => send('touchMove', [{ x, y }])
+  const up = () => send('touchEnd', [])
+  return {
+    down,
+    move,
+    up,
+    // Drags from (x, y) by dy in small steps, then lifts: a swipe of -dy
+    // scrolls the page down by about dy.
+    async swipe(x, y, dy, steps = 10) {
+      await down(x, y)
+      for (let i = 1; i <= steps; i++) await move(x, y + (dy * i) / steps)
+      await up()
+    },
+  }
+}
+
+// The center of `locator`'s box, in viewport CSS px, once it's scrolled into
+// view.
+export async function center(locator) {
+  await locator.scrollIntoViewIfNeeded()
+  const box = await locator.boundingBox()
+  return { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+}
+
 // Swaps the viewport's width and height, keeping the page, as turning a
 // phone does.
 export async function rotate(page) {

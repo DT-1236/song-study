@@ -485,6 +485,9 @@ named in brackets.
   (step 5a's gloss that won't close), the script shows it failing on `main`
   before the fix, so a pass means the fix worked and not that the test
   missed it.
+- **Touch gestures:** a hold and a swipe, as CDP touch events, which
+  scroll the page and end a press in `pointercancel` as a phone does.
+  (`finger`, `center`)
 - **Video:** wait for the iframe's `<video>` before playing. Playwright can
   evaluate inside the YouTube iframe, so read `currentTime` there to confirm
   playback and seeks. (`videoFrame`, `videoTime`)
@@ -552,9 +555,9 @@ named in brackets.
     no ring and changes no pin.
   - **Sheet:** taps inside it (an option, Show more) leave it open. With it
     open, the outlined token isn't covered by it, and the last lyric line
-    can still be scrolled above it. With the video pinned in portrait, at
-    least three lyric line-heights separate the player's bottom from the
-    sheet's top. With a gloss pinned during playback, the playing token's
+    can still be scrolled above it. With the video shown in portrait, at
+    least three lyric line-heights separate the top bar from the sheet's
+    top. With a gloss pinned during playback, the playing token's
     bottom stays at or above the sheet's top. The "Hold a word" hint shows
     until the first pin and not after a reload.
   - **Desktop:** step 5a's 1280px checks still pass.
