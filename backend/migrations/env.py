@@ -11,8 +11,11 @@ from app.env import load_env
 config = context.config
 
 # Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
+# This line sets up loggers basically. Not for a caller that migrates in a
+# process with logging of its own (see tests/support.py's alembic_config).
+if config.config_file_name is not None and config.attributes.get(
+    "configure_logger", True
+):
     fileConfig(config.config_file_name)
 
 # alembic.ini leaves sqlalchemy.url blank; pull the real connection string

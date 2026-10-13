@@ -1,20 +1,23 @@
-"""Tests for GET /documents/{id}/tokens, using public-domain text
-(tests/fixtures/kumo_no_ito.py) and short test sentences. The route commits
-its own transactions, so these use `committed_engine`.
+"""Tests for the document tokens routes and the processing job behind
+them, using public-domain text (tests/fixtures/kumo_no_ito.py) and short
+test sentences. The routes commit their own transactions, so these use
+`committed_engine`.
 """
 
 from __future__ import annotations
 
 import threading
+from typing import NamedTuple
 
 from sqlalchemy import text
 
 from app.glosses import is_glossable
-from app.main import (
-    DocumentCreate,
-    DocumentTextUpdate,
-    _process_document,
-    _write_processed_document,
+from app.main import PROCESSING_FAILED, DocumentCreate, DocumentTextUpdate
+from app.processing import (
+    LEASE,
+    _release,
+    process_document,
+    write_processed_document,
 )
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
@@ -22,13 +25,46 @@ from tests.support import (
     BackgroundCall,
     clear_gloss_links,
     create_document,
+    fetch_document_tokens,
     get_document_tokens,
     pick_reading,
+    process_document_tokens,
     round_trips,
     statements_sent,
     update_document_text,
     wait_for_lock_wait,
 )
+
+
+class HeldProcessing(NamedTuple):
+    # Each text a job processed, in order.
+    texts: list[str]
+    # Set as a job starts processing each held text.
+    started: dict[str, threading.Event]
+    # Set to let a job processing each held text go on.
+    release: dict[str, threading.Event]
+
+    def release_all(self) -> None:
+        for event in self.release.values():
+            event.set()
+
+
+def hold_processing(monkeypatch, *held: str) -> HeldProcessing:
+    """Record each text a job processes, holding a job processing any of
+    `held` until the test releases it."""
+    holds = HeldProcessing(
+        [], {t: threading.Event() for t in held}, {t: threading.Event() for t in held}
+    )
+
+    def process(document_text):
+        holds.texts.append(document_text)
+        if document_text in holds.release:
+            holds.started[document_text].set()
+            holds.release[document_text].wait(timeout=30)
+        return process_document(document_text)
+
+    monkeypatch.setattr("app.processing.process_document", process)
+    return holds
 
 
 def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
@@ -38,18 +74,20 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
 
     cold = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    # Includes the ownership check, create_phrase_conflicts' INSERT (this text has phrase
-    # suggestions and predicate groups), one read of the cached glosses
-    # its uncached predicate groups are built from, and one of the lookups
-    # their pieces are shown from.
-    assert round_trips(cold) == 14
+    # Includes both requests (starting the job, then the poll that reads
+    # its tokens) with their ownership checks, the job's claim and its
+    # release, create_phrase_conflicts' INSERT (this text has phrase
+    # suggestions and predicate groups), one read of the cached glosses its
+    # uncached predicate groups are built from, and one of the lookups their
+    # pieces are shown from.
+    assert round_trips(cold) == 16
     assert round_trips(cold, "INSERT INTO gloss_lookups") == 1
 
     # Saving the text deletes the tokens but keeps the gloss cache, so the
     # next request is a first processing where every gloss is already cached.
     update_document_text(document_id, DocumentTextUpdate(text=TEXT))
     warm = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
-    assert round_trips(warm) == 12
+    assert round_trips(warm) == 14
     assert round_trips(warm, "INSERT INTO gloss_lookups") == 0
 
     viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
@@ -112,57 +150,167 @@ def test_a_dropped_piece_lookup_alone_does_not_relink_glosses(
     get_document_tokens(document_id)
 
 
-def test_concurrent_first_requests_both_get_the_tokens(committed_engine, monkeypatch):
+def test_requests_while_processing_start_no_second_job(background_jobs, monkeypatch):
+    """A reload, another tab and the page's own polling, all while a job is
+    processing the document, wait for that job rather than starting their
+    own."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    held = hold_processing(monkeypatch, FIRST_SENTENCE)
+
+    try:
+        assert process_document_tokens(document_id).status == "processing"
+        assert held.started[FIRST_SENTENCE].wait(timeout=30)
+        assert process_document_tokens(document_id).status == "processing"
+        assert fetch_document_tokens(document_id).status == "processing"
+    finally:
+        held.release_all()
+
+    assert get_document_tokens(document_id)
+    assert held.texts == [FIRST_SENTENCE]
+
+
+def test_a_request_during_the_jobs_write_gets_its_tokens(background_jobs, monkeypatch):
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
 
-    # Holds the first request after it writes its tokens but before it
-    # commits, so the second arrives while they're uncommitted.
+    # Holds the job after it writes its tokens but before it commits, so
+    # the request arrives while they're uncommitted.
     tokens_written = threading.Event()
     release = threading.Event()
 
     def write_then_wait(conn, document_id, processed):
-        _write_processed_document(conn, document_id, processed)
+        write_processed_document(conn, document_id, processed)
         tokens_written.set()
         release.wait(timeout=30)
 
-    monkeypatch.setattr("app.main._write_processed_document", write_then_wait)
+    monkeypatch.setattr("app.processing.write_processed_document", write_then_wait)
 
     try:
-        first = BackgroundCall(get_document_tokens, document_id)
+        assert process_document_tokens(document_id).status == "processing"
         assert tokens_written.wait(timeout=30)
-        second = BackgroundCall(get_document_tokens, document_id)
+        request = BackgroundCall(fetch_document_tokens, document_id)
         wait_for_lock_wait()
     finally:
         release.set()
 
-    first_tokens = first.outcome()
-    second_tokens = second.outcome()
-    assert first_tokens
-    assert [t.id for t in second_tokens] == [t.id for t in first_tokens]
+    progress = request.outcome()
+    assert progress.status == "ready"
+    assert [t.id for t in progress.tokens] == [
+        t.id for t in get_document_tokens(document_id)
+    ]
 
 
 def test_text_edited_mid_processing_gets_tokens_for_the_new_text(
-    committed_engine, monkeypatch
+    background_jobs, monkeypatch
 ):
     document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
-    texts_processed = []
+    held = hold_processing(monkeypatch, FIRST_SENTENCE, SECOND_SENTENCE)
+    releases = []
+    first_released = threading.Event()
 
-    def process_then_edit(document_text):
-        processed = _process_document(document_text)
-        if not texts_processed:
-            # Would block forever if the request held a lock while processing.
-            update_document_text(document_id, DocumentTextUpdate(text=SECOND_SENTENCE))
-        texts_processed.append(document_text)
-        return processed
+    def recorded_release(conn, document_id, claimed_at, *, failed):
+        current_text = _release(conn, document_id, claimed_at, failed=failed)
+        releases.append(current_text)
+        first_released.set()
+        return current_text
 
-    monkeypatch.setattr("app.main._process_document", process_then_edit)
+    monkeypatch.setattr("app.processing._release", recorded_release)
+
+    try:
+        process_document_tokens(document_id)
+        assert held.started[FIRST_SENTENCE].wait(timeout=30)
+        # Would block until the job finished if it held a lock while
+        # processing.
+        update_document_text(document_id, DocumentTextUpdate(text=SECOND_SENTENCE))
+        # The edit dropped the first job's claim, so the next poll starts a
+        # job for the new text.
+        assert fetch_document_tokens(document_id).status == "processing"
+        assert held.started[SECOND_SENTENCE].wait(timeout=30)
+
+        # The first job finishes while the second is still processing: its
+        # claim is gone, so it writes nothing and leaves the second's alone.
+        held.release[FIRST_SENTENCE].set()
+        assert first_released.wait(timeout=30)
+        assert releases == [None]
+        assert fetch_document_tokens(document_id).status == "processing"
+    finally:
+        held.release_all()
 
     tokens = get_document_tokens(document_id)
-
-    assert texts_processed == [FIRST_SENTENCE, SECOND_SENTENCE]
+    assert held.texts == [FIRST_SENTENCE, SECOND_SENTENCE]
     assert [t.surface for t in tokens] == [
         r.surface for r in tokenize_document(SECOND_SENTENCE)
     ]
+
+
+def test_a_failed_job_is_reported_and_retried_only_when_asked(
+    committed_engine, monkeypatch, caplog
+):
+    """Polling reports a failed job without starting another, which would
+    fail again every time; starting processing, as a page load does, tries
+    again."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    attempts = []
+
+    def fail(document_text):
+        attempts.append(document_text)
+        raise RuntimeError("the tokenizer broke")
+
+    monkeypatch.setattr("app.processing.process_document", fail)
+
+    # Inline, the job has already failed by the time this returns.
+    assert process_document_tokens(document_id).status == "processing"
+    assert "the tokenizer broke" in caplog.text
+    for _ in range(2):
+        progress = fetch_document_tokens(document_id)
+        assert (progress.status, progress.detail) == ("failed", PROCESSING_FAILED)
+    assert len(attempts) == 1
+
+    monkeypatch.setattr("app.processing.process_document", process_document)
+    assert get_document_tokens(document_id)
+
+
+def test_a_job_that_outlived_its_claim_is_started_over(committed_engine, monkeypatch):
+    """A claim taken within its lease stands for a job still running; one
+    older, for a job that died with its process, which a poll starts over."""
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    processed = hold_processing(monkeypatch)
+
+    def claim_since(age):
+        with committed_engine.begin() as conn:
+            conn.execute(
+                text(
+                    """
+                    UPDATE documents SET processing_started_at = now() - :age
+                    WHERE id = :id
+                    """
+                ),
+                {"id": document_id, "age": age},
+            )
+
+    claim_since(LEASE / 2)
+    assert fetch_document_tokens(document_id).status == "processing"
+    assert processed.texts == []
+
+    claim_since(LEASE * 2)
+    fetch_document_tokens(document_id)
+    assert processed.texts == [FIRST_SENTENCE]
+    assert fetch_document_tokens(document_id).status == "ready"
+
+
+def test_an_empty_text_is_ready_with_no_tokens(committed_engine, monkeypatch):
+    document_id = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
+    with committed_engine.begin() as conn:
+        conn.execute(
+            text("UPDATE documents SET text = '' WHERE id = :id"), {"id": document_id}
+        )
+
+    def fail(document_text):
+        raise AssertionError("an empty text was processed")
+
+    monkeypatch.setattr("app.processing.process_document", fail)
+
+    progress = fetch_document_tokens(document_id)
+    assert (progress.status, progress.tokens) == ("ready", [])
 
 
 def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_engine):

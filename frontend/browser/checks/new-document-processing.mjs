@@ -10,13 +10,17 @@ await check('new-document-processing', async (h) => {
   for (const device of [PHONE, DESKTOP]) {
     h.step(`${device.name}: save a new document`)
     const page = await h.open('/new', device)
-    // Holds the tokens back until the processing state has been looked at.
+    // Holds the tokens back until the processing state has been looked at:
+    // the request starting their processing, and the polls after it.
     let release
     const released = new Promise((resolve) => (release = resolve))
-    await page.route('**/api/documents/*/tokens', async (route) => {
-      await released
-      await route.continue()
-    })
+    await page.route(
+      /\/api\/documents\/\d+\/tokens(\/processing)?$/,
+      async (route) => {
+        await released
+        await route.continue()
+      },
+    )
     await page.fill('#title', `Processing check ${device.name} ${Date.now()}`)
     await page.fill('#lyrics', lyrics)
     await page.click('.new-document-form button[type=submit]')

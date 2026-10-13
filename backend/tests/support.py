@@ -102,6 +102,10 @@ def recreate_test_database() -> None:
 def alembic_config() -> Config:
     """The Alembic config for migrating the test database."""
     config = Config(str(BACKEND_DIR / "alembic.ini"))
+    # Leaves the logging of the process it migrates in (the tests', or the
+    # browser checks' server) as the app's would be, rather than disabling
+    # every logger the app has already made.
+    config.attributes["configure_logger"] = False
     # Config values go through configparser interpolation, so % is escaped.
     config.set_main_option(
         "sqlalchemy.url",
@@ -243,6 +247,24 @@ def make_token(conn, **overrides) -> int:
             "furigana_spans": json.dumps(defaults["furigana_spans"]),
         },
     ).scalar_one()
+
+
+def get_document_tokens(document_id: int, timeout: float = 60.0) -> list:
+    """The document's tokens, as a page gets them: starting it processing,
+    then polling until that's done. Raises if processing failed."""
+    progress = process_document_tokens(document_id)
+    deadline = time.monotonic() + timeout
+    while progress.status == "processing":
+        if time.monotonic() > deadline:
+            raise TimeoutError("processing did not finish")
+        progress = fetch_document_tokens(document_id)
+        # Only reached with jobs in the background: inline, the request that
+        # started one has already finished it.
+        if progress.status == "processing":
+            time.sleep(0.05)
+    if progress.status == "failed":
+        raise RuntimeError(f"processing failed: {progress.detail}")
+    return progress.tokens
 
 
 def create_tokenized_document(text: str = "", title: str = "test") -> int:
@@ -427,7 +449,8 @@ def _via_client(endpoint):
 # as_user(...).
 create_document = _via_client(main.create_document)
 get_document = _via_client(main.get_document)
-get_document_tokens = _via_client(main.get_document_tokens)
+fetch_document_tokens = _via_client(main.get_document_tokens)
+process_document_tokens = _via_client(main.process_document_tokens)
 list_documents = _via_client(main.list_documents)
 update_document_text = _via_client(main.update_document_text)
 link_lrclib = _via_client(main.link_lrclib)

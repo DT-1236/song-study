@@ -14,7 +14,7 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from starlette.middleware.sessions import SessionMiddleware
 
-from app import study
+from app import processing, study
 from app.auth import APP_URL, session_secret
 from app.auth import router as auth_router
 from app.card_content import Line, Option, Queue, RunLine
@@ -27,8 +27,6 @@ from app.conflicts import (
     WordNotOffered,
     accept_phrase_suggestions,
     correct_reading,
-    create_conflicts,
-    create_phrase_conflicts,
     lock_token_group,
     pick_piece_word,
     piece_word_options,
@@ -42,21 +40,14 @@ from app.conflicts import (
 from app.db import DOCUMENT_COLUMNS, engine, json_param, owned_document_row
 from app.glosses import (
     KATAKANA_GLOSS_COLUMNS,
-    GlossKey,
-    GlossPlan,
-    gloss_key,
     is_glossable,
     is_probably_english,
     picked_katakana_gloss,
     piece_lookups,
-    plan_glosses,
-    predicate_group_request,
     rank_senses,
     search_jmdict,
     shown_pieces,
-    store_glosses,
 )
-from app.grammar import find_predicate_groups
 from app.kanji import MAX_DECK_WORDS, CardKanji, KanjiEntry
 from app.lrclib import (
     LrclibCandidate,
@@ -67,14 +58,10 @@ from app.lrclib import (
     normalize_lrclib_uri,
     search_tracks,
 )
-from app.phrase_merge import find_phrase_suggestions
 from app.sanitize import sanitize_text
 from app.tokenization import (
-    TokenRecord,
     dictionary_form_note,
     mixed_reading,
-    to_hiragana,
-    tokenize_document,
 )
 from app.users import CurrentUser, OwnedDocument
 from app.youtube_music import Song, YouTubeMusicUnavailable, search_songs
@@ -352,6 +339,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
 def _delete_tokens(conn, document_id: int) -> None:
     """Delete the document's tokens and their conflicts, for the next
     tokens request to regenerate from its current text."""
+    processing.cancel(conn, document_id)
     conn.execute(
         text(
             """
@@ -443,7 +431,8 @@ def update_document_text(
     — furigana, gloss links, conflicts, all of it no longer corresponds to
     anything real. No version history is kept (not asked for), so this just
     deletes them outright; they're regenerated from scratch (same as a
-    never-before-processed document) the next time tokens are requested.
+    never-before-processed document) by the job the next tokens request
+    starts.
     The shared gloss_lookups cache is untouched — it's keyed by word, not
     by document, so other documents' (and this one's next processing
     pass's) cached lookups stay valid.
@@ -941,159 +930,67 @@ def _fetch_token(conn, document_id: int, token_id: int) -> Token:
     return _fetch_tokens(conn, document_id, token_ids=[token_id])[0]
 
 
-@dataclasses.dataclass
-class _ProcessedDocument:
-    records: list[TokenRecord]
-    # Each predicate group's index range (see app.grammar).
-    groups: list[range]
-    # The gloss key of each record, by index: its group's, if it's in one.
-    gloss_keys: list[GlossKey | None]
-    gloss_plan: GlossPlan
+class DocumentTokens(BaseModel):
+    status: Literal["processing", "ready", "failed"]
+    # Empty until they're ready.
+    tokens: list[Token] = []
+    # Why processing failed, if it did.
+    detail: str | None = None
 
 
-def _process_document(document_text: str) -> _ProcessedDocument:
-    """Tokenize a document and resolve its glosses against the cache — the
-    slow part of first processing — without writing anything."""
-    records = tokenize_document(document_text)
-    groups = find_predicate_groups(records)
-    find_phrase_suggestions(records)
-
-    gloss_keys = [gloss_key(record) for record in records]
-    group_requests = []
-    for group in groups:
-        members = records[group.start : group.stop]
-        request = predicate_group_request(
-            members,
-            [to_hiragana(member.reading_katakana) for member in members],
-            gloss_keys[group.start],
-        )
-        group_requests.append(request)
-        for i in group:
-            gloss_keys[i] = request.key
-    grouped = {i for group in groups for i in group}
-    # A token's dictionary_form is the alternate spelling for its key.
-    requests = (
-        (key, record.dictionary_form)
-        for i, (record, key) in enumerate(zip(records, gloss_keys))
-        if key is not None and i not in grouped
-    )
-    # Autocommit, so no transaction is held open through the dictionary
-    # lookups.
-    with engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn:
-        return _ProcessedDocument(
-            records, groups, gloss_keys, plan_glosses(conn, requests, group_requests)
-        )
+# A failed job's details are in the server's log.
+PROCESSING_FAILED = "Adding furigana and glosses failed."
 
 
-def _write_processed_document(
-    conn, document_id: int, processed: _ProcessedDocument
-) -> None:
-    """Insert a processed document's new gloss rows, its tokens (already
-    linked to their glosses), and its conflicts, one statement each."""
-    gloss_ids = store_glosses(conn, processed.gloss_plan)
-    rows = []
-    for record, key in zip(processed.records, processed.gloss_keys):
-        rows.append(
-            {
-                # Not dataclasses.asdict, which would deep-copy every field,
-                # including the two that aren't columns, only to discard them.
-                **{
-                    f.name: getattr(record, f.name)
-                    for f in dataclasses.fields(record)
-                    if f.name not in ("conflict_options", "phrase_suggestion")
-                },
-                "gloss_lookup_id": gloss_ids[key] if key is not None else None,
-            }
-        )
-    conn.execute(
-        text(
-            """
-            INSERT INTO tokens (
-                document_id, position, char_begin, char_end, surface,
-                dictionary_form, normalized_form, reading_katakana,
-                part_of_speech, is_oov, furigana_spans, needs_review,
-                review_reason, gloss_lookup_id, phrase_start_position
-            )
-            SELECT :document_id, position, char_begin, char_end, surface,
-                   dictionary_form, normalized_form, reading_katakana,
-                   part_of_speech, is_oov, furigana_spans, needs_review,
-                   review_reason, gloss_lookup_id, phrase_start_position
-            FROM jsonb_to_recordset(CAST(:rows AS JSONB)) AS r(
-                position int, char_begin int, char_end int, surface text,
-                dictionary_form text, normalized_form text, reading_katakana text,
-                part_of_speech jsonb, is_oov boolean, furigana_spans jsonb,
-                needs_review boolean, review_reason text, gloss_lookup_id int,
-                phrase_start_position int
-            )
-            ORDER BY position
-            """
-        ),
-        {"document_id": document_id, "rows": json.dumps(rows)},
-    )
-    create_conflicts(conn, document_id, processed.records)
-    create_phrase_conflicts(conn, document_id, processed.records, processed.groups)
+def _document_tokens(document_id: int, *, retry: bool) -> DocumentTokens:
+    """The document's tokens, if it's been processed; otherwise starts it
+    processing, unless it already is or — unless `retry` — it failed, and
+    says which."""
+    with engine.connect() as conn:
+        fetched = _read_tokens(conn, document_id, cache_only=True)
+
+    if fetched.tokens:
+        if not fetched.unlinked and not fetched.dropped_lookup:
+            return DocumentTokens(status="ready", tokens=fetched.tokens)
+    else:
+        progress = processing.start(document_id, retry=retry)
+        if progress is None:
+            raise study.DocumentNotFound()
+        if progress == "processing":
+            return DocumentTokens(status="processing")
+        if progress == "failed":
+            return DocumentTokens(status="failed", detail=PROCESSING_FAILED)
+        # Processed since its tokens were read above, or it has none to make.
+
+    with engine.begin() as conn:
+        # Tokens missing their gloss link: tokenized before gloss support
+        # existed, or unlinked by a migration that reset the gloss cache (as
+        # 0005 did).
+        if fetched.unlinked:
+            repair_gloss_links(conn, document_id)
+        # A piece of a composite gloss with no cached lookup is left alone by
+        # repair_gloss_links: the fetch, which can write, looks it up.
+        return DocumentTokens(status="ready", tokens=_fetch_tokens(conn, document_id))
 
 
-@api.get("/documents/{document_id}/tokens", response_model=list[Token])
+@api.get("/documents/{document_id}/tokens", response_model=DocumentTokens)
 def get_document_tokens(
     document_id: OwnedDocument, user_id: CurrentUser
-) -> list[Token]:
-    while True:
-        with engine.connect() as conn:
-            fetched = _read_tokens(conn, document_id, cache_only=True)
-            existing = fetched.tokens
-            if not existing:
-                # Tokens only exist for a document that does, so the document
-                # is only read (and checked for) when there are none.
-                document_text = conn.execute(
-                    text("SELECT text FROM documents WHERE id = :id"),
-                    {"id": document_id},
-                ).scalar_one_or_none()
+) -> DocumentTokens:
+    """The document's tokens, or how processing them is going: what a page
+    polls until they're ready. Starts processing them if nothing is, but
+    never again after it failed, which polling would repeat forever."""
+    return _document_tokens(document_id, retry=False)
 
-        if existing:
-            if not fetched.unlinked and not fetched.dropped_lookup:
-                return existing
-            with engine.begin() as conn:
-                # Tokens missing their gloss link: tokenized before gloss
-                # support existed, or unlinked by a migration that reset the
-                # gloss cache (as 0005 did).
-                if fetched.unlinked:
-                    repair_gloss_links(conn, document_id)
-                # A piece of a composite gloss with no cached lookup is
-                # left alone by repair_gloss_links: the fetch, which can
-                # write, looks it up.
-                return _fetch_tokens(conn, document_id)
 
-        if document_text is None:
-            raise study.DocumentNotFound()
-        processed = _process_document(document_text)
-        if not processed.records:
-            return []
-
-        with engine.begin() as conn:
-            # Locks the document, so a concurrent first request, text edit,
-            # or LRCLIB refresh waits for this write instead of racing it.
-            current_text = conn.execute(
-                text("SELECT text FROM documents WHERE id = :id FOR UPDATE"),
-                {"id": document_id},
-            ).scalar_one_or_none()
-
-            if current_text is None:
-                raise study.DocumentNotFound()
-            # Its own statement, not part of the locking one: under READ
-            # COMMITTED, only a statement started after the lock was granted
-            # sees tokens that the lock's previous holder committed.
-            already_processed = conn.execute(
-                text("SELECT EXISTS (SELECT 1 FROM tokens WHERE document_id = :id)"),
-                {"id": document_id},
-            ).scalar_one()
-            if already_processed:
-                return _fetch_tokens(conn, document_id)
-            if current_text == document_text:
-                _write_processed_document(conn, document_id, processed)
-                return _fetch_tokens(conn, document_id)
-        # The text was edited while this was processing: start over on the
-        # new text.
+@api.post("/documents/{document_id}/tokens/processing", response_model=DocumentTokens)
+def process_document_tokens(
+    document_id: OwnedDocument, user_id: CurrentUser
+) -> DocumentTokens:
+    """The document's tokens, or how processing them is going, having
+    started processing them unless they are or have been — even if that
+    failed last time, which this tries again."""
+    return _document_tokens(document_id, retry=True)
 
 
 class ConflictResolution(BaseModel):
