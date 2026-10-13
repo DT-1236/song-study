@@ -426,24 +426,34 @@ export function tokenized(page) {
   return page.waitForSelector('.lyrics-box:not(.synced-lyrics) .token')
 }
 
+// Every token's surface (its text without furigana or an open gloss popup),
+// in order, and whether its gloss is open.
+function tokenSurfaces(page) {
+  return page.evaluate(() =>
+    [...document.querySelectorAll('.token')].map((element) => {
+      const copy = element.cloneNode(true)
+      copy.querySelectorAll('rt, .gloss-popup').forEach((n) => n.remove())
+      return {
+        surface: copy.textContent,
+        open: element.querySelector(':scope > .gloss-popup') !== null,
+      }
+    }),
+  )
+}
+
+// The surface of the token whose gloss is open, or null.
+export async function openGlossSurface(page) {
+  return (await tokenSurfaces(page)).find((t) => t.open)?.surface ?? null
+}
+
 // A locator for the `nth` token reading `surface`. A token's text includes
 // its furigana (and an open gloss popup), so matching on Playwright's
 // `hasText` alone would miss it.
 export async function token(page, surface, nth = 0) {
-  const index = await page.evaluate(
-    ([surface, nth]) =>
-      [...document.querySelectorAll('.token')]
-        .map((element) => {
-          const copy = element.cloneNode(true)
-          copy.querySelectorAll('rt, .gloss-popup').forEach((n) => n.remove())
-          return copy.textContent
-        })
-        .reduce(
-          (found, text, i) => (text === surface ? [...found, i] : found),
-          [],
-        )[nth] ?? -1,
-    [surface, nth],
-  )
+  const index =
+    (await tokenSurfaces(page)).flatMap((t, i) =>
+      t.surface === surface ? [i] : [],
+    )[nth] ?? -1
   if (index === -1) throw new Error(`no token #${nth} reading ${surface}`)
   return page.locator('.token').nth(index)
 }

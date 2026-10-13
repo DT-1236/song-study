@@ -8,6 +8,7 @@ import {
   finger,
   isShown,
   NARROW,
+  openGlossSurface,
   PHONE,
   playerReady,
   settle,
@@ -28,15 +29,6 @@ const ring = (loc) =>
 const isOpen = (page) => isShown(page, '.gloss-popup')
 const isPinned = async (page) =>
   (await page.locator('.gloss-popup .gloss-pinned').count()) === 1
-// The surface of the token whose gloss is open, or null.
-const openSurface = (page) =>
-  page.evaluate(() => {
-    const popup = document.querySelector('.gloss-popup')
-    if (!popup) return null
-    const copy = popup.parentElement.cloneNode(true)
-    copy.querySelectorAll('rt, .gloss-popup').forEach((n) => n.remove())
-    return copy.textContent
-  })
 const rect = (page, selector) =>
   page.$eval(selector, (el) => {
     const r = el.getBoundingClientRect()
@@ -160,7 +152,7 @@ await check('mobile-gloss-sheet', async (h) => {
   const thread = await token(page, '糸')
   await thread.tap()
   h.expect(
-    (await openSurface(page)) === '糸',
+    (await openGlossSurface(page)) === '糸',
     'a tap on another token switches',
   )
   let blank = await blankPoint(page)
@@ -186,7 +178,7 @@ await check('mobile-gloss-sheet', async (h) => {
   await page.locator('.gloss-popup .gloss-show-more').tap()
   await page.locator('.gloss-popup .more-options > summary').tap()
   h.expect(
-    (await openSurface(page)) === '事',
+    (await openGlossSurface(page)) === '事',
     'taps on Show more and More options leave it open',
   )
   const overflowing = await page.$eval(
@@ -236,7 +228,7 @@ await check('mobile-gloss-sheet', async (h) => {
   await f.up()
   await settle(page)
   h.expect(
-    (await openSurface(page)) === '蜘蛛' && (await isPinned(page)),
+    (await openGlossSurface(page)) === '蜘蛛' && (await isPinned(page)),
     'after the hold the gloss is pinned, with the marker',
   )
   h.expect((await ring(kumo2)) === 'none', 'the ring goes once the pin lands')
@@ -254,7 +246,7 @@ await check('mobile-gloss-sheet', async (h) => {
   h.expect(await isPinned(page), 'a tap on blank space leaves a pin open')
   await thread.tap()
   h.expect(
-    (await openSurface(page)) === '糸' && !(await isPinned(page)),
+    (await openGlossSurface(page)) === '糸' && !(await isPinned(page)),
     'the next tap on another token previews it: nothing swallowed it',
   )
   await holdOn(thread)

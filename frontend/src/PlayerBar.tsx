@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ButtonHTMLAttributes, RefObject } from 'react'
 import { PlayIcon } from './LinePlayButton'
-import { useElementHeight } from './useElementHeight'
+import { useHeightProperty } from './useHeightProperty'
 import { usePersistentState } from './usePersistentState'
 import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import type { PlayerShortcut } from './usePlayerShortcuts'
@@ -37,19 +37,11 @@ export function PlayerBar({
 
   // Set on the scroll container, which the page's scroll padding and toast
   // read, so what's scrolled into view stops above the bar.
-  const [barEl, setBarEl] = useState<HTMLDivElement | null>(null)
-  const height = useElementHeight(barEl)
-  useEffect(() => {
-    const container = barEl?.closest<HTMLElement>('.content')
-    if (!container) return
-    container.style.setProperty('--player-bar-height', `${height}px`)
-    return () => {
-      container.style.removeProperty('--player-bar-height')
-    }
-  }, [barEl, height])
+  const barRef = useRef<HTMLDivElement>(null)
+  useHeightProperty(barRef, '--player-bar-height')
 
   return (
-    <div ref={setBarEl} className="player-bar">
+    <div ref={barRef} className="player-bar">
       <YouTubePlayer
         ref={playerRef}
         videoId={videoId}

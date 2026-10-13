@@ -66,6 +66,7 @@ import {
 } from './timing'
 import type { LyricsLine } from './timing'
 import { useElementHeight } from './useElementHeight'
+import { useHeightProperty } from './useHeightProperty'
 import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { usePersistentState } from './usePersistentState'
@@ -1380,26 +1381,15 @@ function GlossPopup({
       ? token.gloss.pieces.flatMap((piece, i) => (piece.is_word ? [i] : []))
       : []
 
-  // As a sheet: its height is set on the scroll container, as
-  // --sheet-height, so the lyrics can scroll their last lines above it and
-  // what's scrolled into view (the token, the line being sung) stops above
-  // it. Set directly, like the transform below, so it lands before paint.
+  // As a sheet: its height is published as --sheet-height, so the lyrics can
+  // scroll their last lines above it and what's scrolled into view (the
+  // token, the line being sung) stops above it.
+  useHeightProperty(popupRef, '--sheet-height', sheet)
   useLayoutEffect(() => {
-    const popup = popupRef.current
-    const container = popup?.closest<HTMLElement>('.content')
-    if (!sheet || !popup || !container) return
-    const setHeight = () =>
-      container.style.setProperty('--sheet-height', `${popup.offsetHeight}px`)
-    setHeight()
+    if (!sheet) return
     // The popup's parent is its token, which stays outlined: out from under
     // the sheet, if it opened over it.
-    popup.parentElement?.scrollIntoView({ block: 'nearest' })
-    const observer = new ResizeObserver(setHeight)
-    observer.observe(popup)
-    return () => {
-      observer.disconnect()
-      container.style.removeProperty('--sheet-height')
-    }
+    popupRef.current?.parentElement?.scrollIntoView({ block: 'nearest' })
   }, [sheet])
 
   // Sets the popup's own transform directly (not through React state), so
@@ -1745,8 +1735,6 @@ const TokenizedText = memo(function TokenizedText({
   // On touch, a tapped token's preview is hoveredId too.
   const [hoveredId, setHoveredId] = useState<number | null>(null)
   const [pinnedId, setPinnedId] = useState<number | null>(null)
-  // The token being held, whose countdown to pinning is showing.
-  const [pressingId, setPressingId] = useState<number | null>(null)
   const [, setHeldToPin] = usePersistentState('heldToPin', false)
   // Positions of the tokens shift-clicked together, ascending, to decide for
   // (or, later, group) at once. They stay valid while this is mounted:
@@ -1930,6 +1918,7 @@ const TokenizedText = memo(function TokenizedText({
     endPressRef.current?.()
     const id = tokens[index].id
     const { pointerId, clientX, clientY } = event
+    const tokenElement = event.currentTarget
     const timer = window.setTimeout(() => {
       endPress()
       swallowClickRef.current = true
@@ -1937,11 +1926,14 @@ const TokenizedText = memo(function TokenizedText({
       setPinnedId(id)
       setHeldToPin(true)
     }, LONG_PRESS_MS)
-    setPressingId(id)
+    // Marked on the element rather than in state, so holding a token doesn't
+    // re-render the whole token loop; React never sets this attribute, so it
+    // survives the token's own re-renders.
+    tokenElement.dataset.pressing = ''
 
     const stopCountdown = () => {
       window.clearTimeout(timer)
-      setPressingId(null)
+      delete tokenElement.dataset.pressing
     }
     // Ends the countdown once the touch moves off, but keeps listening for
     // the cancel a scroll ends in.
@@ -2174,7 +2166,6 @@ const TokenizedText = memo(function TokenizedText({
           if (needsCorrection(token)) classNames.push('needs-correction')
           if (interactive) classNames.push('has-gloss')
           if (showPopup) classNames.push('gloss-open')
-          if (pressingId === token.id) classNames.push('pressing')
           if (lineOf[index] === playingLine) classNames.push('playing')
           if (selected.includes(index)) classNames.push('selected')
           if (isEligible(index)) classNames.push('eligible')
