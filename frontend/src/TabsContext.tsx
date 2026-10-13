@@ -2,13 +2,11 @@ import {
   createContext,
   useCallback,
   useContext,
-  useEffect,
   useMemo,
   useRef,
   useState,
 } from 'react'
 import type { ReactNode } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
 import { processedTokens } from './api'
 import type { Token } from './api'
 
@@ -34,21 +32,6 @@ export function TabsProvider({ children }: { children: ReactNode }) {
   const [tabs, setTabs] = useState<Tab[]>([])
   const [processingIds, setProcessingIds] = useState<Set<number>>(new Set())
 
-  const navigate = useNavigate()
-  const location = useLocation()
-  const currentPathnameRef = useRef(location.pathname)
-  useEffect(() => {
-    currentPathnameRef.current = location.pathname
-  }, [location.pathname])
-
-  // The document whose processing completion should navigate the user to it,
-  // and the pathname they were on when they asked for it. If they've since
-  // navigated elsewhere, or asked for a different document, this no longer
-  // matches by the time processing finishes and the auto-navigate is skipped.
-  const pendingAutoNavRef = useRef<{
-    documentId: number
-    pathname: string
-  } | null>(null)
   const inFlightRef = useRef<Map<number, Promise<Token[]>>>(new Map())
 
   const visitDocument = useCallback((documentId: number, title: string) => {
@@ -85,10 +68,7 @@ export function TabsProvider({ children }: { children: ReactNode }) {
 
   const ensureProcessed = useCallback(
     (documentId: number, title: string): Promise<Token[]> => {
-      pendingAutoNavRef.current = {
-        documentId,
-        pathname: currentPathnameRef.current,
-      }
+      visitDocument(documentId, title)
 
       const existing = inFlightRef.current.get(documentId)
       if (existing) return existing
@@ -102,24 +82,12 @@ export function TabsProvider({ children }: { children: ReactNode }) {
           next.delete(documentId)
           return next
         })
-        visitDocument(documentId, title)
-
-        const pending = pendingAutoNavRef.current
-        const targetPath = `/documents/${documentId}`
-        if (
-          pending &&
-          pending.documentId === documentId &&
-          pending.pathname === currentPathnameRef.current &&
-          currentPathnameRef.current !== targetPath
-        ) {
-          navigate(targetPath)
-        }
       })
 
       inFlightRef.current.set(documentId, promise)
       return promise
     },
-    [navigate, visitDocument],
+    [visitDocument],
   )
 
   const openIds = useMemo(

@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { fetchDocuments } from './api'
 import type { SortDir, SortField } from './api'
 import { ReadinessMeter } from './ReadinessMeter'
@@ -20,7 +21,8 @@ const COLUMNS: { field: SortField; label: string; hideNarrow?: boolean }[] = [
 ]
 
 export function DocumentsListPage() {
-  const { openIds, processingIds, ensureProcessed } = useTabs()
+  const { openIds, processingIds } = useTabs()
+  const navigate = useNavigate()
 
   const [page, setPage] = useState(1)
   const [sortBy, setSortBy] = useState<SortField>('created_at')
@@ -90,9 +92,7 @@ export function DocumentsListPage() {
             <tr
               key={doc.id}
               className="clickable-row"
-              onClick={() => {
-                ensureProcessed(doc.id, doc.title).catch(() => {})
-              }}
+              onClick={() => navigate(`/documents/${doc.id}`)}
             >
               <td className="tab-indicator">
                 {processingIds.has(doc.id) ? (
