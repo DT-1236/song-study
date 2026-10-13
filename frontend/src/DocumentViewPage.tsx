@@ -1406,9 +1406,9 @@ function GlossPopup({
   // browser to paint in between.
   useLayoutEffect(() => {
     if (sheet || !popup) return
-    function reposition() {
-      const container = popup?.closest('.content')
-      if (!popup || !container) return
+    const reposition = () => {
+      const container = popup.closest('.content')
+      if (!container) return
       popup.style.transform = ''
       const popupRect = popup.getBoundingClientRect()
       const containerRect = container.getBoundingClientRect()
@@ -1527,7 +1527,6 @@ function SelectionPanel({
   indices,
   focus,
   instances,
-  panelRef,
   sheet,
   documentId,
   onTokensUpdated,
@@ -1542,7 +1541,6 @@ function SelectionPanel({
   focus: number
   // Every token in the first selected token's group, selected or not.
   instances: Token[]
-  panelRef: React.MutableRefObject<HTMLDivElement | null>
   // Whether it's a sheet at the bottom of the screen, as a gloss is without
   // a mouse.
   sheet: boolean
@@ -1551,16 +1549,7 @@ function SelectionPanel({
   onClear: () => void
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
-  // Held in state for the height hook, and in `panelRef` for the parent,
-  // which reads where the panel ends when it reveals a token.
   const [panel, setPanel] = useState<HTMLDivElement | null>(null)
-  const attachPanel = useCallback(
-    (element: HTMLDivElement | null) => {
-      panelRef.current = element
-      setPanel(element)
-    },
-    [panelRef],
-  )
   useHeightProperty(panel, '--sheet-height', sheet)
   useHeightProperty(panel, '--panel-height', !sheet)
   const selected = indices.map((i) => tokens[i])
@@ -1603,7 +1592,7 @@ function SelectionPanel({
   return (
     <div
       className={sheet ? 'selection-panel selection-sheet' : 'selection-panel'}
-      ref={attachPanel}
+      ref={setPanel}
       onClick={(e) => e.stopPropagation()}
     >
       <div className="lyrics-header">
@@ -1793,7 +1782,6 @@ const TokenizedText = memo(function TokenizedText({
     }
   }, [tokens])
 
-  const panelRef = useRef<HTMLDivElement | null>(null)
   const boxRef = useRef<HTMLDivElement>(null)
 
   // Whether the line being sung is kept on screen. Shared by every document.
@@ -2146,7 +2134,6 @@ const TokenizedText = memo(function TokenizedText({
             indices={selected}
             focus={focus}
             instances={instancesByKey.get(keys[selected[0]]) ?? NO_TOKENS}
-            panelRef={panelRef}
             sheet={sheet}
             documentId={documentId}
             onTokensUpdated={onTokensUpdated}
