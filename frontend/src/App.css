@@ -692,7 +692,8 @@ li.grammar-legend-item {
   background-color: var(--border);
 }
 
-.player-video-toggle[aria-pressed='true'] {
+.player-video-toggle[aria-pressed='true'],
+.player-autoscroll-toggle[aria-pressed='true'] {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -713,7 +714,8 @@ li.grammar-legend-item {
       font-size: 0.8rem;
     }
 
-    .player-video-toggle {
+    .player-video-toggle,
+    .player-autoscroll-toggle {
       display: none;
     }
   }
@@ -2323,26 +2325,4 @@ label.apply-to-all {
   .documents-list td {
     padding: 0.5rem 0.35rem;
   }
-}
-
-/* The auto-scroll toggle stays at the bottom of the screen while the lyrics
-   are in view. The anchor takes no space, like .selection-anchor. */
-.autoscroll-anchor {
-  position: sticky;
-  bottom: 1rem;
-  z-index: 15;
-  height: 0;
-}
-
-.autoscroll-toggle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  border-radius: 999px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-}
-
-.autoscroll-toggle[aria-pressed='true'] {
-  border-color: var(--accent);
-  color: var(--accent);
 }
