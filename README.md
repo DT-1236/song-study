@@ -114,7 +114,8 @@ the browser only talks to the frontend's origin: the Vite dev server proxies
 (`/api/*` to the backend, everything else to the built frontend). The app's
 public URL is `APP_URL` in `.env`. To point the dev server's `/api` at another
 backend (such as a deployed one, for debugging), set `API_PROXY_TARGET`, e.g.
-`API_PROXY_TARGET=https://songs.example.com npm run dev`.
+`API_PROXY_TARGET=https://songs.example.com npm run dev`. Deploying and running
+the app on a VM is in [`deploy/README.md`](deploy/README.md).
 
 ## Running tests
 

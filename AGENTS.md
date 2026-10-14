@@ -54,7 +54,7 @@
 - Both halves of the repo are formatted by a tool, so don't hand-align code or
   argue with the output: run the formatter before committing.
   - Frontend and Markdown: `npm run format` in `frontend/` (Prettier). It
-    covers `frontend/` plus `README.md`, `AGENTS.md` and `docs/`. The config
+    covers `frontend/` plus `README.md`, `AGENTS.md`, `docs/` and `deploy/`. The config
     keeps the style the code was already written in — no semicolons, single
     quotes. Prettier aligns Markdown tables, so a table you edit is rewritten
     to the widest cell on the next run; edit the row and let it re-pad the rest.
