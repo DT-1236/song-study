@@ -89,11 +89,7 @@ await check('mobile-gloss-sheet', async (h) => {
   const id = await h.videoDocument()
   // Each lyric line a second long, from the start, so playback moves the
   // line being sung down the lyrics quickly.
-  const { text } = await h.api('GET', `/documents/${id}`)
-  const lines = text
-    .split('\n')
-    .map((line, i) => (line.trim() ? { start: i, end: i + 1 } : null))
-  await h.api('PUT', `/documents/${id}/timings`, { text, lines })
+  await h.timeLines(id, { step: 1 })
   const path = `/documents/${id}`
 
   h.step('phone: a tap previews')

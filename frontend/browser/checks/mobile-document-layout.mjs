@@ -33,23 +33,13 @@ await check('mobile-document-layout', async (h) => {
   // its player never needs to load for a check of the buttons' tap area.
   const timedDocument = async () => {
     const title = 'Timed (mobile-document-layout)'
-    const { items } = await h.api('GET', '/documents?page=1&page_size=100')
-    const found = items.find((doc) => doc.title === title)
-    if (found) return found.id
-    const seeded = await h.api('GET', `/documents/${h.seed.document_id}`)
-    const doc = await h.api('POST', '/documents', {
+    const id = await h.document({
+      match: (doc) => doc.title === title,
       title,
-      text: seeded.text,
       youtube_video_id: 'placeholder',
     })
-    const lines = doc.text
-      .split('\n')
-      .map((line, i) => (line.trim() ? { start: i * 3, end: i * 3 + 3 } : null))
-    await h.api('PUT', `/documents/${doc.id}/timings`, {
-      text: doc.text,
-      lines,
-    })
-    return doc.id
+    await h.timeLines(id, { step: 3 })
+    return id
   }
 
   h.step('phone: a disabled Edit timings says why')

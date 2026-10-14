@@ -224,20 +224,50 @@ class Harness {
     return text ? JSON.parse(text) : null
   }
 
-  // The id of a document of the seeded text with a YouTube video, made on
-  // first use and found again after that: the seed has no video, and a video
-  // ID can belong to only one document.
-  async videoDocument() {
+  // The id of the document `match` (a predicate on the listed documents)
+  // picks out, or else a new one of the seeded text called `title` with the
+  // given video: a video ID can belong to only one document, so a check finds
+  // its document again instead of making another.
+  async document({ match, title, youtube_video_id }) {
     const { items } = await this.api('GET', '/documents?page=1&page_size=100')
-    const found = items.find((doc) => doc.youtube_video_id === VIDEO_ID)
+    const found = items.find(match)
     if (found) return found.id
     const seeded = await this.api('GET', `/documents/${this.seed.document_id}`)
     const created = await this.api('POST', '/documents', {
-      title: `${seeded.title} (video)`,
+      title,
       text: seeded.text,
-      youtube_video_id: VIDEO_ID,
+      youtube_video_id,
     })
     return created.id
+  }
+
+  // The id of a document of the seeded text with a YouTube video, made on
+  // first use: the seed has no video.
+  async videoDocument() {
+    const { title } = await this.api(
+      'GET',
+      `/documents/${this.seed.document_id}`,
+    )
+    return this.document({
+      match: (doc) => doc.youtube_video_id === VIDEO_ID,
+      title: `${title} (video)`,
+      youtube_video_id: VIDEO_ID,
+    })
+  }
+
+  // Times every non-blank line of document `id`, each `step` seconds long and
+  // the first starting at `start`. Returns the lines as saved, null for blanks.
+  async timeLines(id, { start = 0, step = 1 } = {}) {
+    const { text } = await this.api('GET', `/documents/${id}`)
+    const lines = text
+      .split('\n')
+      .map((line, i) =>
+        line.trim()
+          ? { start: start + i * step, end: start + (i + 1) * step }
+          : null,
+      )
+    await this.api('PUT', `/documents/${id}/timings`, { text, lines })
+    return lines
   }
 
   async screenshotPagesAfterFailure() {

@@ -19,13 +19,6 @@ so it can be picked up without re-deriving the reasoning.
   query in an effect when it changes, read `videos` in `SongSearch`'s
   `search`, and pass the toggle as plain JSX. Touches the race handling in
   `runSearch`. Opus 5.5, medium: a stale result winning is silent.
-- **Find-or-create documents and even line timings in the harness.**
-  `mobile-document-layout.mjs`'s `timedDocument` copies `videoDocument()`'s
-  find-or-create (`harness.mjs`), and the "time every non-blank line, then
-  PUT /timings" snippet appears in it, `mobile-gloss-sheet.mjs` and
-  `run-through.mjs`. Add `h.document({ match, title, youtube_video_id })`
-  (with `videoDocument()` built on it) and `h.timeLines(id, { start, step })`,
-  and use them in all three. Sonnet 5.5, medium.
 - **Browser checks failing on main.** At `1573c54`, `mobile-gloss-sheet`
   fails "the pinned sheet opened under the finger", "the hold's release
   clicks nothing in the sheet" and times out tapping in "phone: a hold low on
