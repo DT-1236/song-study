@@ -909,6 +909,14 @@ li.grammar-legend-item {
   background-color: var(--bg-elevated);
 }
 
+.search-include-videos {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  font-size: 0.9rem;
+}
+
 /* Qualified to outrank .new-document-form button's margin and padding. */
 .new-document-form .search-result {
   display: flex;

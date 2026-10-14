@@ -15,8 +15,14 @@ type Props<T> = {
   // results of a search asked for are always shown.
   onMountResults?: (results: T) => boolean
   failureMessage: string
-  // The results list, given the latest results and a function that closes it.
-  children: (results: T, close: () => void) => ReactNode
+  // The results list, given the latest results, a function that closes it,
+  // and one that repeats the last search with the `search` to use for it, for
+  // a setting changed since.
+  children: (
+    results: T,
+    close: () => void,
+    searchAgain: (search: (query: string) => Promise<T>) => void,
+  ) => ReactNode
 }
 
 // A search box whose results drop down below it. It searches on Enter or a
@@ -48,6 +54,7 @@ export function SearchDropdown<T>({
   const searchRef = useLatest(search)
   const onMountResultsRef = useLatest(onMountResults)
   const latestSearch = useRef(0)
+  const lastQuery = useRef(initialQuery)
   // Leaves whatever's in flight to settle for nobody. A named callback, since
   // the linter can't tell that the cleanup means to read the ref's latest
   // value.
@@ -56,12 +63,13 @@ export function SearchDropdown<T>({
   }, [])
 
   const runSearch = useCallback(
-    async (text: string, onMount: boolean) => {
+    async (text: string, onMount: boolean, searchWith = searchRef.current) => {
+      lastQuery.current = text
       const searchId = ++latestSearch.current
       setSearching(true)
       setError(null)
       try {
-        const found = await searchRef.current(text)
+        const found = await searchWith(text)
         if (searchId !== latestSearch.current) return
         setResults(found)
         setShowResults(!onMount || (onMountResultsRef.current?.(found) ?? true))
@@ -128,7 +136,12 @@ export function SearchDropdown<T>({
         {error && <p className="form-error">{error}</p>}
         {showResults &&
           results !== null &&
-          children(results, () => setShowResults(false))}
+          children(
+            results,
+            () => setShowResults(false),
+            (searchWith) =>
+              void runSearch(lastQuery.current, false, searchWith),
+          )}
       </div>
     </div>
   )

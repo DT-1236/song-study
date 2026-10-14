@@ -34,13 +34,20 @@ def _ytmusic() -> YTMusic:
     return _client
 
 
-def search_songs(query: str) -> list[Song]:
-    """Up to ten YouTube Music songs matching `query`, best match first."""
+def search_songs(query: str, videos: bool = False) -> list[Song]:
+    """Up to ten YouTube Music songs matching `query`, best match first — or,
+    when `videos` is set, up to ten matching videos instead (for music with
+    no song entry, such as live recordings or covers).
+    """
     try:
         # ytmusicapi is unofficial and scrapes YouTube Music's own web
         # client API, so it can break whenever YouTube changes that; any
         # failure from it is reported as the service being unavailable.
-        results = _ytmusic().search(query, filter="songs", limit=10)
+        # `limit` is only a minimum: a page of results comes back whole, so
+        # it's cut to ten here.
+        results = _ytmusic().search(
+            query, filter="videos" if videos else "songs", limit=10
+        )[:10]
     except Exception as exc:
         raise YouTubeMusicUnavailable(
             "Couldn't search YouTube Music right now. Try again later."

@@ -654,8 +654,12 @@ def jmdict_search(
 
 
 @api.get("/songs/search", response_model=list[Song])
-def songs_search(user_id: CurrentUser, q: str = Query(min_length=1)):
-    return search_songs(q)
+def songs_search(
+    user_id: CurrentUser,
+    q: str = Query(min_length=1),
+    videos: bool = False,
+):
+    return search_songs(q, videos)
 
 
 @api.get("/lrclib/search", response_model=list[LrclibCandidate])
