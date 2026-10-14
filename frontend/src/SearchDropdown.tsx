@@ -87,43 +87,49 @@ export function SearchDropdown<T>({
   }
 
   return (
-    <div ref={rootRef} className="search-dropdown">
-      <label htmlFor={id}>{label}</label>
-      <div className="search-dropdown-row">
-        <input
-          id={id}
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          // Clicking too, since a box that kept focus after a pick gets no
-          // focus event.
-          onFocus={() => setShowResults(true)}
-          onClick={() => setShowResults(true)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') setShowResults(false)
-            // Enter would otherwise submit the surrounding form. Enter that
-            // confirms an IME conversion isn't a search.
-            if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              submit()
-            }
-          }}
-          placeholder={placeholder}
-        />
-        <button
-          type="button"
-          className="search-dropdown-button"
-          onClick={submit}
-          disabled={searching || query.trim() === ''}
-        >
-          {searching ? 'Searching…' : 'Search'}
-        </button>
-      </div>
+    <div className="search-dropdown">
+      {/* Named by aria-labelledby rather than htmlFor, so a click on the label
+          (or the space beside it) isn't forwarded to the input, which would
+          reopen the results. */}
+      <label id={`${id}-label`}>{label}</label>
+      <div ref={rootRef}>
+        <div className="search-dropdown-row">
+          <input
+            id={id}
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            // Clicking too, since a box that kept focus after a pick gets no
+            // focus event.
+            onFocus={() => setShowResults(true)}
+            onClick={() => setShowResults(true)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') setShowResults(false)
+              // Enter would otherwise submit the surrounding form. Enter that
+              // confirms an IME conversion isn't a search.
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                submit()
+              }
+            }}
+            placeholder={placeholder}
+            aria-labelledby={`${id}-label`}
+          />
+          <button
+            type="button"
+            className="search-dropdown-button"
+            onClick={submit}
+            disabled={searching || query.trim() === ''}
+          >
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+        </div>
 
-      {error && <p className="form-error">{error}</p>}
-      {showResults &&
-        results !== null &&
-        children(results, () => setShowResults(false))}
+        {error && <p className="form-error">{error}</p>}
+        {showResults &&
+          results !== null &&
+          children(results, () => setShowResults(false))}
+      </div>
     </div>
   )
 }
