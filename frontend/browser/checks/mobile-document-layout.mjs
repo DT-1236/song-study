@@ -128,12 +128,12 @@ await check('mobile-document-layout', async (h) => {
   )
   await h.screenshot(phone, 'line-play', { fullPage: false })
 
-  h.step('portrait: show the video and play it')
+  h.step('portrait: dock the video and play it')
   const page = await h.open(`/documents/${await h.videoDocument()}`, ROTATING)
   await tokenized(page)
   await playerReady(page)
   await tapOrClick(page, page.locator('.player-video-toggle'))
-  await page.waitForSelector('.youtube-player:not(.hidden)')
+  await page.waitForSelector('.player-bar.sticky')
   await tapOrClick(
     page,
     page.locator('.player-controls button[aria-label="Play"]'),

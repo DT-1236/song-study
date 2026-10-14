@@ -72,6 +72,15 @@ export function ViewSettings({
           }
         />
       )}
+      <div className="control">
+        <label htmlFor="sticky-video">Sticky video</label>
+        <input
+          id="sticky-video"
+          type="checkbox"
+          checked={settings.stickyVideo}
+          onChange={(e) => settings.setStickyVideo(e.target.checked)}
+        />
+      </div>
       {display && (
         <>
           <div className="control">
