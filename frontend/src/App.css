@@ -620,8 +620,11 @@ li.grammar-legend-item {
 /* A shown video beside the buttons rather than above them, since 24rem wide
    it would take over half a phone's height in landscape. Only the layout
    changes: the player stays in the same place in the JSX, so the iframe isn't
-   remounted. The query is NARROW_SCREEN in media.ts plus orientation. */
-@media ((max-width: 900px), (max-height: 500px)) and (orientation: landscape) {
+   remounted. The query is NARROW_SCREEN in media.ts with orientation added
+   to each of its halves: a comma only separates whole queries, so
+   `(a, b) and c` is invalid and never matches. */
+@media (max-width: 900px) and (orientation: landscape),
+  (max-height: 500px) and (orientation: landscape) {
   .player-bar {
     flex-direction: row;
     align-items: center;
