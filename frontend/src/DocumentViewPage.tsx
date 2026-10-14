@@ -2456,10 +2456,13 @@ const TOUCH_HELP =
 // when their key is.
 function TimingBarButtons({
   nudgeMs,
+  canNudge,
   onNudge,
   onStamp,
 }: {
   nudgeMs: number
+  // Whether the picked line has a start to nudge.
+  canNudge: boolean
   // Moves the picked line's start by `nudgeMs` in `direction` (-1 or 1).
   onNudge: (direction: number) => void
   onStamp: () => void
@@ -2467,23 +2470,27 @@ function TimingBarButtons({
   const [pressed, press] = useTransient<TimingKey>(PRESS_MS)
   useTimingKeyPresses(press)
   return (
-    <>
-      <KeyButton
-        label="Nudge earlier"
-        keyName="←"
-        pressed={pressed === 'earlier'}
-        onClick={() => onNudge(-1)}
-      >
-        −{nudgeMs}ms
-      </KeyButton>
-      <KeyButton
-        label="Nudge later"
-        keyName="→"
-        pressed={pressed === 'later'}
-        onClick={() => onNudge(1)}
-      >
-        +{nudgeMs}ms
-      </KeyButton>
+    <div className="player-timing" role="group" aria-label="Timing">
+      <div className="nudge-group">
+        <KeyButton
+          label="Nudge earlier"
+          keyName="←"
+          pressed={pressed === 'earlier'}
+          disabled={!canNudge}
+          onClick={() => onNudge(-1)}
+        >
+          −{nudgeMs}ms
+        </KeyButton>
+        <KeyButton
+          label="Nudge later"
+          keyName="→"
+          pressed={pressed === 'later'}
+          disabled={!canNudge}
+          onClick={() => onNudge(1)}
+        >
+          +{nudgeMs}ms
+        </KeyButton>
+      </div>
       <KeyButton
         className="timing-stamp"
         label="Stamp"
@@ -2493,7 +2500,7 @@ function TimingBarButtons({
       >
         Stamp
       </KeyButton>
-    </>
+    </div>
   )
 }
 
@@ -2520,12 +2527,15 @@ type TimingEditorProps = {
   nudgeMs: number
   // Shows why a key did nothing.
   onToast: (message: string) => void
+  // Called with whether the picked line has a start a nudge could move,
+  // as that changes.
+  onCanNudgeChange: (canNudge: boolean) => void
   // Whether the screen is touch-only, which changes the help note's words.
   touch: boolean
 }
 
 function TimingEditorRows(
-  { touch, ...editorProps }: TimingEditorProps,
+  { touch, onCanNudgeChange, ...editorProps }: TimingEditorProps,
   ref: ForwardedRef<TimingEditorHandle>,
 ) {
   const { lines, starts, playingLine } = editorProps
@@ -2533,6 +2543,8 @@ function TimingEditorRows(
   const [dontAskAgain, setDontAskAgain] = useState(false)
   const {
     selected,
+    nudgedLine,
+    canNudge,
     selectedRowRef,
     rowsRef,
     pick,
@@ -2544,6 +2556,7 @@ function TimingEditorRows(
     cancelPending,
   } = useTimingEditor(editorProps)
   useImperativeHandle(ref, () => ({ nudge, timeNextLine }))
+  useEffect(() => onCanNudgeChange(canNudge), [canNudge, onCanNudgeChange])
 
   // Each line's text, built once: the rows re-render as playback moves, but
   // their furigana never changes.
@@ -2613,7 +2626,7 @@ function TimingEditorRows(
                     </svg>
                   </button>
                 )}
-                <span>
+                <span className={line === nudgedLine ? 'nudged' : undefined}>
                   {start === null ? 'untimed' : formatTimestamp(start)}
                 </span>
               </div>
@@ -2893,6 +2906,7 @@ export function DocumentViewPage() {
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
   const barTimingButtons = touch && timingDraft !== null && hasVideo
   const timingEditorRef = useRef<TimingEditorHandle>(null)
+  const [canNudge, setCanNudge] = useState(false)
 
   // Whether the timings being edited differ from those saved, which leaving
   // them would lose.
@@ -3172,6 +3186,7 @@ export function DocumentViewPage() {
               getTime={getPlaybackTime}
               nudgeMs={nudgeMs}
               onToast={showToast}
+              onCanNudgeChange={setCanNudge}
               touch={touch}
             />
           ) : tokens && !lrclibPreview ? (
@@ -3222,6 +3237,7 @@ export function DocumentViewPage() {
           {barTimingButtons && (
             <TimingBarButtons
               nudgeMs={nudgeMs}
+              canNudge={canNudge}
               onNudge={(direction) => timingEditorRef.current?.nudge(direction)}
               onStamp={() => timingEditorRef.current?.timeNextLine()}
             />

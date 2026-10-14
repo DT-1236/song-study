@@ -39,16 +39,27 @@ await check('mobile-timing-buttons', async (h) => {
         .map((el) => ({
           clipped: el.scrollWidth > el.clientWidth,
           label: el.getAttribute('aria-label') ?? el.textContent,
+          row: el.closest('.player-timing')
+            ? '.player-timing'
+            : '.player-transport',
           top: el.getBoundingClientRect().top,
           right: el.getBoundingClientRect().right,
         })),
     )
+    const rows = (selector) => tops.filter(({ row }) => row === selector)
+    const sameRow = (buttons) =>
+      buttons.every(({ top }) => Math.abs(top - buttons[0].top) <= 1)
+    const transport = rows('.player-transport')
+    const timing = rows('.player-timing')
     h.expect(
-      tops.length === 6 &&
-        tops.every(({ top }) => Math.abs(top - tops[0].top) <= 1) &&
+      transport.length === 3 &&
+        timing.length === 3 &&
+        sameRow(transport) &&
+        sameRow(timing) &&
+        timing[0].top > transport[0].top &&
         tops.every(({ clipped }) => !clipped) &&
         tops.every(({ right }) => right <= device.options.viewport.width),
-      `${tag} six buttons share one row, Video gone`,
+      `${tag} playback and timing buttons in two rows, Video gone`,
       JSON.stringify(tops),
     )
     h.expectNone(
@@ -56,6 +67,12 @@ await check('mobile-timing-buttons', async (h) => {
       `${tag} the bar's buttons are 44px tap targets`,
     )
     h.expectNone(await sidewaysOverflow(page), `${tag} no sideways scroll`)
+
+    const nudgeLater = page.locator(`${bar} [aria-label="Nudge later"]`)
+    h.expect(
+      await nudgeLater.isDisabled(),
+      `${tag} Nudge is disabled while the picked line has no time`,
+    )
 
     // Focus stays where it was, so Space still plays and pauses.
     const stamp = page.locator(`${bar} .timing-stamp`)
@@ -70,7 +87,21 @@ await check('mobile-timing-buttons', async (h) => {
       `${tag} Stamp times a line`,
       JSON.stringify(stamped),
     )
-    await tapOrClick(page, page.locator(`${bar} [aria-label="Nudge later"]`))
+    h.expect(
+      await nudgeLater
+        .and(page.locator(':enabled'))
+        .waitFor({ timeout: 2000 })
+        .then(
+          () => true,
+          () => false,
+        ),
+      `${tag} Nudge is enabled once the picked line has a time`,
+    )
+    await tapOrClick(page, nudgeLater)
+    h.expect(
+      (await page.locator('.timing-row.selected .nudged').count()) === 1,
+      `${tag} the nudged line's time is highlighted`,
+    )
     const nudged = await picked(page)
     h.expect(
       nudged.index === stamped.index && nudged.time > stamped.time,

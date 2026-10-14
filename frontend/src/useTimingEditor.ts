@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { lineToStamp, nudgedStart, overlapFor, roundedToMs } from './timing'
 import type { LyricsLine } from './timing'
 import { useLatest } from './useLatest'
+import { useTransient } from './useTransient'
 import { isTypingTarget } from './usePlayerShortcuts'
 
 // What the timing editor's keys do, one for each of its bar buttons.
@@ -51,6 +52,9 @@ export function useTimingKeyPresses(onPress: (key: TimingKey) => void) {
   }, [onPress])
 }
 
+// How long a nudged line's time stays highlighted.
+const NUDGE_FLASH_MS = 700
+
 // A change to a line's timing that's confirmed first.
 type TimingAction =
   | { kind: 'delete'; line: number }
@@ -95,6 +99,8 @@ export function useTimingEditor({
     delete: false,
     overwrite: false,
   })
+  // The line whose start was just nudged.
+  const [nudgedLine, flashNudge] = useTransient<number>(NUDGE_FLASH_MS)
   const selectedRowRef = useRef<HTMLDivElement>(null)
   // The rows' container: row i is its child i.
   const rowsRef = useRef<HTMLDivElement>(null)
@@ -161,6 +167,7 @@ export function useTimingEditor({
     const overlap = overlapFor(starts, selected, moved)
     if (overlap) return onToast(overlap)
     setStart(selected, moved)
+    flashNudge(selected)
     onPlayLine(moved)
   }
 
@@ -205,6 +212,9 @@ export function useTimingEditor({
 
   return {
     selected,
+    nudgedLine,
+    // Whether a nudge has a start to move.
+    canNudge: (starts[selected] ?? null) !== null,
     selectedRowRef,
     rowsRef,
     pick,
