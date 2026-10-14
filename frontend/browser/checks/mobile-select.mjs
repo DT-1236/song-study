@@ -31,7 +31,8 @@ await check('mobile-select', async (h) => {
   await tokenized(page)
   await (await token(page, '蜘蛛')).tap()
   await settle(page)
-  await page.locator('.gloss-sheet .gloss-select').tap()
+  await page.locator('.gloss-sheet .more-options > summary').tap()
+  await page.locator('.gloss-sheet .gloss-select-option').tap()
   await settle(page)
   h.expect(!(await isShown(page, '.gloss-popup')), 'Select closes the gloss')
   h.expect(
