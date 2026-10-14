@@ -1700,36 +1700,43 @@ label.apply-to-all {
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
-.study-list .study-list-icon {
+.icon-button.icon-toggle {
   margin-top: 0;
   padding: 0.15rem;
 }
 
-.study-list-icon {
+.icon-toggle {
   display: inline-flex;
   border-radius: 4px;
 }
 
-.study-list-icon svg {
+.icon-toggle svg {
   opacity: 0.55;
 }
 
-.study-list-icon:hover:not(:disabled),
-.study-list-icon:focus-visible {
+.icon-toggle:hover:not(:disabled),
+.icon-toggle:focus-visible {
   color: var(--accent);
 }
 
-.study-list-icon:hover:not(:disabled) svg,
-.study-list-icon:focus-visible svg,
-.study-list-icon.studied svg {
+/* The lit icon and the color change stand in for the focus ring, which on a
+   tap shows as a box around the icon (index.css draws it on any focus). */
+.icon-toggle:focus,
+.icon-toggle:focus-visible {
+  outline: none;
+}
+
+.icon-toggle:hover:not(:disabled) svg,
+.icon-toggle:focus-visible svg,
+.icon-toggle.on svg {
   opacity: 1;
 }
 
-.study-list-icon.studied {
+.icon-button.icon-toggle.on {
   color: var(--success);
 }
 
-.study-list-icon:disabled {
+.icon-toggle:disabled {
   opacity: 0.4;
 }
 
@@ -1753,8 +1760,8 @@ label.apply-to-all {
   visibility: hidden;
 }
 
-.study-list-icon:hover + .study-list-tooltip,
-.study-list-icon:focus-visible + .study-list-tooltip {
+.icon-toggle:hover + .study-list-tooltip,
+.icon-toggle:focus-visible + .study-list-tooltip {
   visibility: visible;
   transition: visibility 0s 125ms;
 }
@@ -1786,6 +1793,14 @@ label.apply-to-all {
 
 .more-options > summary:hover {
   color: var(--text);
+}
+
+/* Qualified to outrank .new-document-form button. */
+.more-options .gloss-select-option {
+  display: block;
+  min-height: 44px;
+  margin: 0.4rem 0 0;
+  text-align: left;
 }
 
 .phrase-suggestion {
@@ -1918,10 +1933,18 @@ label.apply-to-all {
   margin-top: 0.4rem;
 }
 
-/* Each pushes the study-list icon, Select and Close to the right. */
-.gloss-sheet-header .gloss-pinned,
-.gloss-hold-hint {
+/* Pushes the study-list icon and Close to the right. */
+.gloss-sheet-lead {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   margin: 0 auto 0 0;
+}
+
+/* Over .gloss-pinned's float and margin, which are for the marker under a
+   token. */
+.gloss-sheet-lead .gloss-pinned {
+  float: none;
 }
 
 .gloss-hold-hint {
@@ -1936,7 +1959,6 @@ label.apply-to-all {
 /* Qualified to outrank .new-document-form button's margin and padding. The
    text buttons are 44px in layout; the icon gets its 44px from .icon-button's
    overlay. */
-.gloss-sheet-header .gloss-select,
 .gloss-sheet-header .gloss-close,
 .selection-sheet .lyrics-edit-toggle {
   justify-content: center;
@@ -1946,13 +1968,14 @@ label.apply-to-all {
   margin: 0;
 }
 
-.gloss-sheet-header .study-list .study-list-icon {
+.gloss-sheet-header .icon-button.icon-toggle {
   margin: 0;
 }
 
-.gloss-sheet-header .gloss-select,
 .gloss-sheet-header .gloss-close {
-  padding: 0.4rem 0.8rem;
+  padding: 0.4rem;
+  border: none;
+  background: none;
 }
 
 .dictionary-form-line {

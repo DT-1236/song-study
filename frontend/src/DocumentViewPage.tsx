@@ -613,6 +613,53 @@ function IgnoreGlossButton({
 
 // Whether `word` is in the user's study list, with the one action that
 // changes that: adding it, removing it, or restoring it with its history.
+// A bare icon button that's lit (green) while `on` and dim otherwise. The
+// icon's SVG paths are its children.
+function IconToggle({
+  on,
+  label,
+  disabled,
+  className,
+  onClick,
+  children,
+}: {
+  on: boolean
+  // What a screen reader announces, and the control's tooltip where it has one.
+  label: string
+  disabled?: boolean
+  // Extra classes, for the caller's own layout.
+  className?: string
+  onClick: (e: React.MouseEvent<HTMLButtonElement>) => void
+  children: ReactNode
+}) {
+  const classNames = ['icon-button', 'icon-toggle']
+  if (on) classNames.push('on')
+  if (className) classNames.push(className)
+  return (
+    <button
+      type="button"
+      className={classNames.join(' ')}
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        width="14"
+        height="14"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        {children}
+      </svg>
+    </button>
+  )
+}
+
 function StudyListControl({
   word,
   documentId,
@@ -634,14 +681,9 @@ function StudyListControl({
 
   return (
     <div className="study-list">
-      <button
-        type="button"
-        className={
-          studied
-            ? 'icon-button study-list-icon studied'
-            : 'icon-button study-list-icon'
-        }
-        aria-label={label}
+      <IconToggle
+        on={studied}
+        label={label}
         disabled={saving}
         onClick={(e) => {
           e.stopPropagation()
@@ -654,27 +696,15 @@ function StudyListControl({
           )
         }}
       >
-        <svg
-          viewBox="0 0 24 24"
-          width="14"
-          height="14"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
-          <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
-          {/* A check once in the list, a plus for adding it. */}
-          {studied ? (
-            <path d="m15 10 1.5 1.5L19 8.5" />
-          ) : (
-            <path d="M17.5 8v5M15 10.5h5" />
-          )}
-        </svg>
-      </button>
+        {/* A check once in the list, a plus for adding it. */}
+        <path d="M2 4h6a4 4 0 0 1 4 4v12a3 3 0 0 0-3-3H2z" />
+        <path d="M22 4h-6a4 4 0 0 0-4 4v12a3 3 0 0 1 3-3h7z" />
+        {studied ? (
+          <path d="m15 10 1.5 1.5L19 8.5" />
+        ) : (
+          <path d="M17.5 8v5M15 10.5h5" />
+        )}
+      </IconToggle>
       {/* In place of a title, whose delay only the browser sets. Hidden from
           screen readers, which get the label from aria-label, and while an
           error takes its place. */}
@@ -1089,6 +1119,7 @@ function ConflictResolver({
   wordPieces,
   documentId,
   onTokensUpdated,
+  extraOption,
 }: {
   token: Token
   // Every token in the document in `token`'s group (see groupKey), `token`
@@ -1098,6 +1129,8 @@ function ConflictResolver({
   wordPieces: number[]
   documentId: number
   onTokensUpdated: TokensUpdated
+  // An option for the caller to keep under "More options" with the rest.
+  extraOption?: ReactNode
 }) {
   const [applyToAll, setApplyToAll] = useState(false)
   // `token` first, so its own options are the ones offered if it has any.
@@ -1143,6 +1176,7 @@ function ConflictResolver({
       )}
       {!decisions ? (
         <MoreOptions>
+          {extraOption}
           <PhraseFuriganaOptions
             token={token}
             documentId={documentId}
@@ -1177,8 +1211,10 @@ function ConflictResolver({
             isMerged(token) ||
             regroup ||
             wordPieces.length > 0 ||
-            decisions.other) && (
+            decisions.other ||
+            extraOption) && (
             <MoreOptions>
+              {extraOption}
               {!decisions.urgent && scope}
               {isMerged(token) && (
                 <UnmergePhraseOption
@@ -1358,6 +1394,28 @@ function PinnedMarker() {
   )
 }
 
+// The pin button in a gloss sheet's header, always shown: green while the
+// gloss is pinned, dim while it's only a preview. Toggles between the two.
+function PinToggle({
+  pinned,
+  onToggle,
+}: {
+  pinned: boolean
+  onToggle: () => void
+}) {
+  return (
+    <IconToggle
+      on={pinned}
+      label={pinned ? 'Pinned — tap to unpin' : 'Pin this gloss'}
+      className={pinned ? 'gloss-pinned' : undefined}
+      onClick={onToggle}
+    >
+      <path d="M12 17v5" />
+      <path d="M9 3h6l-1 7 3 3v2H7v-2l3-3z" />
+    </IconToggle>
+  )
+}
+
 function GlossPopup({
   token,
   instances,
@@ -1367,6 +1425,7 @@ function GlossPopup({
   onCardChanged,
   pinned,
   onClose,
+  onTogglePin,
   onSelect,
   onHoverEnter,
   onHoverLeave,
@@ -1382,6 +1441,8 @@ function GlossPopup({
   onCardChanged: (card: StudyCard) => void
   pinned: boolean
   onClose: () => void
+  // Pins the gloss if it was only previewed, or unpins it (leaving it shown).
+  onTogglePin: () => void
   // Starts a selection with this token, as a shift-click does.
   onSelect: () => void
   onHoverEnter?: () => void
@@ -1404,10 +1465,16 @@ function GlossPopup({
   for (const word of words) {
     if (word.piece !== null) pieceWords.set(word.piece, word)
   }
-  // The way into a selection without a shift key.
+  // The way into a selection without a shift key. On a sheet it's an option
+  // under "More options", spelled out; under a token it's a plain button.
   const selectButton = (
     <button type="button" className="gloss-select" onClick={onSelect}>
       Select
+    </button>
+  )
+  const selectOption = (
+    <button type="button" className="gloss-select-option" onClick={onSelect}>
+      Switch to select mode to group tokens or modify multiple of the same token
     </button>
   )
   // From the gloss rather than `words`, which lists only the pieces whose
@@ -1475,20 +1542,34 @@ function GlossPopup({
           a click, so tapping elsewhere can't close a pin. */}
       {sheet && (
         <div className="gloss-sheet-header">
-          {pinned ? (
-            <PinnedMarker />
-          ) : (
-            // Nothing else says that a long press pins.
-            !heldToPin && (
+          <span className="gloss-sheet-lead">
+            <PinToggle pinned={pinned} onToggle={onTogglePin} />
+            {/* Nothing else says that a long press pins. */}
+            {!pinned && !heldToPin && (
               <span className="gloss-hold-hint">
                 Hold a word to pin its gloss
               </span>
-            )
-          )}
+            )}
+          </span>
           {studyList}
-          {selectButton}
-          <button type="button" className="gloss-close" onClick={onClose}>
-            Close
+          <button
+            type="button"
+            className="gloss-close"
+            aria-label="Close"
+            onClick={onClose}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              width="18"
+              height="18"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6 6 18" />
+            </svg>
           </button>
         </div>
       )}
@@ -1510,13 +1591,16 @@ function GlossPopup({
         }}
       />
       {/* Always mounted: the reading search is offered for every non-OOV token. */}
-      {!token.is_english && (
+      {token.is_english ? (
+        sheet && <MoreOptions>{selectOption}</MoreOptions>
+      ) : (
         <ConflictResolver
           token={token}
           instances={instances}
           wordPieces={wordPieces}
           documentId={documentId}
           onTokensUpdated={onTokensUpdated}
+          extraOption={sheet ? selectOption : undefined}
         />
       )}
       {!sheet && <div className="gloss-actions">{selectButton}</div>}
@@ -1686,6 +1770,7 @@ const TokenSpan = memo(function TokenSpan({
   onHoverEnter,
   onHoverLeave,
   onClose,
+  onTogglePin,
 }: {
   token: Token
   index: number
@@ -1706,6 +1791,7 @@ const TokenSpan = memo(function TokenSpan({
   onHoverEnter: (tokenId: number) => void
   onHoverLeave: (tokenId: number) => void
   onClose: () => void
+  onTogglePin: (tokenId: number) => void
 }) {
   const interactive = hasPopup(token)
   const spanRef = useRef<HTMLSpanElement>(null)
@@ -1742,6 +1828,7 @@ const TokenSpan = memo(function TokenSpan({
           onCardChanged={onCardChanged}
           pinned={pinned}
           onClose={onClose}
+          onTogglePin={() => onTogglePin(token.id)}
           onSelect={() => {
             if (spanRef.current) onSelect(index, spanRef.current)
           }}
@@ -2058,6 +2145,19 @@ const TokenizedText = memo(function TokenizedText({
     setHoveredId(null)
   }, [])
 
+  const togglePin = useCallback(
+    (id: number) => {
+      if (pinnedId === id) {
+        setPinnedId(null)
+        setHoveredId(id)
+      } else {
+        setHoveredId(null)
+        setPinnedId(id)
+      }
+    },
+    [pinnedId],
+  )
+
   const handleHoverEnter = useCallback((tokenId: number) => {
     if (hoverLeaveTimeoutRef.current !== null) {
       window.clearTimeout(hoverLeaveTimeoutRef.current)
@@ -2306,6 +2406,7 @@ const TokenizedText = memo(function TokenizedText({
                 onHoverEnter={handleHoverEnter}
                 onHoverLeave={handleHoverLeave}
                 onClose={closeGloss}
+                onTogglePin={togglePin}
               />
             </Fragment>
           )
