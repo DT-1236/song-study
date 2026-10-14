@@ -3,9 +3,10 @@ import { useNavigate } from 'react-router-dom'
 import { LRCLIB_URI_PLACEHOLDER, createDocument, errorMessage } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { LrclibMatches } from './LrclibMatches'
-import { PlayerBar } from './PlayerBar'
+import { AutoScrollToggle, PlayerBar } from './PlayerBar'
 import { SongSearch } from './SongSearch'
 import { SyncedLyrics } from './SyncedLyrics'
+import { useAutoScroll } from './useAutoScroll'
 import { useLrclibChoice } from './useLrclibChoice'
 import { usePlayingLine } from './usePlayingLine'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
@@ -36,6 +37,7 @@ export function NewDocumentForm() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
+  const [autoScroll, setAutoScroll] = useAutoScroll()
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
   const handlePlayLine = useCallback(
@@ -103,6 +105,7 @@ export function NewDocumentForm() {
         lyrics={choiceLyrics}
         playingLine={playingLine}
         onPlayLine={handlePlayLine}
+        autoScroll={autoScroll}
       />
     )
   } else if (loadingLyrics || usingLrclib) {
@@ -208,6 +211,14 @@ export function NewDocumentForm() {
           playerRef={playerRef}
           videoId={youtubeVideoId.trim()}
           onSeek={onSeek}
+          toggles={
+            choiceLyrics?.lines && (
+              <AutoScrollToggle
+                autoScroll={autoScroll}
+                onChange={setAutoScroll}
+              />
+            )
+          }
         />
       )}
     </form>

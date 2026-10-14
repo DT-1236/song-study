@@ -57,6 +57,7 @@ import { AutoScrollToggle, KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
+import { useAutoScroll } from './useAutoScroll'
 import { useTabs } from './TabsContext'
 import { formatTimestamp, linesOf, timingsFromStarts } from './timing'
 import type { LyricsLine } from './timing'
@@ -3038,7 +3039,7 @@ export function DocumentViewPage() {
   const lineTimings = doc?.edited_lines ?? doc?.lrclib_lines ?? null
   const hasVideo = Boolean(doc?.youtube_video_id)
   // Whether the line being sung is kept on screen. Shared by every document.
-  const [autoScroll, setAutoScroll] = usePersistentState('autoScroll', true)
+  const [autoScroll, setAutoScroll] = useAutoScroll()
   // What's highlighted: a chosen LRCLIB track's timings, while previewing
   // it, or the timings as edited so far, while editing them.
   const shownTimings = useMemo(() => {
@@ -3373,6 +3374,7 @@ export function DocumentViewPage() {
               }
               playingLine={playingLine}
               onPlayLine={handlePlayLine}
+              autoScroll={autoScroll}
             />
           )}
         </div>
