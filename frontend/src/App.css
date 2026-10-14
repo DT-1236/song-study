@@ -693,7 +693,6 @@ li.grammar-legend-item {
 
 .player-controls .nudge-group button {
   border-color: var(--accent);
-  border-radius: 4px;
   background-color: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
 }
 
