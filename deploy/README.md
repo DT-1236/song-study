@@ -25,7 +25,7 @@ These steps need your accounts, DNS and judgment, so you do them by hand.
 - **Where backups will go.** A Cloud Storage bucket needs the VM's Storage
   access scope set to Read Write **when the VM is created** (step 2).
   Changing it later means stopping the VM.
-- **Whether to copy your local data across** (step 10) or start with an
+- **Whether to copy your local data across** (step 11) or start with an
   empty database. Copy it before inviting anyone, since the restore
   replaces the whole database.
 
@@ -155,7 +155,35 @@ for them. Caddy retries by itself once they're right.
 - `docker compose -f docker-compose.prod.yml restart backend` keeps you
   signed in.
 
-### 10. Copy your local data across (optional)
+### 10. Auto-deploy
+
+From here on, a systemd timer on the VM runs `deploy/update.sh` every five
+minutes, which deploys whatever has been merged to `main`. It uses the
+clone's deploy key, so nothing needs to reach the VM from outside.
+
+1. Run `git pull` once by hand, so the clone has `deploy/update.sh` and its
+   units.
+2. Optionally, set `DEPLOY_NOTIFY_URL` in `.env` to get a one-line message
+   for each deploy, and for each failure or refusal that pauses
+   auto-deploy. `https://ntfy.sh/<topic>` works, with a long random topic,
+   since anyone who guesses an ntfy.sh topic can read it. Subscribe to the
+   topic in the ntfy app.
+3. Install the units and start the timer:
+
+   ```bash
+   loginctl enable-linger $USER   # user units keep running with no SSH session open
+   systemctl --user link ~/song-study/deploy/systemd/song-study-update.{service,timer}
+   systemctl --user enable --now song-study-update.timer
+   systemctl --user list-timers   # shows the next run
+   ```
+
+4. Run `./deploy/update.sh` once by hand. With nothing recorded as deployed
+   yet, it deploys `main`'s head, which Docker's cache makes quick, and
+   records it.
+5. Merge a small change, then watch it arrive with `journalctl --user -u
+song-study-update -f`, and check `./deploy/update.sh status` afterwards.
+
+### 11. Copy your local data across (optional)
 
 To start with the documents already in your local database, dump it
 locally. This only reads from it:
@@ -164,42 +192,79 @@ locally. This only reads from it:
 docker compose exec -T postgres pg_dump -U song_study -Fc song_study > song_study.dump
 ```
 
-Copy the file up with `gcloud compute scp`. On the VM, stop the backend,
-restore with `pg_restore --clean --if-exists`, then start the backend
-again. Users and their `google_sub` come across too, so you stay the same
+Copy the file up with `gcloud compute scp`. On the VM, pause auto-deploy
+with `./deploy/update.sh pause "restoring local data"`, so a deploy doesn't
+restart the backend mid-restore. Stop the backend, restore with `pg_restore
+--clean --if-exists`, start the backend again, then run `./deploy/update.sh
+resume`. Users and their `google_sub` come across too, so you stay the same
 user as long as you sign in with the same Google account.
 
 ## Updating
 
-From the clone on the VM:
+Once auto-deploy is set up (step 10), a merge to `main` is deployed within
+about five minutes, with nothing to do. The commands below run from the
+clone on the VM, or from the laptop over SSH, quoting the remote command as
+one argument:
 
 ```bash
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-docker image prune -f   # old images add up fast on a 30 GB disk
+gcloud compute ssh <vm> --zone <zone> -- 'song-study/deploy/update.sh pause "why"'
 ```
 
-- **Migrations** run on their own when the backend starts. Rolling the
-  code back doesn't undo a migration that has already been applied, so if
-  the update includes one (a file under `backend/migrations/versions/`),
-  take a dump first:
+The script owns the clone's checkout, so don't `git pull` or `git checkout`
+there by hand. A run that finds tracked files changed refuses to deploy and
+pauses.
+
+- **Where things stand:** `./deploy/update.sh status` shows what's
+  deployed, what it would deploy, how far behind `main` it is, whether it's
+  paused and why, and the timer's next run.
+- **Hold deploys:** `./deploy/update.sh pause "why"`, then `./deploy/update.sh
+resume`, which also deploys anything that was held back. A deploy already
+  running when you pause finishes.
+- **Deploy a particular commit:** `./deploy/update.sh pin <commit>`, with a
+  SHA, a tag or something like `origin/main~3`. It deploys at once, even
+  while paused, and stays there until `./deploy/update.sh unpin`, which goes
+  back to following `main`. A commit that isn't on `main` is refused unless
+  you pass `--unmerged`; see "Debugging against prod" before doing that.
+- **Deploy now,** rather than waiting for the timer: `./deploy/update.sh`.
+- **A failed deploy** (a build, migration or health check that fails) rolls
+  back to the previous commit if it added no migration, and pauses either
+  way, so the timer doesn't rebuild the same commit every five minutes. Read
+  the reason in `status` and the journal, then merge a fix and `resume`, or
+  `pin` a commit that works.
+- **Migrations** run on their own when the backend starts, and rolling the
+  code back doesn't undo one. Before merging a PR that adds a file under
+  `backend/migrations/versions/`, take a dump:
 
   ```bash
   docker compose -f docker-compose.prod.yml exec -T postgres \
     pg_dump -U <POSTGRES_USER> -Fc <POSTGRES_DB> > ~/song_study-$(date -u +%F).dump
   ```
 
-- **Rolling back:** `git checkout <previous commit>`, then the same `up -d
---build`. If a migration ran in between, restore the dump taken before
-  the update instead of relying on the old code to run against the new
-  schema.
+- **Rolling back:** `./deploy/update.sh pin <previous commit>`. If a
+  migration ran in between, the script refuses, because the old code would
+  run against the new schema. Then:
+  1. `./deploy/update.sh pause "rolling back"`, so the timer doesn't
+     redeploy `main` and run the migration again.
+  2. Restore the dump taken before that deploy: stop the backend, run
+     `pg_restore --clean --if-exists` in the postgres container, as under
+     "Copy your local data across".
+  3. `./deploy/update.sh pin --db-restored <previous commit>`, which skips
+     the migration check and deploys it.
+  4. Once a fix is merged, `unpin` and `resume`.
 - **Downtime** is a few seconds while the backend restarts, plus the
   dictionaries loading on the first request. Sessions survive, since
   `SESSION_SECRET` doesn't change.
-- **Logs:** `docker compose -f docker-compose.prod.yml logs -f backend`, or
-  `caddy` for certificate and proxy errors.
-- **Changes to `.env`** need `up -d`, not just a restart, so the containers
-  are recreated with the new values.
+- **Logs:** `journalctl --user -u song-study-update` for deploys, and
+  `docker compose -f docker-compose.prod.yml logs -f backend`, or `caddy`
+  for certificate and proxy errors.
+- **Changes to `.env`** need `docker compose -f docker-compose.prod.yml up
+-d`, not just a restart, so the containers are recreated with the new
+  values. The script only redeploys when the commit changes.
+- **Changes to the unit files** need `systemctl --user daemon-reload` after
+  they deploy. The links point into the clone, so the new files are already
+  in place.
+- **Changes to `update.sh`** take effect from the run after the one that
+  deploys them.
 
 ## Debugging against prod
 
@@ -296,11 +361,13 @@ contains lyrics goes into `backend/tests/fixtures/`.
 
 1. Set up the new VM with steps 4, 5 and 7, using the same `.env`.
 2. A day ahead, lower the DNS record's TTL to a few minutes.
-3. Stop the old backend, take a dump, copy it across, and restore it on the
-   new VM.
+3. Pause auto-deploy on the old VM (`./deploy/update.sh pause "moving"`),
+   stop its backend, take a dump, copy it across, and restore it on the new
+   VM.
 4. Start the new stack and point the A record at the new IP address. Caddy
    gets a certificate on its own.
-5. Once it works, delete the old VM.
+5. Once it works, set up auto-deploy on the new VM (step 10) and delete the
+   old VM.
 
 The redirect URI, test users and sessions all carry over, since the domain
 and `SESSION_SECRET` stay the same.

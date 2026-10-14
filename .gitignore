@@ -17,3 +17,6 @@ client_secret_*.json
 
 # The browser harness's pids, logs, seed and screenshots (docs/browser-checks.md)
 .browser-harness/
+
+# deploy/update.sh's state on the VM: what's deployed, pin, pause, lock
+.deploy-state/
