@@ -120,7 +120,7 @@ await check('player-bar', async (h) => {
   h.expect(true, 'and plays')
   await desk.keyboard.press('Space')
 
-  h.step('desktop: the Sticky video toggle')
+  h.step('desktop: the Video toggle')
   await desk.click('.player-video-toggle')
   const docked = await desk.$eval('.player-bar.sticky', (el) => ({
     bottom: el.getBoundingClientRect().bottom,
@@ -129,7 +129,7 @@ await check('player-bar', async (h) => {
   }))
   h.expect(
     docked.video && Math.abs(docked.bottom - docked.screen) <= 1,
-    'Sticky video docks the video with the buttons',
+    'Video docks the video with the buttons',
     JSON.stringify(docked),
   )
   await h.screenshot(desk, 'shown', { fullPage: false })

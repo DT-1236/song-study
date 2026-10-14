@@ -20,11 +20,14 @@ export function PlayerBar({
   playerRef,
   videoId,
   onSeek,
+  toggles,
   children,
 }: {
   playerRef: RefObject<YouTubePlayerHandle>
   videoId: string
   onSeek?: () => void
+  // Toggles for the page's behavior, before the Video toggle.
+  toggles?: ReactNode
   // The page's own buttons, after the seek buttons.
   children?: ReactNode
 }) {
@@ -95,15 +98,36 @@ export function PlayerBar({
           +{seekSeconds}s
         </KeyButton>
         {children}
+        {toggles}
         <BarButton
           className="player-video-toggle"
           aria-pressed={stickyVideo}
           onClick={() => setStickyVideo(!stickyVideo)}
         >
-          Sticky video
+          Video
         </BarButton>
       </div>
     </div>
+  )
+}
+
+// Switches whether the line being sung is kept on screen.
+export function AutoScrollToggle({
+  autoScroll,
+  onChange,
+}: {
+  autoScroll: boolean
+  onChange: (autoScroll: boolean) => void
+}) {
+  return (
+    <BarButton
+      className="player-autoscroll-toggle"
+      aria-pressed={autoScroll}
+      title="Keep the line being sung on screen"
+      onClick={() => onChange(!autoScroll)}
+    >
+      Auto-scroll
+    </BarButton>
   )
 }
 

@@ -53,7 +53,7 @@ import { ConfirmDialog } from './ConfirmDialog'
 import { LinePlayButton } from './LinePlayButton'
 import { LrclibMatches } from './LrclibMatches'
 import type { LrclibSong } from './LrclibMatches'
-import { KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
+import { AutoScrollToggle, KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
@@ -1734,6 +1734,7 @@ const TokenizedText = memo(function TokenizedText({
   onCardChanged,
   playingLine,
   lineTimings,
+  autoScroll,
   onPlayLine,
 }: {
   tokens: Token[]
@@ -1748,6 +1749,8 @@ const TokenizedText = memo(function TokenizedText({
   // from; null hides the play buttons.
   lineTimings: (LineTiming | null)[] | null
   onPlayLine: (start: number) => void
+  // Whether the line being sung is kept on screen.
+  autoScroll: boolean
 }) {
   // On touch, a tapped token's preview is hoveredId too.
   const [hoveredId, setHoveredId] = useState<number | null>(null)
@@ -1779,9 +1782,6 @@ const TokenizedText = memo(function TokenizedText({
   }, [tokens])
 
   const boxRef = useRef<HTMLDivElement>(null)
-
-  // Whether the line being sung is kept on screen. Shared by every document.
-  const [autoScroll, setAutoScroll] = usePersistentState('autoScroll', true)
 
   // Scrolls the line being sung onto the screen when it moves off it, as
   // little as possible: its first highlighted token, where it starts even
@@ -2254,19 +2254,6 @@ const TokenizedText = memo(function TokenizedText({
           )
         })}
       </div>
-      {lineTimings && (
-        <div className="autoscroll-anchor">
-          <button
-            type="button"
-            className="autoscroll-toggle"
-            aria-pressed={autoScroll}
-            title="Keep the line being sung on screen"
-            onClick={() => setAutoScroll(!autoScroll)}
-          >
-            Auto-scroll: {autoScroll ? 'on' : 'off'}
-          </button>
-        </div>
-      )}
     </>
   )
 })
@@ -2879,6 +2866,8 @@ export function DocumentViewPage() {
   // The document's line timings: as edited here, or else LRCLIB's.
   const lineTimings = doc?.edited_lines ?? doc?.lrclib_lines ?? null
   const hasVideo = Boolean(doc?.youtube_video_id)
+  // Whether the line being sung is kept on screen. Shared by every document.
+  const [autoScroll, setAutoScroll] = usePersistentState('autoScroll', true)
   // What's highlighted: a chosen LRCLIB track's timings, while previewing
   // it, or the timings as edited so far, while editing them.
   const shownTimings = useMemo(() => {
@@ -3195,6 +3184,7 @@ export function DocumentViewPage() {
               playingLine={playingLine}
               // Without a video there's nothing to play them from.
               lineTimings={hasVideo ? lineTimings : null}
+              autoScroll={autoScroll}
               onPlayLine={handlePlayLine}
             />
           ) : (
@@ -3220,6 +3210,14 @@ export function DocumentViewPage() {
           playerRef={youtubePlayerRef}
           videoId={doc.youtube_video_id}
           onSeek={handleSeek}
+          toggles={
+            lineTimings && (
+              <AutoScrollToggle
+                autoScroll={autoScroll}
+                onChange={setAutoScroll}
+              />
+            )
+          }
         >
           {barTimingButtons && (
             <TimingBarButtons
