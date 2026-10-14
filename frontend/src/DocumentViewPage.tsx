@@ -221,6 +221,38 @@ function phraseSpanKey(token: Token, index: number): string {
     : `solo:${index}`
 }
 
+// The elements of the token group that `tokens[index]` belongs to, whose
+// element is `element`: the same span the finished outline goes around.
+function tokenGroupElements(
+  tokens: Token[],
+  index: number,
+  element: HTMLElement,
+): HTMLElement[] {
+  const key = phraseSpanKey(tokens[index], index)
+  const group = [element]
+  for (const [step, direction] of [
+    ['previous', -1],
+    ['next', 1],
+  ] as const) {
+    let current = element
+    for (
+      let i = index + direction;
+      i >= 0 && i < tokens.length && phraseSpanKey(tokens[i], i) === key;
+      i += direction
+    ) {
+      // Line play buttons can sit between a group's tokens, so skip anything
+      // that isn't a token.
+      let sibling = current[`${step}ElementSibling`]
+      while (sibling && !sibling.classList.contains('token'))
+        sibling = sibling[`${step}ElementSibling`]
+      if (!sibling) break
+      current = sibling as HTMLElement
+      group[step === 'previous' ? 'unshift' : 'push'](current)
+    }
+  }
+  return group
+}
+
 // Whether this token is part of an accepted phrase, whose tokens are glossed
 // as the phrase's headword rather than as themselves.
 function isInAcceptedPhrase(token: Token): boolean {
@@ -1933,7 +1965,11 @@ const TokenizedText = memo(function TokenizedText({
     endPressRef.current?.()
     const id = tokens[index].id
     const { pointerId, clientX, clientY } = event
-    const tokenElement = event.currentTarget
+    const pressedElements = tokenGroupElements(
+      tokens,
+      index,
+      event.currentTarget,
+    )
     const timer = window.setTimeout(() => {
       endPress()
       swallowClickRef.current = true
@@ -1941,14 +1977,40 @@ const TokenizedText = memo(function TokenizedText({
       setPinnedId(id)
       setHeldToPin(true)
     }, LONG_PRESS_MS)
-    // Marked on the element rather than in state, so holding a token doesn't
+    // Marked on the elements rather than in state, so holding a token doesn't
     // re-render the whole token loop; React never sets this attribute, so it
-    // survives the token's own re-renders.
-    tokenElement.dataset.pressing = ''
+    // survives the tokens' own re-renders.
+    // Each member's slice of the countdown sweep, by its share of the
+    // group's width, so the lines cross the group at one steady speed.
+    const widths = pressedElements.map((e) => e.getBoundingClientRect().width)
+    const totalWidth = widths.reduce((sum, w) => sum + w, 0)
+    let sweptWidth = 0
+    pressedElements.forEach((element, i) => {
+      element.style.setProperty(
+        '--press-delay',
+        `${(LONG_PRESS_MS * sweptWidth) / totalWidth}ms`,
+      )
+      element.style.setProperty(
+        '--press-duration',
+        `${(LONG_PRESS_MS * widths[i]) / totalWidth}ms`,
+      )
+      sweptWidth += widths[i]
+      // Which ends of the group this member is, for the sweep's caps.
+      element.dataset.pressing = [
+        i === 0 && 'start',
+        i === pressedElements.length - 1 && 'end',
+      ]
+        .filter(Boolean)
+        .join(' ')
+    })
 
     const stopCountdown = () => {
       window.clearTimeout(timer)
-      delete tokenElement.dataset.pressing
+      for (const element of pressedElements) {
+        delete element.dataset.pressing
+        element.style.removeProperty('--press-delay')
+        element.style.removeProperty('--press-duration')
+      }
     }
     // Ends the countdown once the touch moves off, but keeps listening for
     // the cancel a scroll ends in.
@@ -2140,11 +2202,6 @@ const TokenizedText = memo(function TokenizedText({
       <div
         ref={boxRef}
         className={lineTimings ? 'lyrics-box has-line-play' : 'lyrics-box'}
-        style={
-          {
-            '--long-press-duration': `${LONG_PRESS_MS}ms`,
-          } as React.CSSProperties
-        }
         onContextMenu={(e) => {
           // A long press on a token pins it, rather than opening the
           // platform's text menu over the countdown. The gloss's own text
