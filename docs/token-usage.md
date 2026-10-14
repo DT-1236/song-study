@@ -124,6 +124,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-13 | Auto-scroll toggle in the player bar                             | #138 | /simplify (inline, no subagents)       | Sonnet 5.5, medium          | —    | 6     | 341k       | 1k     | S    |
 | 2026-10-13 | Timing bar: seek and nudge buttons told apart                    | #139 | initial pass                           | Sonnet 5.5, medium          | —    | 21    | 1.2M       | 14k    | M    |
 | 2026-10-13 | Timing bar: seek and nudge buttons told apart                    | #139 | /simplify (inline, no subagents)       | Sonnet 5.5, medium          | —    | 2     | 175k       | 1k     | S    |
+| 2026-10-13 | Player bar: no-wrap buttons, centered seek row                   | #140 | initial pass                           | Sonnet 5.5, medium          | —    | 11    | 520k       | 3k     | S    |
+| 2026-10-13 | Nudge flash: red background fade instead of bold                 | #141 | initial pass                           | Sonnet 5.5, medium          | —    | 12    | 678k       | 4k     | S    |
 
 ## Post-mortem log
 

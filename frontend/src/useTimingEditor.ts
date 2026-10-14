@@ -52,8 +52,9 @@ export function useTimingKeyPresses(onPress: (key: TimingKey) => void) {
   }, [onPress])
 }
 
-// How long a nudged line's time stays highlighted.
-const NUDGE_FLASH_MS = 700
+// How long a nudged line's time stays fully highlighted, before the CSS
+// fades it over another 250ms.
+const NUDGE_FLASH_MS = 125
 
 // A change to a line's timing that's confirmed first.
 type TimingAction =

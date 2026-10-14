@@ -727,10 +727,21 @@ li.grammar-legend-item {
   color: inherit;
 }
 
-/* A just-nudged line's time, so the change is seen where it lands. */
+/* A just-nudged line's time, so the change is seen where it lands: its
+   background turns red at once, then fades once the class is removed. The
+   box-shadow pads the red without moving the layout. */
+.timing-gutter span {
+  border-radius: 2px;
+  transition:
+    background-color 250ms ease-out,
+    box-shadow 250ms ease-out;
+}
+
 .timing-gutter .nudged {
-  color: var(--accent);
-  font-weight: 700;
+  background-color: var(--danger);
+  box-shadow: 0 0 0 0.15rem var(--danger);
+  color: var(--bg);
+  transition: none;
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
