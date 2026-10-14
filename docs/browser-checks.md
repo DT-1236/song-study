@@ -125,10 +125,13 @@ phone does; `center(locator)` is where to put it.
 
 ## Gotchas
 
-- **Wait for tokens with `tokenized(page)`, not `.token`.** While a document
-  processes, its page shows the lyrics as written, and their lines are
-  `.token`s too, so `waitForSelector('.token')` can return before the
-  furigana'd tokens exist.
+- **Wait for tokens with `tokenized(page)`.** While a document processes,
+  its page shows the lyrics as written, as `.synced-lyrics` with one
+  `.lyric-line` per line, so only the furigana'd lyrics have `.token`s.
+- **Measure the docked buttons as `.player-controls`, not `.player-bar`.**
+  Unless the video is set sticky, `.player-bar` is `display: contents` and
+  has an empty bounding box; `.player-controls` is what sticks to the bottom
+  either way.
 - **Furigana is in a token's text.** `token()` matches a token by its
   surface with `<rt>` and any open popup removed; Playwright's `hasText`
   alone won't find it.

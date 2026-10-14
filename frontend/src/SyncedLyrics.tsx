@@ -1,7 +1,8 @@
-import { Fragment, useEffect, useRef } from 'react'
+import { Fragment, useRef } from 'react'
 import type { ComponentProps } from 'react'
 import type { LineTiming } from './api'
 import { LinePlayButton } from './LinePlayButton'
+import { useScrollPlayingIntoView } from './useAutoScroll'
 import { useHighlightSettings } from './useHighlightSettings'
 
 // Lyrics without tokens (LRCLIB's, or a document's own before it's
@@ -23,15 +24,7 @@ export function SyncedLyrics({
 } & Pick<ComponentProps<'p'>, 'id' | 'aria-labelledby'>) {
   const highlight = useHighlightSettings()
   const boxRef = useRef<HTMLParagraphElement>(null)
-
-  // Scrolls the line being sung onto the screen when it moves off it, as
-  // little as possible.
-  useEffect(() => {
-    if (!autoScroll) return
-    boxRef.current
-      ?.querySelector('.token.playing')
-      ?.scrollIntoView({ block: 'nearest' })
-  }, [playingLine, autoScroll])
+  useScrollPlayingIntoView(boxRef, playingLine, autoScroll)
 
   return (
     <p
@@ -48,7 +41,11 @@ export function SyncedLyrics({
             {line.trim() !== '' && start !== undefined && (
               <LinePlayButton start={start} onPlayLine={onPlayLine} />
             )}
-            <span className={index === playingLine ? 'token playing' : 'token'}>
+            <span
+              className={
+                index === playingLine ? 'lyric-line playing' : 'lyric-line'
+              }
+            >
               {line}
             </span>
           </Fragment>

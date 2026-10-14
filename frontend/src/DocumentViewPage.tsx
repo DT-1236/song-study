@@ -57,7 +57,7 @@ import { AutoScrollToggle, KeyButton, PRESS_MS, PlayerBar } from './PlayerBar'
 import { PosTermRuby, getPosInfo } from './PosLegend'
 import { SenseList } from './SenseList'
 import { SyncedLyrics } from './SyncedLyrics'
-import { useAutoScroll } from './useAutoScroll'
+import { useAutoScroll, useScrollPlayingIntoView } from './useAutoScroll'
 import { useTabs } from './TabsContext'
 import { formatTimestamp, linesOf, timingsFromStarts } from './timing'
 import type { LyricsLine } from './timing'
@@ -1371,6 +1371,15 @@ function mouseOnly(handler: () => void) {
   }
 }
 
+function PinIconPaths() {
+  return (
+    <>
+      <path d="M12 17v5" />
+      <path d="M9 3h6l-1 7 3 3v2H7v-2l3-3z" />
+    </>
+  )
+}
+
 // Says the gloss was pinned (by a click, or by holding a word) rather than
 // just hovered or previewed.
 function PinnedMarker() {
@@ -1387,8 +1396,7 @@ function PinnedMarker() {
         strokeLinejoin="round"
         aria-hidden="true"
       >
-        <path d="M12 17v5" />
-        <path d="M9 3h6l-1 7 3 3v2H7v-2l3-3z" />
+        <PinIconPaths />
       </svg>
       Pinned
     </span>
@@ -1408,11 +1416,9 @@ function PinToggle({
     <IconToggle
       on={pinned}
       label={pinned ? 'Pinned — tap to unpin' : 'Pin this gloss'}
-      className={pinned ? 'gloss-pinned' : undefined}
       onClick={onToggle}
     >
-      <path d="M12 17v5" />
-      <path d="M9 3h6l-1 7 3 3v2H7v-2l3-3z" />
+      <PinIconPaths />
     </IconToggle>
   )
 }
@@ -1902,16 +1908,7 @@ const TokenizedText = memo(function TokenizedText({
   }, [tokens])
 
   const boxRef = useRef<HTMLDivElement>(null)
-
-  // Scrolls the line being sung onto the screen when it moves off it, as
-  // little as possible: its first highlighted token, where it starts even
-  // when it wraps.
-  useEffect(() => {
-    if (!autoScroll) return
-    boxRef.current
-      ?.querySelector('.token.playing')
-      ?.scrollIntoView({ block: 'nearest' })
-  }, [playingLine, autoScroll])
+  useScrollPlayingIntoView(boxRef, playingLine, autoScroll)
 
   const sheet = useMediaQuery(NO_HOVER)
 
@@ -2146,9 +2143,12 @@ const TokenizedText = memo(function TokenizedText({
     setHoveredId(null)
   }, [])
 
+  // Read through a ref so togglePin keeps one identity and pinning a token
+  // doesn't re-render every memoized TokenSpan.
+  const pinnedIdRef = useLatest(pinnedId)
   const togglePin = useCallback(
     (id: number) => {
-      if (pinnedId === id) {
+      if (pinnedIdRef.current === id) {
         setPinnedId(null)
         setHoveredId(id)
       } else {
@@ -2156,7 +2156,7 @@ const TokenizedText = memo(function TokenizedText({
         setPinnedId(id)
       }
     },
-    [pinnedId],
+    [pinnedIdRef],
   )
 
   const handleHoverEnter = useCallback((tokenId: number) => {
