@@ -1,12 +1,7 @@
 import { useHighlightSettings } from './useHighlightSettings'
 import { usePersistentState } from './usePersistentState'
 import { useSeekSeconds } from './usePlayerShortcuts'
-
-// Whether the video stays docked with the player bar's buttons, rather than
-// sitting after the page's content. Off until asked for.
-export function useStickyVideo() {
-  return usePersistentState('stickyVideo', false)
-}
+import { useStickyVideo } from './useStickyVideo'
 
 // The viewing settings: the same for every document, and kept across reloads.
 export function useViewSettings() {

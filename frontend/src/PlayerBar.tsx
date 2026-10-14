@@ -5,7 +5,7 @@ import { useHeightProperty } from './useHeightProperty'
 import { usePlayerShortcuts, useSeekSeconds } from './usePlayerShortcuts'
 import type { PlayerShortcut } from './usePlayerShortcuts'
 import { useTransient } from './useTransient'
-import { useStickyVideo } from './useViewSettings'
+import { useStickyVideo } from './useStickyVideo'
 import { YouTubePlayer } from './YouTubePlayer'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
