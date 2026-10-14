@@ -1,3 +1,5 @@
+import { logout } from './api'
+import { useCurrentUser } from './AuthGate'
 import { renderSegments } from './furigana'
 import { ViewSettings } from './ViewSettings'
 import { displayStyle, useViewSettings } from './useViewSettings'
@@ -12,9 +14,18 @@ const SAMPLE = [
 
 export function SettingsPage() {
   const settings = useViewSettings()
+  const user = useCurrentUser()
   return (
     <div className="new-document-form">
       <h1>Settings</h1>
+      <h2>Account</h2>
+      <p>Signed in as {user.name}</p>
+      <button
+        type="button"
+        onClick={() => logout().then(() => window.location.reload())}
+      >
+        Log out
+      </button>
       <h2>This device</h2>
       <p className="lyrics-box settings-sample" style={displayStyle(settings)}>
         <span className="token playing">{renderSegments(SAMPLE)}</span>
