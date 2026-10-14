@@ -682,6 +682,17 @@ li.grammar-legend-item {
   background-color: transparent;
 }
 
+.player-transport {
+  justify-content: center;
+}
+
+/* A button's label stays on one line, so a tight row wraps or shrinks around
+   whole buttons rather than squeezing text inside them. */
+.player-controls button {
+  flex: none;
+  white-space: nowrap;
+}
+
 .player-timing {
   padding-top: 0.5rem;
   border-top: 1px dashed var(--border);
@@ -785,7 +796,7 @@ li.grammar-legend-item {
   }
 
   .player-controls .timing-stamp {
-    flex: 1;
+    flex: 1 1 auto;
   }
 
   /* A bare icon button is small by design, so a 44px square is laid over it
