@@ -221,8 +221,8 @@ await check('mobile-gloss-sheet', async (h) => {
   await f.down(at.x, at.y)
   await page.waitForTimeout(LONG_PRESS_MS / 2)
   h.expect(
-    (await ring(kumo2)).startsWith('conic-gradient'),
-    'halfway through a hold, the countdown ring shows',
+    (await ring(kumo2)).startsWith('linear-gradient'),
+    'halfway through a hold, the countdown sweep shows',
   )
   await page.waitForTimeout(LONG_PRESS_MS)
   await f.up()

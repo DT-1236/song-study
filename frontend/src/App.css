@@ -1504,19 +1504,32 @@ li.grammar-legend-item {
 }
 
 /* The countdown while a token is held to pin its gloss: .phrase-outline's
-   green border drawing itself in, clockwise, over the press. Box-shadows
-   can't be drawn partway, so it's a conic gradient up to an animated angle,
-   masked to a ring. On the held token alone, even in a group: when the pin
-   lands, the group's outline takes its place. */
-@property --press-angle {
-  syntax: '<angle>';
+   top and bottom lines drawing themselves in, left to right, across the
+   whole token group, then the right cap landing at the end. Box-shadows
+   can't be drawn partway, so each member paints its slice as gradients on
+   ::after. --press-delay and --press-duration (set per member from its share
+   of the group's width) make the slices run end to end as one sweep. */
+@property --press-line {
+  syntax: '<percentage>';
   inherits: false;
-  initial-value: 0deg;
+  initial-value: 0%;
 }
 
-@keyframes press-countdown {
+@property --press-cap {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+
+@keyframes press-line {
   to {
-    --press-angle: 360deg;
+    --press-line: 100%;
+  }
+}
+
+@keyframes press-cap {
+  to {
+    --press-cap: 2px;
   }
 }
 
@@ -1524,14 +1537,37 @@ li.grammar-legend-item {
   content: '';
   position: absolute;
   inset: 0;
-  padding: 2px;
-  border-radius: 3px;
-  background: conic-gradient(var(--success) var(--press-angle), transparent 0);
-  mask:
-    linear-gradient(#000 0 0) content-box exclude,
-    linear-gradient(#000 0 0);
-  animation: press-countdown var(--long-press-duration) linear forwards;
+  background:
+    linear-gradient(var(--success), var(--success)) top left / var(--press-line)
+      2px no-repeat,
+    linear-gradient(var(--success), var(--success)) bottom left /
+      var(--press-line) 2px no-repeat,
+    linear-gradient(var(--success), var(--success)) left /
+      var(--press-left, 2px) 100% no-repeat,
+    linear-gradient(var(--success), var(--success)) right / var(--press-cap)
+      100% no-repeat;
+  animation: press-line var(--press-duration) linear var(--press-delay) both;
   pointer-events: none;
+}
+
+/* The same corner radii as the finished .phrase-outline, on the group's
+   ends only, so the sweep's corners match what it turns into. */
+.token[data-pressing~='start']::after {
+  border-top-left-radius: 3px;
+  border-bottom-left-radius: 3px;
+}
+
+.token[data-pressing]:not([data-pressing~='start'])::after {
+  --press-left: 0px;
+}
+
+.token[data-pressing~='end']::after {
+  border-top-right-radius: 3px;
+  border-bottom-right-radius: 3px;
+  /* The cap lands as this member's slice finishes, which is the sweep's end. */
+  animation:
+    press-line var(--press-duration) linear var(--press-delay) both,
+    press-cap 0.01s linear calc(var(--press-delay) + var(--press-duration)) both;
 }
 
 /* A long press on a token pins its gloss, so it mustn't start the
