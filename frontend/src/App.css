@@ -80,6 +80,20 @@
   gap: 0.25rem;
 }
 
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: 0.5rem 1rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+
+.sidebar-footer-icon {
+  margin-right: 0.5rem;
+  font-size: 1.25em;
+  line-height: 1;
+}
+
 .sidebar-section-title {
   font-weight: 600;
   font-size: 0.85em;
@@ -136,7 +150,7 @@
    drawers. The query is NARROW_SCREEN in media.ts; keep them in step. */
 @media (max-width: 900px), (max-height: 500px) {
   :root {
-    --top-bar-height: 3rem;
+    --top-bar-height: 3.5rem;
   }
 
   .app-layout {

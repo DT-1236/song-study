@@ -6,8 +6,6 @@ import {
   useLocation,
   useMatches,
 } from 'react-router-dom'
-import { logout } from './api'
-import { useCurrentUser } from './AuthGate'
 import { GrammarLegendModal } from './GrammarLegend'
 import { JmdictSearch } from './JmdictSearch'
 import { NARROW_SCREEN, useMediaQuery } from './media'
@@ -26,7 +24,6 @@ export function Layout() {
   const navRef = useRef<HTMLElement>(null)
   const lookupRef = useRef<HTMLElement>(null)
   const lookupInputRef = useRef<HTMLInputElement>(null)
-  const user = useCurrentUser()
   const [showPosLegend, setShowPosLegend] = useState(false)
   const [showGrammarLegend, setShowGrammarLegend] = useState(false)
 
@@ -77,7 +74,7 @@ export function Layout() {
           aria-expanded={drawer === 'lookup'}
           onClick={() => setDrawer('lookup')}
         >
-          Lookup
+          Dict
         </button>
       </header>
       {drawer !== null && (
@@ -86,6 +83,11 @@ export function Layout() {
       <nav
         ref={navRef}
         className={`sidebar${drawer === 'nav' ? ' drawer-open' : ''}`}
+        // Navigating closes the drawer, but a link to the current route doesn't
+        // navigate, so close it on the click itself.
+        onClick={(event) => {
+          if ((event.target as Element).closest('a')) setDrawer(null)
+        }}
       >
         <div className="sidebar-scroll">
           <NavLink
@@ -132,20 +134,17 @@ export function Layout() {
           <button type="button" onClick={() => setShowGrammarLegend(true)}>
             Grammar Rules
           </button>
+        </div>
+        <div className="sidebar-footer">
           <NavLink
             to="/settings"
-            className={({ isActive }) =>
-              `sidebar-section-title${isActive ? ' active' : ''}`
-            }
+            className={({ isActive }) => (isActive ? 'active' : '')}
           >
-            {user.name}
+            <span aria-hidden="true" className="sidebar-footer-icon">
+              ⚙
+            </span>
+            Settings
           </NavLink>
-          <button
-            type="button"
-            onClick={() => logout().then(() => window.location.reload())}
-          >
-            Log out
-          </button>
         </div>
       </nav>
       <main className="content">
