@@ -1250,6 +1250,22 @@ li.grammar-legend-item {
   --lyrics-line-height: 1.8;
 }
 
+/* The line being sung is painted on the span itself rather than on the
+   ::before box the tokens use, which would cover one rectangle around all of
+   a wrapped line's fragments. There's no ruby here for a background to shift,
+   so each fragment gets its own. */
+.synced-lyrics .token.playing {
+  background-color: color-mix(
+    in srgb,
+    var(--highlight-color) var(--highlight-opacity),
+    transparent
+  );
+}
+
+.synced-lyrics .token.playing::before {
+  content: none;
+}
+
 /* A blank line between stanzas, kept as tall as a line of text. */
 .timing-row.blank {
   height: calc(1em * var(--lyrics-line-height));
