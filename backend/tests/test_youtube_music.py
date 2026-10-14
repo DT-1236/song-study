@@ -74,6 +74,17 @@ def test_skips_results_without_a_video_id(fake_client):
     assert [song.video_id for song in search_songs("t")] == ["abc123"]
 
 
+def test_videos_are_searched_instead_of_songs(fake_client):
+    client = fake_client(results=[FULL])
+    assert [song.video_id for song in search_songs("t", videos=True)] == ["abc123"]
+    assert client.calls == [("t", "videos", 10)]
+
+
+def test_results_are_cut_to_ten(fake_client):
+    fake_client(results=[{**FULL, "videoId": f"v{i}"} for i in range(20)])
+    assert len(search_songs("t")) == 10
+
+
 def test_library_failure_becomes_unavailable(fake_client):
     fake_client(error=KeyError("YouTube changed"))
     with pytest.raises(YouTubeMusicUnavailable):

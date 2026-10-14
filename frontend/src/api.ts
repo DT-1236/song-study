@@ -563,9 +563,13 @@ export interface SongResult {
   thumbnail_url: string | null
 }
 
-export async function searchSongs(q: string): Promise<SongResult[]> {
+export async function searchSongs(
+  q: string,
+  videos: boolean,
+): Promise<SongResult[]> {
   const url = new URL(`${API_URL}/songs/search`, window.location.origin)
   url.searchParams.set('q', q)
+  if (videos) url.searchParams.set('videos', 'true')
 
   const response = await fetch(url)
 
