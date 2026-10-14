@@ -1,0 +1,10 @@
+[Unit]
+Description=Check for song-study updates every 5 minutes
+
+[Timer]
+OnBootSec=5min
+# Counted from the end of the last run, so a long build never queues another.
+OnUnitInactiveSec=5min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+# Runs deploy/update.sh once; song-study-update.timer starts it. A user unit,
+# so %h is the home directory of whoever installed it. Setup is under
+# "Auto-deploy" in deploy/README.md.
+[Unit]
+Description=Deploy song-study's origin/main if it isn't deployed
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/song-study
+ExecStart=%h/song-study/deploy/update.sh
+# A change to requirements.txt reinstalls the dictionaries, which takes about
+# half an hour on an e2-micro.
+TimeoutStartSec=90min
