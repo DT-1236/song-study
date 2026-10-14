@@ -130,3 +130,4 @@ One bucket over is normal variance and needs no post-mortem.
 ## Post-mortem log
 
 None yet.
+| 2026-10-14 | Deploy step 2, auto-deploy | — | initial pass | Opus 5.5, medium | L | 20 | 1.5M | 25k | M |
