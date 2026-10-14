@@ -10,6 +10,10 @@ import { useLrclibChoice } from './useLrclibChoice'
 import { usePlayingLine } from './usePlayingLine'
 import type { YouTubePlayerHandle } from './YouTubePlayer'
 
+// What LRCLIB is searched against before a song is picked: just the title
+// typed into its search box.
+const NO_SONG = { title: '', artists: '', duration_seconds: null }
+
 export function NewDocumentForm() {
   const [title, setTitle] = useState('')
   // The lyrics as pasted, kept while LRCLIB's are shown in their place.
@@ -140,20 +144,27 @@ export function NewDocumentForm() {
         required
       />
 
-      {pickedSong && (
-        <LrclibMatches
-          key={pickedSong.video_id}
-          song={pickedSong}
-          chosen={choice}
-          onChoose={handleChoose}
-          noneLabel="None — I'll paste the lyrics"
-        />
-      )}
+      <LrclibMatches
+        key={pickedSong?.video_id ?? ''}
+        song={pickedSong ?? NO_SONG}
+        chosen={choice}
+        onChoose={handleChoose}
+        noneLabel="None — I'll paste the lyrics"
+      />
 
       <label id="lyrics-label" htmlFor="lyrics">
         Lyrics
       </label>
       {lyricsField}
+      {(loadingLyrics || usingLrclib) && (
+        <button
+          type="button"
+          className="lrclib-matches-toggle"
+          onClick={() => handleChoose(null)}
+        >
+          Remove LRCLIB lyrics and paste my own
+        </button>
+      )}
       {lyricsError && <p className="form-error">{lyricsError}</p>}
 
       <details className="manual-ids">

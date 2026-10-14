@@ -879,6 +879,12 @@ li.grammar-legend-item {
   cursor: pointer;
 }
 
+.search-dropdown {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .search-dropdown-row {
   display: flex;
   gap: 0.5rem;
