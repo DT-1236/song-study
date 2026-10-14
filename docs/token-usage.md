@@ -132,6 +132,7 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-14 | Mobile gloss sheet: Select, pin toggle, X close                  | #146 | initial pass                           | Sonnet 5.5, medium          | —    | 36    | 2.4M       | 19k    | M    |
 | 2026-10-14 | Mobile top bar spacing, Dict label, Settings footer              | #147 | initial pass                           | Sonnet 5.5, medium          | —    | 30    | 1.5M       | 9k     | M    |
 | 2026-10-14 | New document: LRCLIB search without a song, remove lyrics        | #148 | initial pass                           | Sonnet 5.5, medium          | —    | 40    | 2.6M       | 19k    | M    |
+| 2026-10-14 | YouTube search: search videos instead of songs                   | #149 | initial pass                           | Sonnet 5.5, medium          | —    | 23    | 1.2M       | 12k    | M    |
 
 ## Post-mortem log
 
