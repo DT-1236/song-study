@@ -6,13 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on PRs #133, #136, #137, #140, #141, #145–#151 (post-hoc sweep)
 
-- **Video search toggle re-runs through an injected search function.**
-  `SearchDropdown`'s `controls` render prop hands out `searchAgain(searchWith)`
-  only because the toggle's `onChange` runs before `videos` re-renders.
-  Instead give `SearchDropdown` a key prop (the kind) and re-run the last
-  query in an effect when it changes, read `videos` in `SongSearch`'s
-  `search`, and pass the toggle as plain JSX. Touches the race handling in
-  `runSearch`. Opus 5.5, medium: a stale result winning is silent.
 - **Browser checks failing on main.** At `1573c54`, `mobile-gloss-sheet`
   fails "the pinned sheet opened under the finger", "the hold's release
   clicks nothing in the sheet" and times out tapping in "phone: a hold low on

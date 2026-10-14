@@ -134,6 +134,7 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-14 | New document: LRCLIB search without a song, remove lyrics        | #148 | initial pass                           | Sonnet 5.5, medium          | —    | 40    | 2.6M       | 19k    | M    |
 | 2026-10-14 | YouTube search: search videos instead of songs                   | #149 | initial pass                           | Sonnet 5.5, medium          | —    | 23    | 1.2M       | 12k    | M    |
 | 2026-10-14 | Post-hoc sweep: #133, #136, #137, #140, #141, #145–#151          | #152 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 70    | 5.0M       | 19k    | L    |
+| 2026-10-14 | Backlog sweep 11: video search toggle re-runs on a `kind` prop   | —    | backlog item                           | Opus 5.5, medium            | —    | 18    | 931k       | 10k    | S    |
 
 ## Post-mortem log
 

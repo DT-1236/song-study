@@ -16,19 +16,21 @@ export function SongSearch({
   const [videos, setVideos] = useState(false)
   // The last query's results, by kind, so flipping the toggle back and forth
   // doesn't search again. A search asked for always clears it.
-  const found = useRef<{ songs?: SongResult[]; videos?: SongResult[] }>({})
+  const found = useRef<{
+    query: string
+    songs?: SongResult[]
+    videos?: SongResult[]
+  }>({ query: '' })
+  const kind = videos ? 'videos' : 'songs'
 
-  async function search(query: string, asVideos: boolean) {
-    const results = await searchSongs(query, asVideos)
-    found.current[asVideos ? 'videos' : 'songs'] = results
+  async function search(query: string, again: boolean) {
+    if (!again) found.current = { query }
+    else if (found.current[kind]) return found.current[kind]
+    const results = await searchSongs(query, videos)
+    // A search dropped for a newer one can settle after it: keep its results
+    // only if they're still for the query cached.
+    if (found.current.query === query) found.current[kind] = results
     return results
-  }
-
-  // Looks up the kind flipped to, searching only if it's not been found yet.
-  async function searchFlipped(query: string, asVideos: boolean) {
-    return (
-      found.current[asVideos ? 'videos' : 'songs'] ?? search(query, asVideos)
-    )
   }
 
   return (
@@ -36,12 +38,10 @@ export function SongSearch({
       id="song-search-query"
       label="Search for a song"
       placeholder="e.g. 夜に駆ける YOASOBI"
-      search={(query) => {
-        found.current = {}
-        return search(query, videos)
-      }}
+      search={search}
+      kind={kind}
       failureMessage="Search failed."
-      controls={(searchAgain) => (
+      controls={
         <label
           className="checkbox-option search-include-videos"
           title="Songs are more likely to sync up with the lyrics: videos can have openings, credits and the like that shift the timing."
@@ -49,14 +49,11 @@ export function SongSearch({
           <input
             type="checkbox"
             checked={videos}
-            onChange={(e) => {
-              setVideos(e.target.checked)
-              searchAgain((query) => searchFlipped(query, e.target.checked))
-            }}
+            onChange={(e) => setVideos(e.target.checked)}
           />
           Search videos instead
         </label>
-      )}
+      }
     >
       {(songs, close) => (
         <>
