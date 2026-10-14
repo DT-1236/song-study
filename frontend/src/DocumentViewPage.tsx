@@ -611,8 +611,6 @@ function IgnoreGlossButton({
   )
 }
 
-// Whether `word` is in the user's study list, with the one action that
-// changes that: adding it, removing it, or restoring it with its history.
 // A bare icon button that's lit (green) while `on` and dim otherwise. The
 // icon's SVG paths are its children.
 function IconToggle({
@@ -660,6 +658,8 @@ function IconToggle({
   )
 }
 
+// Whether `word` is in the user's study list, with the one action that
+// changes that: adding it, removing it, or restoring it with its history.
 function StudyListControl({
   word,
   documentId,
