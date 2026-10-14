@@ -653,14 +653,74 @@ li.grammar-legend-item {
 
   .player-bar.sticky .player-controls {
     flex: 1;
+  }
+
+  .player-bar.sticky .player-transport,
+  .player-bar.sticky .player-timing {
     flex-wrap: wrap;
   }
 }
 
 .player-controls {
   display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.player-transport,
+.player-timing {
+  display: flex;
   gap: 0.5rem;
   align-items: center;
+}
+
+/* Seeking moves the playhead and changes nothing, so its buttons are round
+   and unfilled; the timing row's edit the song's timings, and are squared
+   off, joined where they're a pair, and tinted with the accent. */
+.player-controls .seek-button {
+  border-radius: 999px;
+  background-color: transparent;
+}
+
+.player-timing {
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+}
+
+.nudge-group {
+  display: flex;
+}
+
+.player-controls .nudge-group button {
+  border-color: var(--accent);
+  border-radius: 4px;
+  background-color: color-mix(in srgb, var(--accent) 12%, var(--bg-elevated));
+}
+
+.player-controls .nudge-group button:first-child {
+  border-right-width: 0;
+  border-radius: 4px 0 0 4px;
+}
+
+.player-controls .nudge-group button:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.player-controls .timing-stamp {
+  border-color: var(--accent);
+  border-radius: 4px;
+  background-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.player-controls .timing-stamp kbd {
+  color: inherit;
+}
+
+/* A just-nudged line's time, so the change is seen where it lands. */
+.timing-gutter .nudged {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 /* Qualified to outrank .new-document-form button's margin and padding. */
@@ -705,9 +765,14 @@ li.grammar-legend-item {
   }
 
   /* The timing buttons take the Video toggle's place, and Stamp the room
-     left over. Padding narrows so six buttons fit at 320px. */
+     left over. Padding narrows so a row's buttons fit at 320px. */
   .player-controls.has-extra {
     gap: 0.3rem;
+
+    .player-transport,
+    .player-timing {
+      gap: 0.3rem;
+    }
 
     button {
       padding-inline: 0.25rem;

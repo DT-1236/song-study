@@ -15,7 +15,8 @@ export const PRESS_MS = 150
 // The song's player: its video, shown after the page's content or docked to
 // the bottom of the screen with the buttons if the sticky video setting is
 // on, and a button for each of the player's keys (Space, , and .),
-// which looks pressed when its key is.
+// which looks pressed when its key is. Those move the playhead and nothing
+// else, so the page's own buttons, which edit, sit in a row apart from them.
 export function PlayerBar({
   playerRef,
   videoId,
@@ -28,7 +29,7 @@ export function PlayerBar({
   onSeek?: () => void
   // Toggles for the page's behavior, before the Video toggle.
   toggles?: ReactNode
-  // The page's own buttons, after the seek buttons.
+  // The page's own buttons, in a row of their own after the playback ones.
   children?: ReactNode
 }) {
   const [seekSeconds] = useSeekSeconds()
@@ -64,48 +65,53 @@ export function PlayerBar({
         ref={setControls}
         className={children ? 'player-controls has-extra' : 'player-controls'}
       >
-        <KeyButton
-          label={`Back ${seekSeconds}s`}
-          keyName=","
-          pressed={pressed === 'back'}
-          disabled={!ready}
-          onClick={() => playerRef.current?.seekBy(-seekSeconds)}
-        >
-          −{seekSeconds}s
-        </KeyButton>
-        <KeyButton
-          label={playing ? 'Pause' : 'Play'}
-          keyName="Space"
-          pressed={pressed === 'play'}
-          disabled={!ready}
-          onClick={() => playerRef.current?.togglePlay()}
-        >
-          {playing ? (
-            <svg viewBox="0 0 10 10" aria-hidden="true">
-              <path d="M2 1h2.5v8H2ZM5.5 1H8v8H5.5Z" />
-            </svg>
-          ) : (
-            <PlayIcon />
-          )}
-        </KeyButton>
-        <KeyButton
-          label={`Forward ${seekSeconds}s`}
-          keyName="."
-          pressed={pressed === 'forward'}
-          disabled={!ready}
-          onClick={() => playerRef.current?.seekBy(seekSeconds)}
-        >
-          +{seekSeconds}s
-        </KeyButton>
+        <div className="player-transport">
+          <KeyButton
+            className="seek-button"
+            label={`Back ${seekSeconds}s`}
+            keyName=","
+            pressed={pressed === 'back'}
+            disabled={!ready}
+            onClick={() => playerRef.current?.seekBy(-seekSeconds)}
+          >
+            ‹‹ {seekSeconds}s
+          </KeyButton>
+          <KeyButton
+            className="seek-button"
+            label={playing ? 'Pause' : 'Play'}
+            keyName="Space"
+            pressed={pressed === 'play'}
+            disabled={!ready}
+            onClick={() => playerRef.current?.togglePlay()}
+          >
+            {playing ? (
+              <svg viewBox="0 0 10 10" aria-hidden="true">
+                <path d="M2 1h2.5v8H2ZM5.5 1H8v8H5.5Z" />
+              </svg>
+            ) : (
+              <PlayIcon />
+            )}
+          </KeyButton>
+          <KeyButton
+            className="seek-button"
+            label={`Forward ${seekSeconds}s`}
+            keyName="."
+            pressed={pressed === 'forward'}
+            disabled={!ready}
+            onClick={() => playerRef.current?.seekBy(seekSeconds)}
+          >
+            {seekSeconds}s ››
+          </KeyButton>
+          {toggles}
+          <BarButton
+            className="player-video-toggle"
+            aria-pressed={stickyVideo}
+            onClick={() => setStickyVideo(!stickyVideo)}
+          >
+            Video
+          </BarButton>
+        </div>
         {children}
-        {toggles}
-        <BarButton
-          className="player-video-toggle"
-          aria-pressed={stickyVideo}
-          onClick={() => setStickyVideo(!stickyVideo)}
-        >
-          Video
-        </BarButton>
       </div>
     </div>
   )
