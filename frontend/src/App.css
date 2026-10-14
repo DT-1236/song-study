@@ -733,8 +733,8 @@ li.grammar-legend-item {
 .timing-gutter span {
   border-radius: 2px;
   transition:
-    background-color 1.3s ease-out,
-    box-shadow 1.3s ease-out;
+    background-color 250ms ease-out,
+    box-shadow 250ms ease-out;
 }
 
 .timing-gutter .nudged {
