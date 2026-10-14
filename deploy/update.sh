@@ -72,11 +72,7 @@ pinned_sha() {
 target_sha() {
   local pin
   pin=$(pinned_sha)
-  if [[ -n $pin ]]; then
-    printf '%s' "$pin"
-  else
-    git rev-parse origin/main
-  fi
+  printf '%s' "${pin:-$(git rev-parse origin/main)}"
 }
 
 is_paused() { [[ -f $STATE/paused ]]; }
@@ -123,33 +119,25 @@ refusal() { # deployed target db_restored
   missing=$(migrations_changed D "$deployed" "$target")
   if [[ -n $missing ]]; then
     printf '%s lacks migrations the deployed %s applied (%s), so its code is older than the database; see "Rolling back" in deploy/README.md' \
-      "$(short "$target")" "$(short "$deployed")" "$(echo $missing)"
+      "$(short "$target")" "$(short "$deployed")" "$(tr '\n' ' ' <<<"$missing")"
   fi
 }
 
 # Waits for the API's schema to come back through Caddy, from this machine,
 # so the check covers Caddy, TLS and the backend without leaving the box.
 wait_healthy() {
-  local app_url hostport host port deadline
+  local app_url deadline
   app_url=$(env_value APP_URL)
   app_url=${app_url%/}
   if [[ -z $app_url ]]; then
     log "APP_URL isn't set in $ENV_FILE"
     return 1
   fi
-  hostport=${app_url#*://}
-  hostport=${hostport%%/*}
-  host=${hostport%:*}
-  if [[ $hostport == *:* ]]; then
-    port=${hostport##*:}
-  elif [[ $app_url == https://* ]]; then
-    port=443
-  else
-    port=80
-  fi
   deadline=$((SECONDS + HEALTH_TIMEOUT))
   while ((SECONDS < deadline)); do
-    if curl -fsS -o /dev/null --max-time 5 --resolve "$host:$port:127.0.0.1" \
+    # Connects to this machine whatever APP_URL's host and port, keeping them
+    # for the Host header and TLS.
+    if curl -fsS -o /dev/null --max-time 5 --connect-to ::127.0.0.1: \
       "$app_url/api/openapi.json" 2>/dev/null; then
       return 0
     fi
@@ -226,16 +214,15 @@ cmd_run() {
 }
 
 cmd_status() {
-  local deployed target pin when why behind
-  deployed=$(deployed_sha)
-  if [[ -n $deployed ]]; then
-    read -r _ when <"$STATE/deployed"
+  local deployed='' target pin when why behind
+  if [[ -f $STATE/deployed ]]; then
+    read -r deployed when <"$STATE/deployed"
     log "Deployed:  $(describe "$deployed") (at $when)"
   else
     log "Deployed:  nothing yet"
   fi
   pin=$(pinned_sha)
-  target=$(target_sha)
+  target=${pin:-$(git rev-parse origin/main)}
   if [[ -n $pin ]]; then
     log "Target:    $(describe "$target") (pinned)"
   else
@@ -296,18 +283,17 @@ cmd_pin() {
     die "$(short "$sha") isn't on origin/main; pass --unmerged to deploy unmerged code to prod anyway"
   fi
   deployed=$(deployed_sha)
-  # Refused here rather than paused over: the operator is asking, so tell
-  # them and change nothing.
-  if [[ $sha != "$deployed" ]]; then
-    why=$(refusal "$deployed" "$sha" "$db_restored")
-    [[ -z $why ]] || die "refusing to pin: $why"
-  fi
-  printf '%s\n' "$sha" >"$STATE/pin"
-  log "Pinned to $(describe "$sha")"
   if [[ $sha == "$deployed" ]]; then
-    log "Already deployed"
+    printf '%s\n' "$sha" >"$STATE/pin"
+    log "Pinned to $(describe "$sha"), which is already deployed"
     return 0
   fi
+  # Refused here rather than paused over: the operator is asking, so tell
+  # them and change nothing.
+  why=$(refusal "$deployed" "$sha" "$db_restored")
+  [[ -z $why ]] || die "refusing to pin: $why"
+  printf '%s\n' "$sha" >"$STATE/pin"
+  log "Pinned to $(describe "$sha")"
   # Deployed even while paused, since the operator asked for this commit.
   deploy "$deployed" "$sha"
 }
