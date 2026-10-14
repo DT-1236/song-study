@@ -15,14 +15,15 @@ type Props<T> = {
   // results of a search asked for are always shown.
   onMountResults?: (results: T) => boolean
   failureMessage: string
-  // The results list, given the latest results, a function that closes it,
-  // and one that repeats the last search with the `search` to use for it, for
-  // a setting changed since.
-  children: (
-    results: T,
-    close: () => void,
+  // Settings shown under the box whether or not there are results, given a
+  // function that repeats the last search with the `search` to use for it,
+  // for a setting changed since. It does nothing before a search has been
+  // asked for.
+  controls?: (
     searchAgain: (search: (query: string) => Promise<T>) => void,
   ) => ReactNode
+  // The results list, given the latest results and a function that closes it.
+  children: (results: T, close: () => void) => ReactNode
 }
 
 // A search box whose results drop down below it. It searches on Enter or a
@@ -38,6 +39,7 @@ export function SearchDropdown<T>({
   search,
   onMountResults,
   failureMessage,
+  controls,
   children,
 }: Props<T>) {
   const [query, setQuery] = useState(initialQuery)
@@ -133,15 +135,14 @@ export function SearchDropdown<T>({
           </button>
         </div>
 
+        {controls?.((searchWith) => {
+          if (results !== null)
+            void runSearch(lastQuery.current, false, searchWith)
+        })}
         {error && <p className="form-error">{error}</p>}
         {showResults &&
           results !== null &&
-          children(
-            results,
-            () => setShowResults(false),
-            (searchWith) =>
-              void runSearch(lastQuery.current, false, searchWith),
-          )}
+          children(results, () => setShowResults(false))}
       </div>
     </div>
   )

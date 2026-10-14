@@ -48,20 +48,25 @@ export function SongSearch({
         return search(query, videos)
       }}
       failureMessage="Search failed."
+      controls={(searchAgain) => (
+        <label
+          className="search-include-videos"
+          title="Songs are more likely to sync up with the lyrics: videos can have openings, credits and the like that shift the timing."
+        >
+          <input
+            type="checkbox"
+            checked={videos}
+            onChange={(e) => {
+              setVideos(e.target.checked)
+              searchAgain((query) => searchFlipped(query, e.target.checked))
+            }}
+          />
+          Search videos instead
+        </label>
+      )}
     >
-      {(songs, close, searchAgain) => (
+      {(songs, close) => (
         <>
-          <label className="search-include-videos">
-            <input
-              type="checkbox"
-              checked={videos}
-              onChange={(e) => {
-                setVideos(e.target.checked)
-                searchAgain((query) => searchFlipped(query, e.target.checked))
-              }}
-            />
-            Search videos instead
-          </label>
           {songs.length === 0 ? (
             <p>{videos ? 'No videos found.' : 'No songs found.'}</p>
           ) : (
