@@ -14,28 +14,21 @@ export function SongSearch({
   onPick: (song: SongResult) => void
 }) {
   const [videos, setVideos] = useState(false)
-  // The results of the last search, by kind, so flipping the toggle back and
-  // forth doesn't search again. A search asked for always replaces it.
-  const found = useRef<{
-    query: string
-    songs?: SongResult[]
-    videos?: SongResult[]
-  }>({ query: '' })
+  // The last query's results, by kind, so flipping the toggle back and forth
+  // doesn't search again. A search asked for always clears it.
+  const found = useRef<{ songs?: SongResult[]; videos?: SongResult[] }>({})
 
   async function search(query: string, asVideos: boolean) {
-    const kind = asVideos ? 'videos' : 'songs'
-    if (found.current.query !== query) found.current = { query }
     const results = await searchSongs(query, asVideos)
-    found.current[kind] = results
+    found.current[asVideos ? 'videos' : 'songs'] = results
     return results
   }
 
   // Looks up the kind flipped to, searching only if it's not been found yet.
   async function searchFlipped(query: string, asVideos: boolean) {
-    const kind = asVideos ? 'videos' : 'songs'
-    return found.current.query === query && found.current[kind]
-      ? found.current[kind]
-      : search(query, asVideos)
+    return (
+      found.current[asVideos ? 'videos' : 'songs'] ?? search(query, asVideos)
+    )
   }
 
   return (
@@ -44,13 +37,13 @@ export function SongSearch({
       label="Search for a song"
       placeholder="e.g. 夜に駆ける YOASOBI"
       search={(query) => {
-        found.current = { query }
+        found.current = {}
         return search(query, videos)
       }}
       failureMessage="Search failed."
       controls={(searchAgain) => (
         <label
-          className="search-include-videos"
+          className="checkbox-option search-include-videos"
           title="Songs are more likely to sync up with the lyrics: videos can have openings, credits and the like that shift the timing."
         >
           <input

@@ -28,7 +28,8 @@ const ring = (loc) =>
   loc.evaluate((el) => getComputedStyle(el, '::after').backgroundImage)
 const isOpen = (page) => isShown(page, '.gloss-popup')
 const isPinned = async (page) =>
-  (await page.locator('.gloss-popup .gloss-pinned').count()) === 1
+  (await page.locator('.gloss-popup button[aria-label^="Pinned"]').count()) ===
+  1
 const rect = (page, selector) =>
   page.$eval(selector, (el) => {
     const r = el.getBoundingClientRect()
@@ -48,7 +49,7 @@ const blankPoint = (page) =>
       innerHeight,
       document.querySelector('.gloss-sheet')?.getBoundingClientRect().top ??
         Infinity,
-      document.querySelector('.player-bar')?.getBoundingClientRect().top ??
+      document.querySelector('.player-controls')?.getBoundingClientRect().top ??
         Infinity,
     )
     const high = document
@@ -111,7 +112,7 @@ await check('mobile-gloss-sheet', async (h) => {
   h.expect(await isOpen(page), 'a tap opens the gloss')
   h.expect(!(await isPinned(page)), 'a preview has no Pinned marker')
   const sheet = await rect(page, '.gloss-popup')
-  const bar = await rect(page, '.player-bar')
+  const bar = await rect(page, '.player-controls')
   h.expect(
     (await page.$eval(
       '.gloss-popup',
@@ -279,7 +280,7 @@ await check('mobile-gloss-sheet', async (h) => {
   })
   const low = await page.evaluate(() => {
     const barTop = document
-      .querySelector('.player-bar')
+      .querySelector('.player-controls')
       .getBoundingClientRect().top
     return [...document.querySelectorAll('.lyrics-box .token')].findIndex(
       (el) => {

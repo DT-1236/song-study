@@ -600,8 +600,8 @@ li.grammar-legend-item {
 
 /* Still laid out, since a browser may not load a player in a frame that
    isn't, but clipped to nothing. The IFrame API requires a player of at
-   least 200x200, so it's that size, hung upward from the bar's bottom edge
-   so it adds nothing to the page's scrollable height. */
+   least 200x200, so it's that size, hung upward from the bottom edge of the
+   study or run-through page so it adds nothing to the scrollable height. */
 .youtube-player.hidden {
   position: absolute;
   bottom: 0;
@@ -639,11 +639,11 @@ li.grammar-legend-item {
   gap: 0.5rem;
 }
 
-.player-bar .youtube-player:not(.hidden) {
+.player-bar .youtube-player {
   width: min(100%, 24rem);
 }
 
-.player-bar:not(.sticky) .youtube-player:not(.hidden) {
+.player-bar:not(.sticky) .youtube-player {
   margin-block: 1rem;
 }
 
@@ -660,7 +660,7 @@ li.grammar-legend-item {
     align-items: center;
   }
 
-  .player-bar.sticky .youtube-player:not(.hidden) {
+  .player-bar.sticky .youtube-player {
     flex: none;
     width: 40vw;
   }
@@ -835,31 +835,21 @@ li.grammar-legend-item {
   .icon-button::after {
     content: '';
     position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 44px;
-    height: 44px;
-    transform: translate(-50%, -50%);
+    /* A centered 44px square, as insets alone so an override moves only the
+       edges it changes. */
+    inset: calc(50% - 22px);
   }
 
   .lyrics-box .timing-delete::after {
     right: 0;
     left: -0.9rem;
-    width: auto;
-    transform: translateY(-50%);
   }
 
   /* Hangs left into the box's padding: extending right would take taps
      meant for the line's first token. Held to the line's own height, since
      the lines above and below paint over any overlap. */
   .lyrics-box .line-play::after {
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: auto;
-    width: 44px;
-    height: auto;
-    transform: none;
+    inset: 0 0 0 calc(100% - 44px);
   }
 }
 
@@ -909,10 +899,7 @@ li.grammar-legend-item {
   background-color: var(--bg-elevated);
 }
 
-.search-include-videos {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
+label.search-include-videos {
   margin-top: 0.5rem;
   font-size: 0.9rem;
 }
@@ -1250,20 +1237,11 @@ li.grammar-legend-item {
   --lyrics-line-height: 1.8;
 }
 
-/* The line being sung is painted on the span itself rather than on the
-   ::before box the tokens use, which would cover one rectangle around all of
-   a wrapped line's fragments. There's no ruby here for a background to shift,
-   so each fragment gets its own. */
-.synced-lyrics .token.playing {
-  background-color: color-mix(
-    in srgb,
-    var(--highlight-color) var(--highlight-opacity),
-    transparent
-  );
-}
-
-.synced-lyrics .token.playing::before {
-  content: none;
+/* A line, painted directly rather than on a ::before box as tokens are, so
+   each fragment of a wrapped line gets its own background (in the shared
+   highlight rule below). There's no ruby here for a background to shift. */
+.lyric-line {
+  scroll-margin-block: calc((var(--lyrics-line-height) - 1) / 2 * 1em);
 }
 
 /* A blank line between stanzas, kept as tall as a line of text. */
@@ -1765,8 +1743,7 @@ label.apply-to-all {
 
 /* The lit icon and the color change stand in for the focus ring, which on a
    tap shows as a box around the icon (index.css draws it on any focus). */
-.icon-toggle:focus,
-.icon-toggle:focus-visible {
+.icon-toggle:focus {
   outline: none;
 }
 
@@ -1896,6 +1873,7 @@ label.apply-to-all {
 }
 
 .token.playing::before,
+.lyric-line.playing,
 .timing-row.playing .timing-text > span::before {
   background-color: color-mix(
     in srgb,
@@ -1985,12 +1963,6 @@ label.apply-to-all {
   margin: 0 auto 0 0;
 }
 
-/* Over .gloss-pinned's float and margin, which are for the marker under a
-   token. */
-.gloss-sheet-lead .gloss-pinned {
-  float: none;
-}
-
 .gloss-hold-hint {
   font-size: 0.8rem;
   color: var(--text-muted);
@@ -2009,10 +1981,6 @@ label.apply-to-all {
   align-items: center;
   min-width: 44px;
   min-height: 44px;
-  margin: 0;
-}
-
-.gloss-sheet-header .icon-button.icon-toggle {
   margin: 0;
 }
 
