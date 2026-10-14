@@ -2,12 +2,19 @@ import { useHighlightSettings } from './useHighlightSettings'
 import { usePersistentState } from './usePersistentState'
 import { useSeekSeconds } from './usePlayerShortcuts'
 
+// Whether the video stays docked with the player bar's buttons, rather than
+// sitting after the page's content. Off until asked for.
+export function useStickyVideo() {
+  return usePersistentState('stickyVideo', false)
+}
+
 // The viewing settings: the same for every document, and kept across reloads.
 export function useViewSettings() {
   const [fontSize, setFontSize] = usePersistentState('fontSize', 18)
   const [furiganaSize, setFuriganaSize] = usePersistentState('furiganaSize', 11)
   const [seekSeconds, setSeekSeconds] = useSeekSeconds()
   const [nudgeMs, setNudgeMs] = usePersistentState('nudgeMs', 50)
+  const [stickyVideo, setStickyVideo] = useStickyVideo()
   const highlight = useHighlightSettings()
   return {
     fontSize,
@@ -18,6 +25,8 @@ export function useViewSettings() {
     setSeekSeconds,
     nudgeMs,
     setNudgeMs,
+    stickyVideo,
+    setStickyVideo,
     highlight,
   }
 }

@@ -138,8 +138,10 @@ phone does; `center(locator)` is where to put it.
   The browser launches with autoplay allowed.
 - **A hidden video's frame gets no animation frames,** so a
   `frame.waitForFunction` on its `<video>` never re-checks with the default
-  `polling: 'raf'`. Pass `polling: 250`. The player is hidden by default
-  (`.youtube-player.hidden`), and it still plays.
+  `polling: 'raf'`. Pass `polling: 250`. The study and run-through pages
+  keep the player hidden (`.youtube-player.hidden`), and it still plays. The
+  player bar's video is a visible 200x200 thumbnail (`.small`) until the
+  Video button expands it (`.full`).
 - **The player bar's buttons are disabled until the player is ready.** Wait
   for them with `playerReady(page)` before pressing one, or a key: a key
   pressed earlier does nothing.

@@ -35,29 +35,29 @@ await check('player-bar', async (h) => {
 
   for (const device of [DESKTOP, PHONE]) {
     const tag = `[${device.name}]`
-    h.step(`${device.name}: hidden video plays from the bar`)
+    h.step(`${device.name}: video plays from the bar`)
     const page = await h.open(path, device)
     await tokenized(page)
     await playerReady(page)
     const box = await page.$eval('.youtube-player', (el) => {
       const r = el.getBoundingClientRect()
-      return { width: r.width, height: r.height, hidden: el.inert }
+      return { width: r.width, inert: el.inert }
     })
     h.expect(
-      box.width === 200 && box.height === 200 && box.hidden,
-      `${tag} the video is a hidden, inert 200x200 by default`,
+      box.width >= 200 && !box.inert,
+      `${tag} the video shows in the page by default`,
       JSON.stringify(box),
     )
-    const bar = await page.$eval('.player-bar', (el) => ({
+    const bar = await page.$eval('.player-controls', (el) => ({
       bottom: el.getBoundingClientRect().bottom,
       screen: el.closest('.content').getBoundingClientRect().bottom,
     }))
     h.expect(
       Math.abs(bar.bottom - bar.screen) <= 1,
-      `${tag} the bar is docked at the bottom of the screen at scroll top`,
+      `${tag} the buttons are docked at the bottom of the screen at scroll top`,
       JSON.stringify(bar),
     )
-    const padding = await page.$eval('.player-bar', (el) => ({
+    const padding = await page.$eval('.player-controls', (el) => ({
       bar: el.offsetHeight,
       padding: parseFloat(
         getComputedStyle(el.closest('.content')).scrollPaddingBottom,
@@ -65,7 +65,7 @@ await check('player-bar', async (h) => {
     }))
     h.expect(
       padding.bar > 0 && padding.padding === padding.bar,
-      `${tag} what's scrolled into view stops above the bar`,
+      `${tag} what's scrolled into view stops above the buttons`,
       JSON.stringify(padding),
     )
     h.expectNone(
@@ -120,16 +120,17 @@ await check('player-bar', async (h) => {
   h.expect(true, 'and plays')
   await desk.keyboard.press('Space')
 
-  h.step('desktop: the Video toggle')
+  h.step('desktop: the Sticky video toggle')
   await desk.click('.player-video-toggle')
-  const shown = await desk.$eval('.youtube-player', (el) => ({
-    width: el.getBoundingClientRect().width,
-    inert: el.inert,
+  const docked = await desk.$eval('.player-bar.sticky', (el) => ({
+    bottom: el.getBoundingClientRect().bottom,
+    screen: el.closest('.content').getBoundingClientRect().bottom,
+    video: el.contains(el.querySelector('.youtube-player')),
   }))
   h.expect(
-    shown.width >= 300 && !shown.inert,
-    'Video shows the video',
-    JSON.stringify(shown),
+    docked.video && Math.abs(docked.bottom - docked.screen) <= 1,
+    'Sticky video docks the video with the buttons',
+    JSON.stringify(docked),
   )
   await h.screenshot(desk, 'shown', { fullPage: false })
   await desk.goto(BASE + path)

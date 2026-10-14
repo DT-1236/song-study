@@ -598,26 +598,42 @@ li.grammar-legend-item {
   clip-path: inset(50%);
 }
 
-/* Docked to the bottom of the screen while the page above it is in view.
-   PlayerBar sets its height on the scroll container, as --player-bar-height,
-   so what's scrolled into view stops above it. */
+/* Where the video goes is a setting. Sticky, the bar is docked to the bottom
+   of the screen while the page above it is in view, video and buttons
+   together. Otherwise only the buttons are: the bar dissolves into its
+   children, so the video sits in the page after the lyrics and the buttons
+   stick on their own. Either way PlayerBar sets the docked part's height on
+   the scroll container, as --player-bar-height, so what's scrolled into view
+   stops above it. */
 .player-bar {
+  display: contents;
+}
+
+.player-bar.sticky,
+.player-bar:not(.sticky) .player-controls {
   position: sticky;
   bottom: 0;
   z-index: 10;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
   padding: 0.5rem 0;
   border-top: 1px solid var(--border);
   background-color: var(--bg);
+}
+
+.player-bar.sticky {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
 }
 
 .player-bar .youtube-player:not(.hidden) {
   width: min(100%, 24rem);
 }
 
-/* A shown video beside the buttons rather than above them, since 24rem wide
+.player-bar:not(.sticky) .youtube-player:not(.hidden) {
+  margin-block: 1rem;
+}
+
+/* A docked video beside the buttons rather than above them, since 24rem wide
    it would take over half a phone's height in landscape. Only the layout
    changes: the player stays in the same place in the JSX, so the iframe isn't
    remounted. The query is NARROW_SCREEN in media.ts with orientation added
@@ -625,17 +641,17 @@ li.grammar-legend-item {
    `(a, b) and c` is invalid and never matches. */
 @media (max-width: 900px) and (orientation: landscape),
   (max-height: 500px) and (orientation: landscape) {
-  .player-bar {
+  .player-bar.sticky {
     flex-direction: row;
     align-items: center;
   }
 
-  .player-bar .youtube-player:not(.hidden) {
+  .player-bar.sticky .youtube-player:not(.hidden) {
     flex: none;
     width: 40vw;
   }
 
-  .player-bar .player-controls {
+  .player-bar.sticky .player-controls {
     flex: 1;
     flex-wrap: wrap;
   }
