@@ -16,9 +16,10 @@ The app code needs no changes for this:
 - The README already expects a reverse proxy that sends `/api/*` to the
   backend and everything else to the built frontend.
 
-What's missing is the deployment files (step 1) and a backup script
-(step 2). The rest is work only the operator can do: accounts, DNS, the
-VM, secrets. That's covered under "Initial deploy" and "Updating" below.
+What's missing is the deployment files (step 1), an update script that
+deploys merged changes on its own (step 2), and a backup script (step 3).
+The rest is work only the operator can do: accounts, DNS, the VM, secrets.
+That's covered under "Initial deploy" and "Updating" below.
 
 ### Decided (2026-10-08)
 
@@ -70,19 +71,36 @@ VM, secrets. That's covered under "Initial deploy" and "Updating" below.
   user and is limited to that user's own data. Leaving the dictionary search
   and the schema public is accepted for now.
 
-- **Later, only when asked:** a VM setup script and a GitHub Actions deploy.
-  Until then the operator steps below are done by hand.
+- **Auto-deploy pulls from the VM** (2026-10-14). A systemd timer on the VM
+  checks `origin/main` every few minutes and deploys new commits, rather
+  than a GitHub Actions job pushing to it:
+  - It uses the read-only deploy key the VM already has. No SSH key or
+    host address goes into GitHub's secrets, and nothing new has to reach
+    the VM from outside.
+  - Nothing in it is specific to Google Cloud or GitHub Actions, so it
+    moves to another VPS with the rest of the clone.
+  - The images still build on the VM, as they do by hand today. Docker's
+    layer cache keeps a code-only change to a minute or two; only a change
+    to `requirements.txt` repeats the long dictionary install.
+
+  Pausing it and holding it at a chosen commit are commands of the same
+  script, run over SSH (step 2).
+
+- **Later, only when asked:** a VM setup script. Until then the operator
+  steps below are done by hand.
 
 ## Build order
 
-There are two steps after this doc, each on its own branch and PR. Step 2
-needs step 1.
+There are three steps after this doc, each on its own branch and PR. Steps 2
+and 3 need step 1, and step 3 also adds a hook to step 2's script, so it
+goes after step 2.
 
-| Step                 | Status | Ships                                                                                                                                                                                                                    | Model    | Effort | Size | Actual        | Why                                                                                                                                                                         |
-| -------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------- | ------ | ---- | ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 0 — Doc              | Done   | This plan as `docs/ongoing/deploy.md`                                                                                                                                                                                    | Opus 5   | medium | —    | —             | Planning                                                                                                                                                                    |
-| 1 — Deployment files | Done   | `backend/Dockerfile`, `frontend/Dockerfile`, `.dockerignore`s, `deploy/Caddyfile`, `docker-compose.prod.yml`, deployment notes in `.env.example`, `API_PROXY_TARGET` in `vite.config.ts`, a local run of the whole stack | Sonnet 5 | medium | M    | M; simplify S | Conventional Docker work against a clear spec. The traps (below) are a shared volume name, lost certificates and the SPA fallback, and each one shows up in the local check |
-| 2 — Backup script    |        | `deploy/backup.sh`: a dated `pg_dump`, kept for 14 days locally, copied off the box                                                                                                                                      | Sonnet 5 | medium | S    |               | Short, but a backup that quietly writes an empty or unrestorable dump is the worst kind of failure, so it's checked by restoring the dump                                   |
+| Step                 | Status | Ships                                                                                                                                                                                                                               | Model    | Effort | Size | Actual        | Why                                                                                                                                                                            |
+| -------------------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- | ------ | ---- | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 0 — Doc              | Done   | This plan as `docs/ongoing/deploy.md`                                                                                                                                                                                               | Opus 5   | medium | —    | —             | Planning                                                                                                                                                                       |
+| 1 — Deployment files | Done   | `backend/Dockerfile`, `frontend/Dockerfile`, `.dockerignore`s, `deploy/Caddyfile`, `docker-compose.prod.yml`, deployment notes in `.env.example`, `API_PROXY_TARGET` in `vite.config.ts`, a local run of the whole stack            | Sonnet 5 | medium | M    | M; simplify S | Conventional Docker work against a clear spec. The traps (below) are a shared volume name, lost certificates and the SPA fallback, and each one shows up in the local check    |
+| 2 — Auto-deploy      |        | `deploy/update.sh` (deploys `origin/main` or a pinned commit; `pause`, `resume`, `pin`, `unpin`, `status`), its systemd timer and service, a rollback when the new version doesn't come up, a local check against a throwaway clone | Opus 5   | medium | L    |               | Most of its mistakes are silent: a pin that drifts, a pause the timer runs through, or a rollback to code older than the database's migrations. Each needs a case in the check |
+| 3 — Backup script    |        | `deploy/backup.sh`: a dated `pg_dump`, kept for 14 days locally, copied off the box. `update.sh` runs it before deploying a new migration                                                                                           | Sonnet 5 | medium | S    |               | Short, but a backup that quietly writes an empty or unrestorable dump is the worst kind of failure, so it's checked by restoring the dump                                      |
 
 Each step runs in its own session at its listed model and effort, and ends
 with a `/simplify` pass before its PR. Escalate a step that stalls rather
@@ -265,7 +283,163 @@ the existing note about the proxy.
 6. Run `docker compose ... down -v` with the same `-p`, which removes only
    the check's volumes.
 
-## Step 2 — Backup script
+## Step 2 — Auto-deploy
+
+**`deploy/update.sh`**, run from the clone's root on the VM. With no
+arguments it deploys whatever should be running, if that isn't already
+running. The timer runs it that way, and so can the operator.
+
+### Commands
+
+| Command                  | Effect                                                                                                                                                                                |
+| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `update.sh`              | Deploys the target (the pin if there is one, else `origin/main`) if it differs from what's deployed. Does nothing while paused                                                        |
+| `update.sh status`       | What's deployed (commit, subject, when), the target and whether it's a pin, how many commits on `origin/main` aren't deployed, whether it's paused and why, and the timer's next run  |
+| `update.sh pause [why]`  | Stops the timer's runs from deploying, recording the reason and time. A deploy already running finishes                                                                               |
+| `update.sh resume`       | Clears the pause, then runs once as the timer would                                                                                                                                   |
+| `update.sh pin <commit>` | Holds the deployment at that commit and deploys it now, even while paused, since the operator asked for that commit. New commits on `main` are fetched but not deployed until `unpin` |
+| `update.sh unpin`        | Clears the pin. The next unpaused run goes back to `origin/main`                                                                                                                      |
+
+- `pin` takes anything `git rev-parse` resolves after a fetch (a SHA, a
+  tag, `origin/main~3`) and stores the full SHA, so a pin never moves on
+  its own. A commit that isn't on `origin/main` is refused unless
+  `--unmerged` is given: trying out unmerged code on prod is what
+  "Debugging against prod" warns against.
+- `pin --db-restored <commit>` skips the missing-migration check below,
+  for after the operator has restored a backup from before that migration
+  (see "Rolling back" under "Updating"). The check reads git, not the
+  database, so it can't tell on its own.
+- From the laptop, any command runs over SSH:
+  `gcloud compute ssh <vm> --zone <zone> -- song-study/deploy/update.sh pause "why"`.
+
+### State
+
+In `.deploy-state/` at the clone's root, gitignored, which `git checkout`
+leaves alone:
+
+- `deployed`: the SHA and time of the last successful deploy.
+- `pin`: the pinned SHA, if any.
+- `paused`: the reason and time, if paused. A pause the script sets itself
+  says so and names the commit that caused it.
+- `lock`: taken with `flock` for the whole run, so the timer and a manual
+  command never deploy at once. A run that finds it held exits at once:
+  quietly for the timer, with a message for a manual command.
+
+### A run
+
+1. `git fetch --prune origin`, then pick the target. If it's what's
+   deployed, stop.
+2. Refuse, pausing with the reason, when:
+   - **tracked files in the clone have changes** (`git status --porcelain
+--untracked-files=no`). Someone edited on the VM, and a checkout would
+     either fail or carry the edits along.
+   - **the target is missing a migration the deployed commit has**
+     (`git diff --diff-filter=D --name-only <deployed> <target> --
+backend/migrations/versions/`). The database is already past what the
+     target's code knows: `alembic upgrade head` fails, and if it didn't,
+     old code would run against the new schema. This covers a `pin` to an
+     older commit and a revert on `main` alike. The message points at
+     "Rolling back" under "Updating".
+3. `git checkout --detach <target>`, then `docker compose --env-file
+"${DEPLOY_ENV_FILE:-.env}" -f docker-compose.prod.yml up -d --build
+--remove-orphans`. Compose exits non-zero if the build fails or the
+   `migrate` service does.
+4. Wait up to two minutes for `GET /api/openapi.json` to return 200
+   through Caddy, from the VM itself:
+   `curl --resolve <host>:<port>:127.0.0.1 "$APP_URL/api/openapi.json"`.
+   That covers Caddy, TLS and the backend without leaving the box, and
+   works the same for the local check's `http://localhost`.
+5. On success, write `deployed` and run `docker image prune -f`.
+6. On failure at step 3 or 4:
+   - If the change added no migration
+     (`git diff --diff-filter=A ... -- backend/migrations/versions/` is
+     empty), check out the previously deployed commit and run the same
+     `up -d --build` and health check. Its images are cached, so this is
+     quick. A failed build never stopped the old containers, but checking
+     out the old commit keeps the clone matching what's running.
+   - If it added a migration, leave it as is. The migration may already
+     have run, and rolling the code back over it is the hazard the run
+     refuses above.
+   - Either way, pause with the reason and the failed commit, and exit
+     non-zero so systemd records the unit as failed. A pause stops the
+     timer from rebuilding the same broken commit every few minutes.
+     `resume` once a fix is merged, or `pin` a good commit.
+
+**Notifications:** if `DEPLOY_NOTIFY_URL` is set in the env file, POST a
+one-line plain-text message to it after each deploy, rollback and pause the
+script sets itself. ntfy.sh accepts that body as-is. A failed notification
+is logged and never fails the run. Where messages go is a value, like
+`BACKUP_BUCKET`.
+
+**Details that matter:**
+
+- **The script replaces itself.** `git checkout` rewrites `update.sh`
+  while bash is reading it, and bash reads a script as it goes. Put the
+  whole body in functions and call `main "$@"` on the last line, so bash
+  has parsed everything before the checkout. A change to `update.sh` takes
+  effect from the run after the one that deploys it.
+- **Read only the keys it needs** (`APP_URL`, `DEPLOY_NOTIFY_URL`) from the
+  env file, rather than sourcing it: a value with a `$` or a space in it
+  would break or run as shell.
+- `set -euo pipefail`, with the failure path above handled explicitly
+  rather than left to `-e`.
+- `COMPOSE_PROJECT_NAME`, `DEPLOY_ENV_FILE` and `DEPLOY_PG_PORT` pass
+  through from the environment, so the local check can point the script at
+  its own stack. The VM uses the defaults.
+
+**`deploy/systemd/song-study-update.service` and `.timer`,** as user units,
+so no path or user name is written into them:
+
+- The service is `Type=oneshot`, with `WorkingDirectory=%h/song-study`,
+  `ExecStart=%h/song-study/deploy/update.sh`, and `TimeoutStartSec=90min`
+  for a build that reinstalls the dictionaries.
+- The timer uses `OnBootSec=5min` and `OnUnitInactiveSec=5min`, so the
+  interval counts from the end of the last run and a long build never
+  queues another.
+- Logs go to the journal: `journalctl --user -u song-study-update`.
+
+Add `.deploy-state/` to `.gitignore`.
+
+### Local check
+
+macOS has no systemd, so this checks the script directly; the operator
+checks the units on the VM (step 10 of "Initial deploy"). Don't use the main checkout
+or GitHub: other sessions share the checkout, and test commits mustn't be
+pushed.
+
+1. In the scratchpad, make a bare repo whose `main` is this branch's head,
+   to stand in for GitHub, and two clones of it: one standing in for the
+   VM's clone, and one to push test commits from.
+2. Export `COMPOSE_PROJECT_NAME=song-study-deploycheck`,
+   `DEPLOY_PG_PORT=15433` and `DEPLOY_ENV_FILE` pointing at step 1's check
+   env file (`APP_URL=http://localhost`), and run every command from the
+   VM clone.
+3. Check each of these, using `status` and `curl http://localhost` to see
+   what's running. A change to the `<title>` in `frontend/index.html` makes
+   each commit easy to tell apart.
+   - The first run deploys `main`. A second run does nothing.
+   - A pushed commit is deployed by the next run.
+   - While paused, a run deploys nothing. `resume` deploys.
+   - `pin` an earlier commit: it's deployed, and a run after a new push
+     stays on it. `unpin`, and the next run deploys `main`'s head.
+   - `pin` a commit that isn't on `main` is refused without `--unmerged`.
+   - A commit whose backend fails at import: the run rolls back, the old
+     title is still served, the state is paused with the reason, and the
+     exit status is non-zero.
+   - A commit that adds an empty migration and also breaks the backend: no
+     rollback, paused.
+   - After a commit with an empty migration deploys, `pin` the commit
+     before it: refused, nothing changes. Then downgrade the database by
+     hand (`alembic downgrade -1` in the backend container, standing in for
+     a restore) and `pin --db-restored` the same commit: it deploys.
+   - A commit that edits `update.sh` near its top deploys cleanly.
+   - A run started while another holds the lock exits at once.
+   - With `DEPLOY_NOTIFY_URL` pointing at a local `nc -l` listener, a
+     deploy and a failure each send one line.
+4. Run `docker compose ... down -v` with the same project name, then
+   delete the scratch repos.
+
+## Step 3 — Backup script
 
 **`deploy/backup.sh`**, run from the repo root on the VM:
 
@@ -282,20 +456,31 @@ the existing note about the proxy.
 --if-exists -d <db>` from the dump, run with `docker compose ... exec -T
 postgres`.
 
+**Before a migration:** `update.sh` runs `backup.sh` before its checkout
+whenever the target adds a file under `backend/migrations/versions/`
+(the same `--diff-filter=A` test it uses to decide on a rollback). If the
+backup fails, the deploy doesn't happen, and the script pauses with the
+reason. Until this step merges, auto-deploy applies migrations without a
+backup, as the manual update did.
+
 **Check** it against the step 1 local stack, not the dev database:
 
 - Run the script, then restore the dump into a scratch database
   (`createdb song_study_restorecheck`) in the same container.
 - Compare row counts for `documents`, `tokens` and `study_cards`.
 - Drop the scratch database.
+- With step 2's local check setup, push a commit adding an empty
+  migration: the run takes a dump before deploying. Make `backup.sh` fail
+  (an unset `POSTGRES_DB`, say) and push another migration: nothing is deployed and the
+  state is paused.
 
 ## Initial deploy (operator)
 
 These steps need your accounts, DNS and judgment, so you do them by hand.
-Steps 1–7 don't depend on the repo, so they can happen while step 1 is
-being built. Step 8 onward needs step 1 merged, and step 10 needs step 2.
-Step 2 can wait while you're the only user, but merge it before inviting
-anyone.
+Steps 1–7 don't depend on the repo, so they can happen while build step 1
+is being built. Step 8 onward needs build step 1 merged, step 10 needs
+build step 2, and step 11 needs build step 3. Build step 3 can wait while
+you're the only user, but merge it before inviting anyone.
 
 ### Decide first
 
@@ -309,7 +494,7 @@ anyone.
 - **Where backups go.** A Cloud Storage bucket needs the VM's Storage access
   scope set to Read Write **when the VM is created** (step 2). Changing it
   later means stopping the VM.
-- **Whether to copy your local data across** (step 11) or start with an
+- **Whether to copy your local data across** (step 12) or start with an
   empty database. Copy it before inviting anyone, since the restore
   replaces the whole database.
 
@@ -439,7 +624,30 @@ for them. Caddy retries by itself once they're right.
 - `docker compose -f docker-compose.prod.yml restart backend` keeps you
   signed in.
 
-### 10. Backups (after step 2)
+### 10. Auto-deploy (after build step 2)
+
+1. `git pull` once by hand, so the clone has `deploy/update.sh` and its
+   units.
+2. Optionally, set `DEPLOY_NOTIFY_URL` in `.env`, such as
+   `https://ntfy.sh/<topic>` with a long random topic: anyone who guesses an
+   ntfy.sh topic can read it. Subscribe to it in the ntfy app.
+3. Install the units and start the timer:
+
+   ```bash
+   loginctl enable-linger $USER   # user units keep running with no SSH session open
+   systemctl --user link ~/song-study/deploy/systemd/song-study-update.{service,timer}
+   systemctl --user enable --now song-study-update.timer
+   systemctl --user list-timers   # shows the next run
+   ```
+
+4. Run `./deploy/update.sh` once by hand. With nothing recorded as
+   deployed yet, it deploys `main`'s head, which Docker's cache makes quick,
+   and records it.
+5. Merge a small change, then watch it arrive:
+   `journalctl --user -u song-study-update -f`, and `./deploy/update.sh
+status` afterwards.
+
+### 11. Backups (after build step 3)
 
 - If backups go to a bucket, create one in the VM's region (Cloud Storage's
   free tier is 5 GB in the same US regions) and set `BACKUP_BUCKET` in
@@ -451,10 +659,13 @@ for them. Caddy retries by itself once they're right.
   ```
 
 - The day after, check that a dump exists, and restore one into a scratch
-  database once, as in step 2's check. A backup you haven't restored isn't
-  known to work.
+  database once, as in build step 3's check. A backup you haven't restored
+  isn't known to work.
 
-### 11. Copy your local data across (optional)
+### 12. Copy your local data across (optional)
+
+Pause auto-deploy first (`./deploy/update.sh pause "restoring local data"`),
+so a deploy doesn't restart the backend mid-restore, and resume after.
 
 To start with the documents already in your local database, dump it
 locally. This only reads from it:
@@ -470,28 +681,40 @@ user as long as you sign in with the same Google account.
 
 ## Updating (operator)
 
-From the clone on the VM:
+Once step 10 is done, a merge to `main` is deployed within about five
+minutes, with nothing to do. The commands below run from the clone on the
+VM, or from the laptop over `gcloud compute ssh`. The script owns the
+clone's checkout, so don't `git pull` or `git checkout` there by hand.
 
-```bash
-git pull
-docker compose -f docker-compose.prod.yml up -d --build
-docker image prune -f   # old images add up fast on a 30 GB disk
-```
-
-- **Migrations** run on their own when the backend starts. If the update
-  includes a new migration (a file under `backend/migrations/versions/`),
-  run `./deploy/backup.sh` first. Rolling the code back doesn't undo a
-  migration that has already been applied.
-- **Rolling back:** `git checkout <previous commit>`, then the same `up -d --build`. If a migration ran in between, restore the backup taken before
-  the update instead of relying on the old code to run against the new
-  schema.
+- **Where things stand:** `./deploy/update.sh status`.
+- **Hold deploys:** `./deploy/update.sh pause "why"`, then `resume`.
+- **Deploy a particular commit:** `./deploy/update.sh pin <commit>`. It
+  stays there until `unpin`, which goes back to following `main`.
+- **Deploy now,** rather than waiting for the timer: `./deploy/update.sh`.
+- **A failed deploy** rolls back if it added no migration, and pauses
+  either way. Read the reason in `status` and the journal, then merge a fix
+  and `resume`, or `pin` a commit that works.
+- **Migrations** run on their own when the backend starts, and after build
+  step 3, `update.sh` takes a backup first. Rolling the code back doesn't
+  undo a migration that has already been applied.
+- **Rolling back:** `./deploy/update.sh pin <previous commit>`. If a
+  migration ran in between, the script refuses. Restore the backup taken
+  before that deploy instead (the restore notes are at the top of
+  `deploy/backup.sh`), then `pin --db-restored <commit>`, which skips that
+  one check. Pause first, so the timer doesn't redeploy `main` and re-run
+  the migration while you restore.
 - **Downtime** is a few seconds while the backend restarts, plus the
   dictionaries loading on the first request. Sessions survive, since
   `SESSION_SECRET` doesn't change.
-- **Logs:** `docker compose -f docker-compose.prod.yml logs -f backend`, or
-  `caddy` for certificate and proxy errors.
-- **Changes to `.env`** need `up -d`, not just a restart, so the containers
-  are recreated with the new values.
+- **Logs:** `journalctl --user -u song-study-update` for deploys;
+  `docker compose -f docker-compose.prod.yml logs -f backend`, or `caddy`
+  for certificate and proxy errors.
+- **Changes to `.env`** need `docker compose -f docker-compose.prod.yml up
+-d`, not just a restart, so the containers are recreated with the new
+  values. The script only redeploys when the commit changes.
+- **Changes to the unit files** need `systemctl --user daemon-reload` after
+  they deploy. The links point into the clone, so the new files are already
+  in place.
 
 ## Debugging against prod (operator)
 
@@ -588,11 +811,12 @@ contains lyrics goes into `backend/tests/fixtures/`.
 
 1. Set up the new VM with steps 4, 5 and 7, using the same `.env`.
 2. A day ahead, lower the DNS record's TTL to a few minutes.
-3. Stop the old backend, take a dump, copy it across, and restore it on the
-   new VM.
+3. Pause auto-deploy on the old VM, stop its backend, take a dump, copy it
+   across, and restore it on the new VM.
 4. Start the new stack and point the A record at the new IP address. Caddy
    gets a certificate on its own.
-5. Once it works, delete the old VM.
+5. Once it works, set up auto-deploy on the new VM (step 10), and delete
+   the old VM.
 
 The redirect URI, test users and sessions all carry over, since the domain
 and `SESSION_SECRET` stay the same. Only `BACKUP_BUCKET`'s copy line needs
