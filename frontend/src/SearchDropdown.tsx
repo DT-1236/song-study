@@ -11,12 +11,11 @@ type Props<T> = {
   placeholder: string
   // Searched for on mount, when given.
   initialQuery?: string
-  // `again` is true when it repeats the last search because `kind` changed,
-  // rather than for a search asked for or the one on mount.
-  search: (query: string, again: boolean) => Promise<T>
+  search: (query: string) => Promise<T>
   // What `search` looks for, when it can look for more than one thing. A
-  // change repeats the last search (if any) for the new kind, and results
-  // still coming for the old one never land.
+  // change repeats the last search (if any) for the new kind, unless that
+  // kind's results for it are already in hand, and results still coming for
+  // the old one never land.
   kind?: string
   // Takes what the search on mount found, and says whether to show it. The
   // results of a search asked for are always shown.
@@ -69,7 +68,15 @@ export function SearchDropdown<T>({
   const searchRef = useLatest(search)
   const onMountResultsRef = useLatest(onMountResults)
   const latestSearch = useRef(0)
+  // Compared rather than run on mount, which the search on mount covers.
+  const lastKind = useRef(kind)
   const lastQuery = useRef(initialQuery)
+  // The last query's results, by kind, so flipping `kind` back and forth
+  // doesn't search again. A search asked for starts it afresh.
+  const found = useRef<{ query: string; byKind: Map<string | undefined, T> }>({
+    query: initialQuery,
+    byKind: new Map(),
+  })
   // Leaves whatever's in flight to settle for nobody. A named callback, since
   // the linter can't tell that the cleanup means to read the ref's latest
   // value.
@@ -78,16 +85,37 @@ export function SearchDropdown<T>({
   }, [])
 
   const runSearch = useCallback(
-    async (text: string, onMount: boolean, again = false) => {
+    async (
+      text: string,
+      searchKind: string | undefined,
+      onMount: boolean,
+      again = false,
+    ) => {
       lastQuery.current = text
       const searchId = ++latestSearch.current
-      setSearching(true)
       setError(null)
+      if (!again) found.current = { query: text, byKind: new Map() }
+      // Held on to, so a search settling after a newer one asked for caches
+      // into the old query's results rather than the newer one's.
+      const cache = found.current
+      const cached = cache.byKind.get(searchKind)
+      if (cached !== undefined) {
+        setResults(cached)
+        setShowResults(true)
+        setSearching(false)
+        return
+      }
+      setSearching(true)
       try {
-        const found = await searchRef.current(text, again)
+        const results = await searchRef.current(text)
+        // Cached even when a newer search dropped it: it's still that kind's
+        // results for that query.
+        cache.byKind.set(searchKind, results)
         if (searchId !== latestSearch.current) return
-        setResults(found)
-        setShowResults(!onMount || (onMountResultsRef.current?.(found) ?? true))
+        setResults(results)
+        setShowResults(
+          !onMount || (onMountResultsRef.current?.(results) ?? true),
+        )
       } catch (err) {
         if (searchId !== latestSearch.current) return
         // The previous results stay as they were, shown with a note below.
@@ -103,24 +131,22 @@ export function SearchDropdown<T>({
   )
 
   useEffect(() => {
-    if (initialQuery) void runSearch(initialQuery, true)
+    if (initialQuery) void runSearch(initialQuery, lastKind.current, true)
     return dropPending
   }, [initialQuery, runSearch, dropPending])
 
-  // Compared rather than run on mount, which the search on mount covers.
-  const lastKind = useRef(kind)
   useEffect(() => {
     if (kind === lastKind.current) return
     lastKind.current = kind
     // Even while a search is in flight: starting another drops its results.
-    if (lastQuery.current) void runSearch(lastQuery.current, false, true)
+    if (lastQuery.current) void runSearch(lastQuery.current, kind, false, true)
   }, [kind, runSearch])
 
   const trimmed = query.trim()
   const canSubmit = !searching && !paused && canSearch(trimmed)
 
   function submit() {
-    if (canSubmit) void runSearch(trimmed, false)
+    if (canSubmit) void runSearch(trimmed, kind, false)
   }
 
   // Enter would otherwise submit the surrounding form. Enter that confirms an

@@ -4,18 +4,6 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## /simplify on backlog sweep 11 (focus ring, video search toggle, harness helpers, auto-scroll following playback)
-
-- **Search results cached per kind outside `SearchDropdown`.** `SongSearch`
-  keeps the results per kind in `found`, with its own copy of the query and
-  its own guard against a late search, and `search(query, again)` exists so
-  it can tell a re-submit from a flip. `SearchDropdown` already tracks
-  `lastQuery` and re-runs on a `kind` change: keep the results per kind for
-  that query there, skip the search on a hit, and put `search` back to
-  `(query) => Promise<T>`, which `LrclibMatches` also implements.
-  `song-search-toggle` covers it. Opus 5.5, medium: a stale result winning is
-  silent.
-
 ## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
 
 - **Rate-limit memory is a bare module global.** `_rate_limited_until` in
