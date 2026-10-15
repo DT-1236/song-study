@@ -38,6 +38,8 @@ export function NewDocumentForm() {
   const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
   const [autoScroll, setAutoScroll] = useAutoScroll()
+  // As the player bar's play button shows it.
+  const [playing, setPlaying] = useState(false)
 
   const playerRef = useRef<YouTubePlayerHandle>(null)
   const handlePlayLine = useCallback(
@@ -47,7 +49,7 @@ export function NewDocumentForm() {
 
   const usingLrclib = lrclibUri.trim() !== ''
   const hasVideo = youtubeVideoId.trim() !== ''
-  const { playingLine, playing, onSeek } = usePlayingLine(
+  const { playingLine, onSeek } = usePlayingLine(
     playerRef,
     hasVideo ? (choiceLyrics?.lines ?? null) : null,
   )
@@ -212,6 +214,8 @@ export function NewDocumentForm() {
           playerRef={playerRef}
           videoId={youtubeVideoId.trim()}
           onSeek={onSeek}
+          playing={playing}
+          onPlayingChange={setPlaying}
           toggles={
             choiceLyrics?.lines && (
               <AutoScrollToggle

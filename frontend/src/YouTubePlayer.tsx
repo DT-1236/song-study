@@ -21,8 +21,6 @@ export type YouTubePlayerHandle = {
   getCurrentTime: () => number | null
   getDuration: () => number
   getVideoData: () => YT.VideoData | null
-  // False until the player is ready.
-  isPlaying: () => boolean
   togglePlay: () => void
   pause: () => void
   seekBy: (deltaSeconds: number) => void
@@ -153,8 +151,6 @@ export const YouTubePlayer = forwardRef<YouTubePlayerHandle, Props>(
           playerRef.current ? currentTime(playerRef.current) : null,
         getDuration: () => playerRef.current?.getDuration() ?? 0,
         getVideoData: () => playerRef.current?.getVideoData() ?? null,
-        isPlaying: () =>
-          playerRef.current?.getPlayerState() === YT_PLAYING_STATE,
         togglePlay: () => {
           const player = playerRef.current
           if (!player) return

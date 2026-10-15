@@ -225,16 +225,17 @@ class Harness {
   }
 
   // The id of the document `match` (a predicate on the listed documents)
-  // picks out, or else a new one of the seeded text called `title` with the
-  // given video: a video ID can belong to only one document, so a check finds
-  // its document again instead of making another.
+  // picks out, or else a new one of the seeded text called `title` (or
+  // `title(seeded document)`) with the given video: a video ID can belong to
+  // only one document, so a check finds its document again instead of making
+  // another.
   async document({ match, title, youtube_video_id }) {
     const { items } = await this.api('GET', '/documents?page=1&page_size=100')
     const found = items.find(match)
     if (found) return found.id
     const seeded = await this.api('GET', `/documents/${this.seed.document_id}`)
     const created = await this.api('POST', '/documents', {
-      title,
+      title: typeof title === 'function' ? title(seeded) : title,
       text: seeded.text,
       youtube_video_id,
     })
@@ -244,13 +245,9 @@ class Harness {
   // The id of a document of the seeded text with a YouTube video, made on
   // first use: the seed has no video.
   async videoDocument() {
-    const { title } = await this.api(
-      'GET',
-      `/documents/${this.seed.document_id}`,
-    )
     return this.document({
       match: (doc) => doc.youtube_video_id === VIDEO_ID,
-      title: `${title} (video)`,
+      title: (seeded) => `${seeded.title} (video)`,
       youtube_video_id: VIDEO_ID,
     })
   }

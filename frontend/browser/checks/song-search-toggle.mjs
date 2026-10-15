@@ -30,13 +30,14 @@ await check('song-search-toggle', async (h) => {
   const box = page.locator('#song-search-query')
   const toggle = page.locator('.search-include-videos input')
   const shown = () => page.locator('.search-result-title').allTextContents()
-  async function expectShown(title, message) {
+  // `stale`: a songs search is still in flight, so wait long enough for it
+  // to land, if it were going to.
+  async function expectShown(title, message, { stale = false } = {}) {
     await page
       .locator('.search-result-title', { hasText: title })
       .waitFor()
       .catch(() => {})
-    // Long enough for a stale songs answer to land, if it were going to.
-    await page.waitForTimeout(2000)
+    if (stale) await page.waitForTimeout(2000)
     const titles = await shown()
     h.expect(
       titles.length === 1 && titles[0] === title,
@@ -73,7 +74,9 @@ await check('song-search-toggle', async (h) => {
   await box.press('Enter')
   await page.waitForTimeout(200)
   await toggle.check()
-  await expectShown('videos:two', 'videos win over songs still in flight')
+  await expectShown('videos:two', 'videos win over songs still in flight', {
+    stale: true,
+  })
 
   h.step('flipping back uses the songs that settled for the same query')
   const before = requests.length

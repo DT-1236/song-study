@@ -21,12 +21,17 @@ export function PlayerBar({
   playerRef,
   videoId,
   onSeek,
+  playing,
+  onPlayingChange,
   toggles,
   children,
 }: {
   playerRef: RefObject<YouTubePlayerHandle>
   videoId: string
   onSeek?: () => void
+  // Whether the video is playing, which the page also follows playback by.
+  playing: boolean
+  onPlayingChange: (playing: boolean) => void
   // Toggles for the page's behavior, before the Video toggle.
   toggles?: ReactNode
   // The page's own buttons, in a row of their own after the playback ones.
@@ -34,7 +39,6 @@ export function PlayerBar({
 }) {
   const [seekSeconds] = useSeekSeconds()
   const [stickyVideo, setStickyVideo] = useStickyVideo()
-  const [playing, setPlaying] = useState(false)
   // Its buttons do nothing until the player is ready.
   const [ready, setReady] = useState(false)
   const [pressed, press] = useTransient<PlayerShortcut>(PRESS_MS)
@@ -58,7 +62,7 @@ export function PlayerBar({
         videoId={videoId}
         onSeek={onSeek}
         onReadyChange={setReady}
-        onPlayingChange={setPlaying}
+        onPlayingChange={onPlayingChange}
         showVideo
       />
       <div
