@@ -756,11 +756,13 @@ def test_search_without_an_artist_sends_only_the_title(fake_lrclib):
         (f"{SONG} feat. 歌手", SONG),
         (f"{SONG} FT. 歌手", SONG),
         # Brackets elsewhere aren't decoration, but their punctuation goes,
-        # as does any other punctuation but apostrophes.
+        # as do any other punctuation and symbols but apostrophes.
         (f"(秘密){SONG}", f"秘密 {SONG}"),
         (f"{SONG}（TV）の続き", f"{SONG} TV の続き"),
         ("Re-Start!", "Re Start"),
         ("Don't Stop, Believin’", "Don't Stop Believin’"),
+        ("Good~Night+Day", "Good Night Day"),
+        ("好き♡", "好き♡"),
     ],
 )
 def test_cleaned_title_drops_trailing_decorations(title, cleaned):

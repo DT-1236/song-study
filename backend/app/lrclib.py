@@ -373,15 +373,19 @@ _TRAILING_FEATURING_RE = re.compile(r"\s+(?:feat\.|ft\.|featuring)\s.*$", re.IGN
 _APOSTROPHES = "'’"
 
 
-def _is_punctuation(char: str) -> bool:
-    """Whether `char` is punctuation other than an apostrophe, which is
-    part of a title's spelling ("Don't")."""
-    return unicodedata.category(char).startswith("P") and char not in _APOSTROPHES
+def _is_title_char(char: str) -> bool:
+    """Whether `char` is part of a title's text — a letter, number,
+    combining mark or pictorial symbol like ♡ or ★ — rather than spacing,
+    punctuation or an operator like ~, which titles write as 〜 or ~
+    interchangeably."""
+    category = unicodedata.category(char)
+    return category[0] in "LNM" or category == "So"
 
 
 def _clean_title(title: str) -> str:
     """`title` without trailing version or credit decorations, or
-    punctuation other than apostrophes."""
+    punctuation and symbols other than apostrophes, which are part of a
+    title's spelling ("Don't")."""
     previous = None
     while title != previous:
         previous = title
@@ -392,7 +396,9 @@ def _clean_title(title: str) -> str:
         ):
             title = pattern.sub("", title)
     # Replaced by a space rather than dropped, so "Re-Start" stays two words.
-    title = "".join(" " if _is_punctuation(char) else char for char in title)
+    title = "".join(
+        char if _is_title_char(char) or char in _APOSTROPHES else " " for char in title
+    )
     return " ".join(title.split())
 
 
@@ -400,14 +406,7 @@ def _title_key(title: str) -> str:
     """`title` reduced to what tells titles apart: width, case, spacing,
     punctuation and brackets ignored."""
     text = unicodedata.normalize("NFKC", title).casefold()
-    # Letters, numbers, combining marks and pictorial symbols like ♡ and ★
-    # stay; punctuation, spaces and operators like ~ go, since titles
-    # are written with 〜 and ~ interchangeably.
-    key = "".join(
-        char
-        for char in text
-        if (category := unicodedata.category(char))[0] in "LNM" or category == "So"
-    )
+    key = "".join(char for char in text if _is_title_char(char))
     # An empty key would be contained in every title.
     return key or "".join(text.split())
 
