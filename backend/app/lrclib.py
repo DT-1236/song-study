@@ -373,6 +373,12 @@ _TRAILING_FEATURING_RE = re.compile(r"\s+(?:feat\.|ft\.|featuring)\s.*$", re.IGN
 _APOSTROPHES = "'’"
 
 
+def _is_punctuation(char: str) -> bool:
+    """Whether `char` is punctuation other than an apostrophe, which is
+    part of a title's spelling ("Don't")."""
+    return unicodedata.category(char).startswith("P") and char not in _APOSTROPHES
+
+
 def _clean_title(title: str) -> str:
     """`title` without trailing version or credit decorations, or
     punctuation other than apostrophes."""
@@ -386,12 +392,7 @@ def _clean_title(title: str) -> str:
         ):
             title = pattern.sub("", title)
     # Replaced by a space rather than dropped, so "Re-Start" stays two words.
-    title = "".join(
-        " "
-        if unicodedata.category(char).startswith("P") and char not in _APOSTROPHES
-        else char
-        for char in title
-    )
+    title = "".join(" " if _is_punctuation(char) else char for char in title)
     return " ".join(title.split())
 
 

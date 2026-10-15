@@ -6,9 +6,12 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
 
-- **Punctuation test written twice.** `_clean_title` and `_title_key` in
-  `backend/app/lrclib.py` each filter on `unicodedata.category`. Extract
-  one `_is_punctuation(char)` for both. Haiku 4.5, low.
+- **`_title_key` filter not shared with `_is_punctuation`.** `_title_key` in
+  `backend/app/lrclib.py` keeps only L, N, M and So categories, so it drops
+  symbols like `~` (Sm) that a punctuation test would keep. Reusing
+  `_is_punctuation` would change its keys, so this needs a decision on what
+  counts as a "spacing" character before it can share code. Opus 5.5, medium:
+  the match rule decides which LRCLIB titles are accepted.
 - **`page.route` stubbing repeated per check.** `lrclib-search.mjs`,
   `song-search-toggle.mjs`, `documents-list.mjs` and
   `new-document-processing.mjs` each build a stub by hand. Add a harness
