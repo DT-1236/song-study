@@ -1865,6 +1865,7 @@ const TokenizedText = memo(function TokenizedText({
   playingLine,
   lineTimings,
   autoScroll,
+  playing,
   onPlayLine,
 }: {
   tokens: Token[]
@@ -1881,6 +1882,7 @@ const TokenizedText = memo(function TokenizedText({
   onPlayLine: (start: number) => void
   // Whether the line being sung is kept on screen.
   autoScroll: boolean
+  playing: boolean
 }) {
   // On touch, a tapped token's preview is hoveredId too.
   const [hoveredId, setHoveredId] = useState<number | null>(null)
@@ -1912,7 +1914,7 @@ const TokenizedText = memo(function TokenizedText({
   }, [tokens])
 
   const boxRef = useRef<HTMLDivElement>(null)
-  useScrollPlayingIntoView(boxRef, playingLine, autoScroll)
+  useScrollPlayingIntoView(boxRef, playingLine, autoScroll, playing)
 
   const sheet = useMediaQuery(NO_HOVER)
 
@@ -3092,9 +3094,6 @@ export function DocumentViewPage() {
     youtubePlayerRef,
     hasVideo ? shownTimings : null,
   )
-  // Paused, the page stays where the reader put it, even as a ready player
-  // or a seek marks a line sung: auto-scroll follows playback only.
-  const followPlaying = autoScroll && playing
 
   const touch = useMediaQuery(NO_HOVER)
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
@@ -3393,7 +3392,8 @@ export function DocumentViewPage() {
               playingLine={playingLine}
               // Without a video there's nothing to play them from.
               lineTimings={hasVideo ? lineTimings : null}
-              autoScroll={followPlaying}
+              autoScroll={autoScroll}
+              playing={playing}
               onPlayLine={handlePlayLine}
             />
           ) : (
@@ -3409,7 +3409,8 @@ export function DocumentViewPage() {
               }
               playingLine={playingLine}
               onPlayLine={handlePlayLine}
-              autoScroll={followPlaying}
+              autoScroll={autoScroll}
+              playing={playing}
             />
           )}
         </div>

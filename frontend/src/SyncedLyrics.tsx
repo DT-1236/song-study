@@ -8,12 +8,13 @@ import { useHighlightSettings } from './useHighlightSettings'
 // Lyrics without tokens (LRCLIB's, or a document's own before it's
 // processed), read-only, as the document page shows tokenized ones: a play
 // button before each timed line, and the line being sung at `playingLine`
-// highlighted, and kept on screen when `autoScroll`. `id` and `aria-labelledby` go on the lyrics box.
+// highlighted, and kept on screen when `autoScroll` and `playing`. `id` and `aria-labelledby` go on the lyrics box.
 export function SyncedLyrics({
   lyrics,
   playingLine,
   onPlayLine,
   autoScroll,
+  playing,
   ...props
 }: {
   // A document's own timings can leave a line untimed (null).
@@ -21,10 +22,11 @@ export function SyncedLyrics({
   playingLine: number | null
   onPlayLine: (start: number) => void
   autoScroll: boolean
+  playing: boolean
 } & Pick<ComponentProps<'p'>, 'id' | 'aria-labelledby'>) {
   const highlight = useHighlightSettings()
   const boxRef = useRef<HTMLParagraphElement>(null)
-  useScrollPlayingIntoView(boxRef, playingLine, autoScroll)
+  useScrollPlayingIntoView(boxRef, playingLine, autoScroll, playing)
 
   return (
     <p

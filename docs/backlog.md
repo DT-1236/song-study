@@ -15,11 +15,6 @@ so it can be picked up without re-deriving the reasoning.
   `(query) => Promise<T>`, which `LrclibMatches` also implements.
   `song-search-toggle` covers it. Opus 5.5, medium: a stale result winning is
   silent.
-- **"Follow playback only" decided at each page.** `DocumentViewPage` and
-  `NewDocumentForm` each pass `autoScroll && playing` to their lyric views.
-  Pass `playing` through to `useScrollPlayingIntoView` (`useAutoScroll.ts`)
-  so the rule lives there, at the cost of a prop on `SyncedLyrics` and both
-  lyric views in `DocumentViewPage`. Sonnet 5.5, low.
 
 ## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
 
