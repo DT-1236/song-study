@@ -12,7 +12,7 @@ import {
 } from '../harness.mjs'
 
 await check('mobile-timing-buttons', async (h) => {
-  const path = `/documents/${await h.videoDocument()}`
+  const path = `/documents/${await h.videoDocument({ untimed: true })}`
   const bar = '.player-controls'
 
   async function startTiming(page) {
@@ -20,19 +20,6 @@ await check('mobile-timing-buttons', async (h) => {
     await playerReady(page)
     await tapOrClick(page, page.getByRole('button', { name: 'Edit timings' }))
     await page.waitForSelector('.timing-row')
-  }
-  // Other checks save timings on videoDocument(), and the API can't clear
-  // them, so this untimes the picked line (unsaved) when it has a time, or
-  // a stamp would ask to overwrite it.
-  async function untimePicked(page) {
-    const timed = page.locator('.timing-row.selected .timing-delete')
-    if (!(await timed.count())) return
-    await tapOrClick(page, timed)
-    await tapOrClick(
-      page,
-      page.getByRole('button', { name: 'Delete', exact: true }),
-    )
-    await page.waitForSelector('.timing-row.selected.untimed')
   }
   const picked = (page) =>
     page.$eval('.timing-row.selected', (el) => ({
@@ -81,7 +68,6 @@ await check('mobile-timing-buttons', async (h) => {
     )
     h.expectNone(await sidewaysOverflow(page), `${tag} no sideways scroll`)
 
-    await untimePicked(page)
     const nudgeLater = page.locator(`${bar} [aria-label="Nudge later"]`)
     // canNudge reaches the bar a render after the line's time changes.
     h.expect(
@@ -139,7 +125,6 @@ await check('mobile-timing-buttons', async (h) => {
     (await desk.locator(`${bar} .timing-stamp`).count()) === 0,
     'no timing buttons with a mouse',
   )
-  await untimePicked(desk)
   await desk.keyboard.press('/')
   await desk.waitForSelector('.timing-row.selected:not(.untimed)')
   const stamped = await picked(desk)

@@ -172,10 +172,10 @@ BROWSER_WEB_PORT=5211`. The test database is shared, so don't run two
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).
 - **`videoDocument()` is shared, timings and all.** `mobile-gloss-sheet`
-  and `run-through` save timings to it, and the API can't clear them, so a
-  check that needs an untimed line untimes it in the editor (unsaved), as
-  `mobile-timing-buttons` does. A check that only needs timed lines and no
-  playing video makes its own with `h.document()`.
+  and `run-through` save timings to it, so a check that needs untimed lines
+  asks for `videoDocument({ untimed: true })`, which clears them through a
+  test-only route in `backend/tests/browser_server.py`. A check that only
+  needs timed lines and no playing video makes its own with `h.document()`.
 - **Don't assume where the page is scrolled.** A closed gloss sheet takes
   its room with it, and the video sits below the lyrics unless it's sticky,
   so the end of the lyrics can stop halfway up the screen. Scroll what a

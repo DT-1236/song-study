@@ -4,7 +4,8 @@ with every request acting as the test user.
 
 Run from backend/ as `python -m tests.browser_server`; `make browser-up` at
 the repo root starts it alongside a Vite that proxies to it. Writes the seeded
-ids as JSON to BROWSER_SEED_FILE when that's set.
+ids as JSON to BROWSER_SEED_FILE when that's set. It also serves a
+`/api/test/` route for resetting state the app's API can't.
 """
 
 import json
@@ -45,6 +46,22 @@ def seed() -> dict:
         )
     document_id = support.create_tokenized_document(kumo_no_ito.TEXT, kumo_no_ito.TITLE)
     return {"user_id": support.TEST_USER_ID, "document_id": document_id}
+
+
+@support.main.app.post(
+    "/api/test/documents/{document_id}/clear-timings", status_code=204
+)
+def clear_timings(document_id: int) -> None:
+    """Drop the saved line timings of `document_id`, which the app's own API
+    can't do: it only replaces them, and every lyric line needs one."""
+    with support.engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE documents SET edited_lines = NULL, edited_lines_text = NULL"
+                " WHERE id = :id"
+            ),
+            {"id": document_id},
+        )
 
 
 if __name__ == "__main__":

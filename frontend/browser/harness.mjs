@@ -254,13 +254,17 @@ class Harness {
   }
 
   // The id of a document of the seeded text with a YouTube video, made on
-  // first use: the seed has no video.
-  async videoDocument() {
-    return this.document({
+  // first use: the seed has no video. It's shared between checks, so one that
+  // needs every line untimed passes `untimed` to clear whatever timings an
+  // earlier check saved.
+  async videoDocument({ untimed = false } = {}) {
+    const id = await this.document({
       match: (doc) => doc.youtube_video_id === VIDEO_ID,
       title: (seeded) => `${seeded.title} (video)`,
       youtube_video_id: VIDEO_ID,
     })
+    if (untimed) await this.api('POST', `/test/documents/${id}/clear-timings`)
+    return id
   }
 
   // Times every non-blank line of document `id`, each `step` seconds long and
