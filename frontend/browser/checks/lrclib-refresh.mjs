@@ -12,7 +12,8 @@ await check('lrclib-refresh', async (h) => {
     lrclib_replaces_text: true,
   })
   let tooSoon = false
-  let refreshes = 0
+  // The refreshes the latest page sent.
+  let refreshes = []
 
   // The linked document's page, opened with the stubs in place.
   const openLinked = async () => {
@@ -21,22 +22,20 @@ await check('lrclib-refresh', async (h) => {
       const response = await route.fetch()
       await route.fulfill({ response, json: linked(await response.json()) })
     })
-    await page.route(`**/api/documents/${id}/lrclib/refresh`, async (route) => {
-      refreshes += 1
-      if (tooSoon) {
-        await route.fulfill({
-          status: 429,
-          json: {
-            detail: 'Checked against LRCLIB a moment ago.',
-            retry_after_seconds: 120,
-          },
-        })
-      } else {
-        await route.fulfill({
-          json: linked(await h.api('GET', `/documents/${id}`)),
-        })
-      }
-    })
+    refreshes = await h.stub(
+      page,
+      `**/api/documents/${id}/lrclib/refresh`,
+      async () =>
+        tooSoon
+          ? {
+              status: 429,
+              json: {
+                detail: 'Checked against LRCLIB a moment ago.',
+                retry_after_seconds: 120,
+              },
+            }
+          : { json: linked(await h.api('GET', `/documents/${id}`)) },
+    )
     await page.goto(`/documents/${id}`)
     await page.getByRole('button', { name: 'Refresh' }).waitFor()
     return page
@@ -63,7 +62,11 @@ await check('lrclib-refresh', async (h) => {
       (b) => b.textContent === 'Refresh' && b.disabled,
     ),
   )
-  h.expect(refreshes === 1, 'one refresh was sent', String(refreshes))
+  h.expect(
+    refreshes.length === 1,
+    'one refresh was sent',
+    String(refreshes.length),
+  )
   await h.screenshot(page, 'disabled')
 
   h.step('after a reload it is enabled; a too-soon 429 disables it again')

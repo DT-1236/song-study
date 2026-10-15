@@ -14,12 +14,10 @@ await check('new-document-processing', async (h) => {
     // the request starting their processing, and the polls after it.
     let release
     const released = new Promise((resolve) => (release = resolve))
-    await page.route(
+    await h.stub(
+      page,
       /\/api\/documents\/\d+\/tokens(\/processing)?$/,
-      async (route) => {
-        await released
-        await route.continue()
-      },
+      () => released,
     )
     await page.fill('#title', `Processing check ${device.name} ${Date.now()}`)
     await page.fill('#lyrics', lyrics)

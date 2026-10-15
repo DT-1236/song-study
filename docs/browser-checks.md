@@ -86,9 +86,10 @@ absolute path.
 | `h.expect(ok, message, detail?)`                 | One `PASS`/`FAIL` line.                                                                                                                                                                                                                                                                              |
 | `h.expectNone(list, message)`                    | Passes when a measurement's list of offenders is empty.                                                                                                                                                                                                                                              |
 | `h.screenshot(page, label)`                      | Saves a full-page PNG and prints its path; Read it to look.                                                                                                                                                                                                                                          |
+| `h.stub(page, pattern, respond)`                 | Answers `page`'s requests matching `pattern` (glob or RegExp) with what `respond(url, request)` returns (`fulfill` options such as `json` and `status`; may be async), or lets them through to the backend if it returns nothing. Returns the list of request URLs seen.                             |
 | `h.api(method, path, body)`                      | Calls `/api` as the test user, for setup beyond the seed.                                                                                                                                                                                                                                            |
 | `h.seed`                                         | `{ document_id, user_id }`.                                                                                                                                                                                                                                                                          |
-| `h.videoDocument()`                              | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none.                                                                                                                                                                                                  |
+| `h.videoDocument({ untimed })`                   | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none. With `untimed: true`, its saved timings are cleared first.                                                                                                                                       |
 | `h.document({ match, title, youtube_video_id })` | The id of the document `match` picks out of the listing, or a new one of the seed's text with that title (or `title(seed)`) and video.                                                                                                                                                               |
 | `h.timeLines(id, { start, step })`               | Times every non-blank line of a document, `step` seconds each from `start`; returns the lines.                                                                                                                                                                                                       |
 
@@ -172,10 +173,10 @@ BROWSER_WEB_PORT=5211`. The test database is shared, so don't run two
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).
 - **`videoDocument()` is shared, timings and all.** `mobile-gloss-sheet`
-  and `run-through` save timings to it, and the API can't clear them, so a
-  check that needs an untimed line untimes it in the editor (unsaved), as
-  `mobile-timing-buttons` does. A check that only needs timed lines and no
-  playing video makes its own with `h.document()`.
+  and `run-through` save timings to it, so a check that needs untimed lines
+  asks for `videoDocument({ untimed: true })`, which clears them through a
+  test-only route in `backend/tests/browser_server.py`. A check that only
+  needs timed lines and no playing video makes its own with `h.document()`.
 - **Don't assume where the page is scrolled.** A closed gloss sheet takes
   its room with it, and the video sits below the lyrics unless it's sticky,
   so the end of the lyrics can stop halfway up the screen. Scroll what a

@@ -3,6 +3,7 @@ import { searchLrclib } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { SearchDropdown, SearchResult } from './SearchDropdown'
 import { formatDuration } from './timing'
+import { useServerPause } from './useServerPause'
 
 // What LRCLIB is searched for: a picked song, or a document's.
 export type LrclibSong = Pick<
@@ -58,6 +59,22 @@ export function LrclibMatches({
   // Searched with the title, and editable since the song's artist as YouTube
   // Music names it needn't be LRCLIB's.
   const [artist, setArtist] = useState(song.artists)
+  // LRCLIB's rate limit, passed on by the server.
+  const { paused, pauseIfAsked } = useServerPause()
+
+  async function search(title: string) {
+    try {
+      return await searchLrclib({
+        title,
+        artist,
+        durationSeconds: song.duration_seconds,
+      })
+    } catch (err) {
+      pauseIfAsked(err)
+      // Still the dropdown's to report.
+      throw err
+    }
+  }
 
   // Chooses up front a synced match of the right length, the first one found
   // when there is any, and shows the results otherwise.
@@ -122,25 +139,14 @@ export function LrclibMatches({
         label="Lyrics from LRCLIB"
         placeholder="Track title"
         initialQuery={song.title}
-        // Either the title or the artist will do.
-        canSearch={(title) => title !== '' || artist.trim() !== ''}
-        fields={
-          <input
-            id="lrclib-search-artist"
-            type="text"
-            value={artist}
-            onChange={(e) => setArtist(e.target.value)}
-            placeholder="Artist"
-            aria-label="Artist"
-          />
-        }
-        search={(title) =>
-          searchLrclib({
-            title,
-            artist,
-            durationSeconds: song.duration_seconds,
-          })
-        }
+        secondInput={{
+          id: 'lrclib-search-artist',
+          label: 'Artist',
+          value: artist,
+          onChange: setArtist,
+        }}
+        disabled={paused}
+        search={search}
         onMountResults={handleMountResults}
         failureMessage="LRCLIB search failed."
       >

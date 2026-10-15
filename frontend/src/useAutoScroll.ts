@@ -9,18 +9,20 @@ export function useAutoScroll() {
 }
 
 // Scrolls the line being sung, `playingLine`, back on screen inside `boxRef`
-// when it moves off it, as little as possible, while `autoScroll` is on.
+// when it moves off it, as little as possible, while `autoScroll` is on and
+// the video is `playing`: paused, the page stays where the reader put it.
 export function useScrollPlayingIntoView(
   boxRef: RefObject<HTMLElement | null>,
   playingLine: number | null,
   autoScroll: boolean,
+  playing: boolean,
 ) {
   useEffect(() => {
-    if (!autoScroll) return
+    if (!autoScroll || !playing) return
     // The first element marked playing: where the line starts, even when it
     // wraps or is split into tokens.
     boxRef.current
       ?.querySelector('.playing')
       ?.scrollIntoView({ block: 'nearest' })
-  }, [boxRef, playingLine, autoScroll])
+  }, [boxRef, playingLine, autoScroll, playing])
 }

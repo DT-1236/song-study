@@ -15,12 +15,10 @@ await check('documents-list', async (h) => {
     // Holds the tokens back until the processing state has been looked at.
     let release
     const released = new Promise((resolve) => (release = resolve))
-    await page.route(
+    await h.stub(
+      page,
       /\/api\/documents\/\d+\/tokens(\/processing)?$/,
-      async (route) => {
-        await released
-        await route.continue()
-      },
+      () => released,
     )
 
     h.step(`${device.name}: click its row`)

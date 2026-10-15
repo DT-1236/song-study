@@ -305,6 +305,15 @@ def age_lrclib_check(document_id: int, age: timedelta) -> None:
         )
 
 
+def age_lrclib_failure(document_id: int, age: timedelta) -> None:
+    """Make the document's last failed check against LRCLIB look `age` ago."""
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE documents SET lrclib_failed_at = now() - :age WHERE id = :id"),
+            {"id": document_id, "age": age},
+        )
+
+
 def empty_gloss_cache() -> None:
     """Empty gloss_lookups, as migrations 0013-0015 do whenever gloss logic
     changes."""

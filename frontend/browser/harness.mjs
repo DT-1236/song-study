@@ -210,6 +210,23 @@ class Harness {
     return page
   }
 
+  // Answers `page`'s requests matching `pattern` (a glob or RegExp) with
+  // whatever `respond(url, request)` returns, which may be async: Playwright
+  // `fulfill` options (`json`, `status`, ...), or nothing to let the request
+  // through to the harness backend. Returns the URLs seen, in order.
+  async stub(page, pattern, respond) {
+    const seen = []
+    await page.route(pattern, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      seen.push(url)
+      const response = await respond(url, request)
+      if (response === undefined) await route.continue()
+      else await route.fulfill(response)
+    })
+    return seen
+  }
+
   // Saves a screenshot to the check's output folder and returns its path;
   // Read the PNG to look at it.
   async screenshot(page, label, options = {}) {
@@ -254,13 +271,17 @@ class Harness {
   }
 
   // The id of a document of the seeded text with a YouTube video, made on
-  // first use: the seed has no video.
-  async videoDocument() {
-    return this.document({
+  // first use: the seed has no video. It's shared between checks, so one that
+  // needs every line untimed passes `untimed` to clear whatever timings an
+  // earlier check saved.
+  async videoDocument({ untimed = false } = {}) {
+    const id = await this.document({
       match: (doc) => doc.youtube_video_id === VIDEO_ID,
       title: (seeded) => `${seeded.title} (video)`,
       youtube_video_id: VIDEO_ID,
     })
+    if (untimed) await this.api('POST', `/test/documents/${id}/clear-timings`)
+    return id
   }
 
   // Times every non-blank line of document `id`, each `step` seconds long and

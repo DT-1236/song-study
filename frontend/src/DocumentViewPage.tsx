@@ -15,8 +15,6 @@ import {
 } from 'react'
 import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
-  ApiError,
-  LRCLIB_REFRESH_COOLDOWN_SECONDS,
   LRCLIB_URI_PLACEHOLDER,
   acceptPhraseSuggestions,
   addTokenCard,
@@ -1865,6 +1863,7 @@ const TokenizedText = memo(function TokenizedText({
   playingLine,
   lineTimings,
   autoScroll,
+  playing,
   onPlayLine,
 }: {
   tokens: Token[]
@@ -1879,8 +1878,9 @@ const TokenizedText = memo(function TokenizedText({
   // from; null hides the play buttons.
   lineTimings: (LineTiming | null)[] | null
   onPlayLine: (start: number) => void
-  // Whether the line being sung is kept on screen.
+  // Whether the line being sung is kept on screen, while `playing`.
   autoScroll: boolean
+  playing: boolean
 }) {
   // On touch, a tapped token's preview is hoveredId too.
   const [hoveredId, setHoveredId] = useState<number | null>(null)
@@ -1912,7 +1912,7 @@ const TokenizedText = memo(function TokenizedText({
   }, [tokens])
 
   const boxRef = useRef<HTMLDivElement>(null)
-  useScrollPlayingIntoView(boxRef, playingLine, autoScroll)
+  useScrollPlayingIntoView(boxRef, playingLine, autoScroll, playing)
 
   const sheet = useMediaQuery(NO_HOVER)
 
@@ -2545,17 +2545,15 @@ function LrclibSource({
   const { saving, error, setError, save } = useSave()
   // The server refuses another refresh for a while after it checks LRCLIB.
   // Not kept across a reload: a refresh tried then is told to wait again.
-  const { paused: refreshPaused, pauseFor } = useServerPause()
+  const { paused: refreshPaused, pauseFor, pauseIfAsked } = useServerPause()
 
   async function refresh() {
     try {
       const refreshed = await refreshLrclib(doc.id)
-      pauseFor(LRCLIB_REFRESH_COOLDOWN_SECONDS)
+      pauseFor(refreshed.lrclib_refresh_cooldown_seconds)
       return refreshed
     } catch (err) {
-      if (err instanceof ApiError && err.retryAfterSeconds !== undefined) {
-        pauseFor(err.retryAfterSeconds)
-      }
+      pauseIfAsked(err)
       throw err
     }
   }
@@ -3092,9 +3090,6 @@ export function DocumentViewPage() {
     youtubePlayerRef,
     hasVideo ? shownTimings : null,
   )
-  // Paused, the page stays where the reader put it, even as a ready player
-  // or a seek marks a line sung: auto-scroll follows playback only.
-  const followPlaying = autoScroll && playing
 
   const touch = useMediaQuery(NO_HOVER)
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
@@ -3393,7 +3388,8 @@ export function DocumentViewPage() {
               playingLine={playingLine}
               // Without a video there's nothing to play them from.
               lineTimings={hasVideo ? lineTimings : null}
-              autoScroll={followPlaying}
+              autoScroll={autoScroll}
+              playing={playing}
               onPlayLine={handlePlayLine}
             />
           ) : (
@@ -3409,7 +3405,8 @@ export function DocumentViewPage() {
               }
               playingLine={playingLine}
               onPlayLine={handlePlayLine}
-              autoScroll={followPlaying}
+              autoScroll={autoScroll}
+              playing={playing}
             />
           )}
         </div>

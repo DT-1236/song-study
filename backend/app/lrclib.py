@@ -21,6 +21,7 @@ import json
 import logging
 import math
 import re
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -64,9 +65,35 @@ class LrclibRateLimited(LrclibUnavailable):
         )
 
 
-# When LRCLIB's last rate limit ends, on the monotonic clock. Requests before
-# then aren't sent, since they would only extend the limit.
-_rate_limited_until = 0.0
+class _RateLimit:
+    """When LRCLIB's last rate limit ends. Requests before then aren't sent,
+    since they would only extend the limit. Each process learns the limit
+    for itself."""
+
+    def __init__(self):
+        # Handlers run in the threadpool, so a 429 can land while another
+        # request is checking.
+        self._lock = threading.Lock()
+        # On the monotonic clock.
+        self._until = 0.0
+
+    def remaining(self) -> float:
+        """Seconds until LRCLIB's rate limit ends, or 0 or less once it has."""
+        with self._lock:
+            return self._until - time.monotonic()
+
+    def start(self, seconds: float) -> None:
+        """Remember that LRCLIB asked for no requests for `seconds`, unless
+        an earlier answer already asked for longer."""
+        with self._lock:
+            self._until = max(self._until, time.monotonic() + seconds)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._until = 0.0
+
+
+_rate_limit = _RateLimit()
 
 
 def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
@@ -173,8 +200,7 @@ def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
 
 def _get_json(uri: str) -> Any | None:
     """The JSON at `uri`, or None when LRCLIB answers 404."""
-    global _rate_limited_until
-    remaining = _rate_limited_until - time.monotonic()
+    remaining = _rate_limit.remaining()
     if remaining > 0:
         logger.info(
             "LRCLIB request skipped, rate-limited for %.1fs: %s", remaining, uri
@@ -210,7 +236,7 @@ def _get_json(uri: str) -> Any | None:
                 raise LrclibUnavailable(
                     "LRCLIB is rate-limiting requests — try again later."
                 ) from exc
-            _rate_limited_until = time.monotonic() + wait
+            _rate_limit.start(wait)
             raise LrclibRateLimited(wait) from exc
         raise LrclibUnavailable(
             f"LRCLIB responded with an error ({exc.code})."
@@ -342,9 +368,19 @@ _TRAILING_FEATURING_RE = re.compile(r"\s+(?:feat\.|ft\.|featuring)\s.*$", re.IGN
 _APOSTROPHES = "'’"
 
 
+def _is_title_char(char: str) -> bool:
+    """Whether `char` is part of a title's text — a letter, number,
+    combining mark or pictorial symbol like ♡ or ★ — rather than spacing,
+    punctuation or an operator like ~, which titles write as 〜 or ~
+    interchangeably."""
+    category = unicodedata.category(char)
+    return category[0] in "LNM" or category == "So"
+
+
 def _clean_title(title: str) -> str:
     """`title` without trailing version or credit decorations, or
-    punctuation other than apostrophes."""
+    punctuation and symbols other than apostrophes, which are part of a
+    title's spelling ("Don't")."""
     previous = None
     while title != previous:
         previous = title
@@ -356,10 +392,7 @@ def _clean_title(title: str) -> str:
             title = pattern.sub("", title)
     # Replaced by a space rather than dropped, so "Re-Start" stays two words.
     title = "".join(
-        " "
-        if unicodedata.category(char).startswith("P") and char not in _APOSTROPHES
-        else char
-        for char in title
+        char if _is_title_char(char) or char in _APOSTROPHES else " " for char in title
     )
     return " ".join(title.split())
 
@@ -368,14 +401,7 @@ def _title_key(title: str) -> str:
     """`title` reduced to what tells titles apart: width, case, spacing,
     punctuation and brackets ignored."""
     text = unicodedata.normalize("NFKC", title).casefold()
-    # Letters, numbers, combining marks and pictorial symbols like ♡ and ★
-    # stay; punctuation, spaces and operators like ~ go, since titles
-    # are written with 〜 and ~ interchangeably.
-    key = "".join(
-        char
-        for char in text
-        if (category := unicodedata.category(char))[0] in "LNM" or category == "So"
-    )
+    key = "".join(char for char in text if _is_title_char(char))
     # An empty key would be contained in every title.
     return key or "".join(text.split())
 

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { searchSongs } from './api'
 import type { SongResult } from './api'
 import { SearchDropdown, SearchResult } from './SearchDropdown'
@@ -14,32 +14,14 @@ export function SongSearch({
   onPick: (song: SongResult) => void
 }) {
   const [videos, setVideos] = useState(false)
-  // The last query's results, by kind, so flipping the toggle back and forth
-  // doesn't search again. A search asked for always clears it.
-  const found = useRef<{
-    query: string
-    songs?: SongResult[]
-    videos?: SongResult[]
-  }>({ query: '' })
-  const kind = videos ? 'videos' : 'songs'
-
-  async function search(query: string, again: boolean) {
-    if (!again) found.current = { query }
-    else if (found.current[kind]) return found.current[kind]
-    const results = await searchSongs(query, videos)
-    // A search dropped for a newer one can settle after it: keep its results
-    // only if they're still for the query cached.
-    if (found.current.query === query) found.current[kind] = results
-    return results
-  }
 
   return (
     <SearchDropdown
       id="song-search-query"
       label="Search for a song"
       placeholder="e.g. 夜に駆ける YOASOBI"
-      search={search}
-      kind={kind}
+      search={(query) => searchSongs(query, videos)}
+      kind={videos ? 'videos' : 'songs'}
       failureMessage="Search failed."
       controls={
         <label

@@ -107,8 +107,8 @@ export function NewDocumentForm() {
         lyrics={choiceLyrics}
         playingLine={playingLine}
         onPlayLine={handlePlayLine}
-        // Follows playback only, as on the document page.
-        autoScroll={autoScroll && playing}
+        autoScroll={autoScroll}
+        playing={playing}
       />
     )
   } else if (loadingLyrics || usingLrclib) {
