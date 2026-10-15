@@ -142,7 +142,9 @@ class _Clock:
     """A stand-in for time.monotonic that only moves when told to."""
 
     def __init__(self):
-        self.now = time.monotonic()
+        # Starting from a small whole number keeps sums of whole seconds
+        # exact, where the real clock's value can be large enough to round.
+        self.now = 0.0
 
     def __call__(self) -> float:
         return self.now
