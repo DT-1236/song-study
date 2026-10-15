@@ -7,10 +7,12 @@ public-domain text (tests/fixtures/kumo_no_ito.py) or short test sentences.
 from __future__ import annotations
 
 import io
+import json
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 import pytest
 from fastapi import HTTPException
@@ -22,6 +24,7 @@ from app.db import owned_document_row
 from app.lrclib import (
     LrclibError,
     LrclibLyrics,
+    LrclibRateLimited,
     LrclibUnavailable,
     fetch_lyrics,
     normalize_lrclib_uri,
@@ -33,6 +36,7 @@ from app.main import (
     DocumentTextUpdate,
     LineTiming,
     LrclibLink,
+    lrclib_rate_limited,
 )
 from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
@@ -122,6 +126,11 @@ class FakeLrclib:
             ),
             key=lambda params: sorted(params.items()),
         )
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limit(monkeypatch):
+    monkeypatch.setattr(lrclib, "_rate_limited_until", 0.0)
 
 
 @pytest.fixture
@@ -233,17 +242,39 @@ def test_a_missing_track_is_a_refusal_not_an_outage(fake_lrclib):
         fetch_lyrics(URI)
 
 
+class _Response(io.BytesIO):
+    status = 200
+
+
 def test_requests_identify_the_app(monkeypatch):
     sent = []
 
     def urlopen(request, timeout):
         sent.append(request)
-        return io.BytesIO(b'{"id": 1}')
+        return _Response(b'{"id": 1}')
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
 
     assert lrclib._get_json(URI) == {"id": 1}
     assert sent[0].get_header("User-agent") == lrclib.USER_AGENT
+
+
+def test_requests_and_error_bodies_are_logged(monkeypatch, caplog):
+    error = urllib.error.HTTPError(
+        URI, 503, "Service Unavailable", {}, io.BytesIO(b"upstream down")
+    )
+
+    def urlopen(request, timeout):
+        raise error
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    with caplog.at_level("INFO", logger="app.lrclib"), pytest.raises(LrclibUnavailable):
+        lrclib._get_json(URI)
+
+    assert f"LRCLIB request: GET {URI}" in caplog.text
+    assert "503" in caplog.text
+    assert "upstream down" in caplog.text
 
 
 @pytest.mark.parametrize(
@@ -271,6 +302,69 @@ def test_request_failures(monkeypatch, error, expected):
 
     with pytest.raises(expected):
         lrclib._get_json(URI)
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        ("1", 1.0),
+        (" 120 ", 120.0),
+        ("Wed, 21 Oct 2026 07:28:30 GMT", 30.0),
+        # A date already past asks for no wait.
+        ("Wed, 21 Oct 2026 07:27:00 GMT", 0.0),
+        ("soon", None),
+        ("-5", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_parse_retry_after(value, expected):
+    now = datetime(2026, 10, 21, 7, 28, 0, tzinfo=UTC)
+
+    assert lrclib.parse_retry_after(value, now) == expected
+
+
+def test_a_rate_limit_is_remembered_and_spares_lrclib(monkeypatch):
+    sent = []
+
+    def urlopen(request, timeout):
+        sent.append(request)
+        raise urllib.error.HTTPError(
+            URI, 429, "Too Many Requests", {"Retry-After": "30"}, None
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    with pytest.raises(LrclibRateLimited) as first:
+        lrclib._get_json(URI)
+    with pytest.raises(LrclibRateLimited) as second:
+        lrclib._get_json(URI)
+
+    assert len(sent) == 1
+    assert first.value.retry_after_seconds == 30
+    assert 29 < second.value.retry_after_seconds <= 30
+
+
+def test_a_rate_limit_without_a_wait_isnt_remembered(monkeypatch):
+    def urlopen(request, timeout):
+        raise urllib.error.HTTPError(URI, 429, "Too Many Requests", {}, None)
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    for _ in range(2):
+        with pytest.raises(LrclibUnavailable) as raised:
+            lrclib._get_json(URI)
+        assert not isinstance(raised.value, LrclibRateLimited)
+
+
+def test_the_client_is_told_to_wait_half_again_as_long():
+    response = lrclib_rate_limited(None, LrclibRateLimited(4))
+
+    assert response.status_code == 429
+    assert json.loads(response.body) == {
+        "detail": "LRCLIB is rate-limiting requests — try again in 4 seconds.",
+        "retry_after_seconds": 6,
+    }
 
 
 def test_a_missing_track_is_none(monkeypatch):
@@ -514,22 +608,16 @@ def _ids(candidates) -> list[int]:
     return [candidate.id for candidate in candidates]
 
 
-def test_search_sends_each_query_variant_once(fake_lrclib):
+def test_search_sends_the_artist_and_cleaned_title(fake_lrclib):
     search_tracks(f"{SONG} (TV Size)", "歌手", 200)
 
-    assert fake_lrclib.searched() == [
-        {"artist_name": "歌手", "track_name": f"{SONG} (TV Size)"},
-        {"q": SONG},
-        {"q": f"{SONG} (TV Size)"},
-        {"q": f"{SONG} (TV Size) 歌手"},
-    ]
+    assert fake_lrclib.searched() == [{"artist_name": "歌手", "track_name": SONG}]
 
 
-def test_search_skips_variants_that_repeat_another(fake_lrclib):
-    # No artist, and nothing to clean off the title.
+def test_search_without_an_artist_sends_only_the_title(fake_lrclib):
     search_tracks(f" {SONG} ", "", 200)
 
-    assert fake_lrclib.searched() == [{"q": SONG}, {"track_name": SONG}]
+    assert fake_lrclib.searched() == [{"track_name": SONG}]
 
 
 @pytest.mark.parametrize(
@@ -543,9 +631,12 @@ def test_search_skips_variants_that_repeat_another(fake_lrclib):
         (f"{SONG} - Into The Night", SONG),
         (f"{SONG} feat. 歌手", SONG),
         (f"{SONG} FT. 歌手", SONG),
-        # Brackets at the start or a hyphen inside a word aren't decoration.
-        (f"(秘密){SONG}", f"(秘密){SONG}"),
-        ("Re-Start", "Re-Start"),
+        # Brackets elsewhere aren't decoration, but their punctuation goes,
+        # as does any other punctuation but apostrophes.
+        (f"(秘密){SONG}", f"秘密 {SONG}"),
+        (f"{SONG}（TV）の続き", f"{SONG} TV の続き"),
+        ("Re-Start!", "Re Start"),
+        ("Don't Stop, Believin’", "Don't Stop Believin’"),
     ],
 )
 def test_cleaned_title_drops_trailing_decorations(title, cleaned):
@@ -555,18 +646,11 @@ def test_cleaned_title_drops_trailing_decorations(title, cleaned):
 def test_a_title_that_is_all_decoration_isnt_searched_bare(fake_lrclib):
     search_tracks("【MV】", "", 200)
 
-    assert {"q": ""} not in fake_lrclib.searched()
-
-
-def test_search_merges_variants_by_track(fake_lrclib):
-    fake_lrclib.answer([_track(1), _track(2)], q=SONG)
-    fake_lrclib.answer([_track(2), _track(3)], track_name=SONG, artist_name="歌手")
-
-    assert sorted(_ids(search_tracks(SONG, "歌手", 200))) == [1, 2, 3]
+    assert fake_lrclib.searched() == [{"track_name": "【MV】"}]
 
 
 def test_a_match_found_only_by_the_cleaned_title_is_kept(fake_lrclib):
-    fake_lrclib.answer([_track(1)], q=SONG)
+    fake_lrclib.answer([_track(1)], track_name=SONG)
 
     [candidate] = search_tracks(f"{SONG} (TV Size)", "", 200)
 
@@ -589,7 +673,7 @@ def test_a_match_found_only_by_the_cleaned_title_is_kept(fake_lrclib):
     ],
 )
 def test_search_keeps_only_matching_titles(fake_lrclib, name, match):
-    fake_lrclib.answer([_track(1, name)], q="Fake Song")
+    fake_lrclib.answer([_track(1, name)], track_name="Fake Song")
 
     candidates = search_tracks("Fake Song", "", 200)
 
@@ -598,7 +682,7 @@ def test_search_keeps_only_matching_titles(fake_lrclib, name, match):
 
 def test_decorated_titles_match_however_theyre_written(fake_lrclib):
     title = f'{SONG} (From "THE FIRST TAKE")'
-    fake_lrclib.answer([_track(1, f"{SONG} - From THE FIRST TAKE")], q=title)
+    fake_lrclib.answer([_track(1, f"{SONG} - From THE FIRST TAKE")], track_name=SONG)
 
     assert [c.title_match for c in search_tracks(title, "", 200)] == ["whole"]
 
@@ -611,7 +695,7 @@ def test_search_drops_tracks_without_lyrics(fake_lrclib):
             _track(3, syncedLyrics="[ar: 歌手]", plainLyrics=""),
             _track(4, syncedLyrics=None),
         ],
-        q=SONG,
+        track_name=SONG,
     )
 
     [candidate] = search_tracks(SONG, "", 200)
@@ -628,7 +712,7 @@ def test_candidate_fields(fake_lrclib):
                 lines=[(0.0, ""), (1.0, FIRST_SENTENCE), (5.0, ""), (9.0, "二行目")],
             )
         ],
-        q=SONG,
+        track_name=SONG,
     )
 
     [candidate] = search_tracks(SONG, "", 200)
@@ -651,7 +735,7 @@ def test_candidate_fields(fake_lrclib):
 def test_plain_lyrics_preview(fake_lrclib):
     fake_lrclib.answer(
         [_track(1, syncedLyrics=None, plainLyrics="\n一行目\n\n二行目\n三行目")],
-        q=SONG,
+        track_name=SONG,
     )
 
     assert search_tracks(SONG, "", 200)[0].preview == ["一行目", "二行目"]
@@ -667,7 +751,7 @@ def test_search_ranks_length_then_sync_then_title_then_closeness(fake_lrclib):
             _track(5, duration=201),
             _track(6, duration=203.5),  # just past the tolerance
         ],
-        q=SONG,
+        track_name=SONG,
     )
 
     candidates = search_tracks(SONG, "", 200)
@@ -677,7 +761,7 @@ def test_search_ranks_length_then_sync_then_title_then_closeness(fake_lrclib):
 
 
 def test_search_without_a_duration_is_never_within_tolerance(fake_lrclib):
-    fake_lrclib.answer([_track(1), _track(2, duration=None)], q=SONG)
+    fake_lrclib.answer([_track(1), _track(2, duration=None)], track_name=SONG)
 
     candidates = search_tracks(SONG, "", None)
 
@@ -687,14 +771,7 @@ def test_search_without_a_duration_is_never_within_tolerance(fake_lrclib):
     ]
 
 
-def test_search_tolerates_a_failed_variant(fake_lrclib):
-    fake_lrclib.answer(LrclibUnavailable("Couldn't reach LRCLIB."), track_name=SONG)
-    fake_lrclib.answer([_track(1)], q=SONG)
-
-    assert _ids(search_tracks(SONG, "", 200)) == [1]
-
-
-def test_search_fails_when_every_variant_does(fake_lrclib):
+def test_search_fails_when_lrclib_does(fake_lrclib):
     fake_lrclib.error = LrclibUnavailable(
         "LRCLIB is rate-limiting requests — try again later."
     )
@@ -704,7 +781,7 @@ def test_search_fails_when_every_variant_does(fake_lrclib):
 
 
 def test_search_endpoint_returns_candidates(fake_lrclib):
-    fake_lrclib.answer([_track(1, duration=262)], q=f"{SONG} 歌手")
+    fake_lrclib.answer([_track(1, duration=262)], track_name=SONG, artist_name="歌手")
 
     [candidate] = lrclib_search(title=SONG, artist="歌手", duration=261)
 
@@ -712,11 +789,28 @@ def test_search_endpoint_returns_candidates(fake_lrclib):
 
 
 def test_search_endpoint_duration_is_optional(fake_lrclib):
-    fake_lrclib.answer([_track(1)], q=SONG)
+    fake_lrclib.answer([_track(1)], track_name=SONG)
 
     [candidate] = lrclib_search(title=SONG)
 
     assert candidate.duration_delta is None
+
+
+def test_search_by_artist_alone_keeps_every_title(fake_lrclib):
+    fake_lrclib.answer([_track(1), _track(2, "別の曲")], q="歌手")
+
+    candidates = search_tracks("", "歌手", 200)
+
+    assert fake_lrclib.searched() == [{"q": "歌手"}]
+    assert _ids(candidates) == [1, 2]
+
+
+def test_search_endpoint_needs_a_title_or_an_artist(fake_lrclib):
+    with pytest.raises(HTTPException) as raised:
+        lrclib_search(title=" ", artist="")
+
+    assert raised.value.status_code == 422
+    assert fake_lrclib.searched() == []
 
 
 def test_search_endpoint_maps_unavailable_to_502(fake_lrclib):

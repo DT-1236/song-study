@@ -875,6 +875,16 @@ li.grammar-legend-item {
   gap: 0.5rem;
 }
 
+.search-dropdown-fields {
+  margin-bottom: 0.5rem;
+}
+
+.search-dropdown-stale {
+  margin: 0;
+  font-size: 0.875rem;
+  color: var(--text-muted);
+}
+
 .search-dropdown-row {
   display: flex;
   gap: 0.5rem;

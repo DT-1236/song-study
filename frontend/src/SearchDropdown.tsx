@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { errorMessage } from './api'
+import { ApiError, errorMessage } from './api'
 import { useClickOutside } from './useClickOutside'
 import { useLatest } from './useLatest'
 
@@ -21,6 +21,12 @@ type Props<T> = {
   // results of a search asked for are always shown.
   onMountResults?: (results: T) => boolean
   failureMessage: string
+  // Whether `query` (trimmed) can be searched. By default, when it isn't
+  // empty; a search that has other fields may allow an empty query.
+  canSearch?: (query: string) => boolean
+  // Further fields of the search, shown above the box. Enter in one of their
+  // text inputs searches, as it does in the box.
+  fields?: ReactNode
   // Settings shown under the box whether or not there are results.
   controls?: ReactNode
   // The results list, given the latest results and a function that closes it.
@@ -41,6 +47,8 @@ export function SearchDropdown<T>({
   kind,
   onMountResults,
   failureMessage,
+  canSearch = (text) => text !== '',
+  fields,
   controls,
   children,
 }: Props<T>) {
@@ -50,6 +58,9 @@ export function SearchDropdown<T>({
   const [showResults, setShowResults] = useState(false)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // When the server's request for a pause in searching ends, as a Date.now().
+  const [pausedUntil, setPausedUntil] = useState<number | null>(null)
+  const paused = pausedUntil !== null
   const rootRef = useRef<HTMLDivElement>(null)
   useClickOutside(rootRef, showResults, () => setShowResults(false))
 
@@ -79,8 +90,11 @@ export function SearchDropdown<T>({
         setShowResults(!onMount || (onMountResultsRef.current?.(found) ?? true))
       } catch (err) {
         if (searchId !== latestSearch.current) return
-        setShowResults(false)
+        // The previous results stay as they were, shown with a note below.
         setError(errorMessage(err, failureMessage))
+        if (err instanceof ApiError && err.retryAfterSeconds) {
+          setPausedUntil(Date.now() + err.retryAfterSeconds * 1000)
+        }
       } finally {
         if (searchId === latestSearch.current) setSearching(false)
       }
@@ -102,9 +116,29 @@ export function SearchDropdown<T>({
     if (lastQuery.current) void runSearch(lastQuery.current, false, true)
   }, [kind, runSearch])
 
+  useEffect(() => {
+    if (pausedUntil === null) return
+    const timer = window.setTimeout(
+      () => setPausedUntil(null),
+      pausedUntil - Date.now(),
+    )
+    return () => window.clearTimeout(timer)
+  }, [pausedUntil])
+
+  const trimmed = query.trim()
+  const canSubmit = !searching && !paused && canSearch(trimmed)
+
   function submit() {
-    const trimmed = query.trim()
-    if (trimmed && !searching) void runSearch(trimmed, false)
+    if (canSubmit) void runSearch(trimmed, false)
+  }
+
+  // Enter would otherwise submit the surrounding form. Enter that confirms an
+  // IME conversion isn't a search.
+  function submitOnEnter(e: React.KeyboardEvent) {
+    if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+      e.preventDefault()
+      submit()
+    }
   }
 
   return (
@@ -114,6 +148,16 @@ export function SearchDropdown<T>({
           reopen the results. */}
       <label id={`${id}-label`}>{label}</label>
       <div ref={rootRef}>
+        {fields && (
+          <div
+            className="search-dropdown-fields"
+            onKeyDown={(e) => {
+              if (e.target instanceof HTMLInputElement) submitOnEnter(e)
+            }}
+          >
+            {fields}
+          </div>
+        )}
         <div className="search-dropdown-row">
           <input
             id={id}
@@ -126,12 +170,7 @@ export function SearchDropdown<T>({
             onClick={() => setShowResults(true)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowResults(false)
-              // Enter would otherwise submit the surrounding form. Enter that
-              // confirms an IME conversion isn't a search.
-              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                e.preventDefault()
-                submit()
-              }
+              submitOnEnter(e)
             }}
             placeholder={placeholder}
             aria-labelledby={`${id}-label`}
@@ -140,7 +179,7 @@ export function SearchDropdown<T>({
             type="button"
             className="search-dropdown-button"
             onClick={submit}
-            disabled={searching || query.trim() === ''}
+            disabled={!canSubmit}
           >
             {searching ? 'Searching…' : 'Search'}
           </button>
@@ -148,6 +187,12 @@ export function SearchDropdown<T>({
 
         {controls}
         {error && <p className="form-error">{error}</p>}
+        {error && results !== null && (
+          <p className="search-dropdown-stale">
+            Any results shown are from your previous search, so they may not
+            match what's entered above.
+          </p>
+        )}
         {showResults &&
           results !== null &&
           children(results, () => setShowResults(false))}

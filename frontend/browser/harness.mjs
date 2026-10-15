@@ -112,6 +112,7 @@ class Harness {
     this.failed = []
     this.notes = new Set()
     this.pages = []
+    this.expectedServerErrors = []
     this.currentStep = 'starting'
   }
 
@@ -119,6 +120,12 @@ class Harness {
   step(label) {
     this.currentStep = label
     console.log(`· ${label}`)
+  }
+
+  // Lets 5xx responses from URLs containing `urlPart` pass, for a check that
+  // stubs a failure on purpose. Other 5xx responses still fail it.
+  expectServerError(urlPart) {
+    this.expectedServerErrors.push(urlPart)
   }
 
   expect(condition, message, detail) {
@@ -187,7 +194,11 @@ class Harness {
       )
     })
     page.on('response', (response) => {
-      if (response.url().startsWith(BASE) && response.status() >= 500) {
+      if (
+        response.url().startsWith(BASE) &&
+        response.status() >= 500 &&
+        !this.expectedServerErrors.some((part) => response.url().includes(part))
+      ) {
         this.fail(
           `[${device.name}] ${response.status()} from ${response.request().method()} ${response.url().slice(BASE.length)}`,
         )

@@ -28,3 +28,32 @@ so it can be picked up without re-deriving the reasoning.
   Pass `playing` through to `useScrollPlayingIntoView` (`useAutoScroll.ts`)
   so the rule lives there, at the cost of a prop on `SyncedLyrics` and both
   lyric views in `DocumentViewPage`. Sonnet 5.5, low.
+
+## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
+
+- **Rate-limit memory is a bare module global.** `_rate_limited_until` in
+  `backend/app/lrclib.py` is written from sync handlers running in the
+  threadpool, and each uvicorn worker learns the limit separately. Wrap it
+  in a small object owned by the module (a lock around the deadline, and a
+  `check()` that raises `LrclibRateLimited`) that `_get_json` asks before
+  sending; the tests' `reset_rate_limit` fixture then resets that object.
+  Opus 5.5, medium: a race here is silent.
+- **`logging.basicConfig` runs at import of `app.main`.** Move it to the
+  process entry point (or a uvicorn `--log-config`) so importing the app in
+  tests and scripts doesn't configure the root logger; keep the `LOG_LEVEL`
+  variable. Sonnet 5.5, low.
+- **LRCLIB-only behavior in the shared `SearchDropdown`.** `fields`,
+  `canSearch` and the rate-limit pause (with `ApiError.retryAfterSeconds`)
+  serve only `LrclibMatches`, and every other `SearchDropdown` user inherits
+  them. Have `LrclibMatches` own the artist input and the pause, and give
+  `SearchDropdown` one generic `disabled` prop plus a slot for a second
+  input. `song-search-toggle` and `lrclib-search` cover it. Opus 5.5,
+  medium: the stale-results note and Enter handling must keep working.
+- **Punctuation test written twice.** `_clean_title` and `_title_key` in
+  `backend/app/lrclib.py` each filter on `unicodedata.category`. Extract
+  one `_is_punctuation(char)` for both. Haiku 4.5, low.
+- **`page.route` stubbing repeated per check.** `lrclib-search.mjs`,
+  `song-search-toggle.mjs`, `documents-list.mjs` and
+  `new-document-processing.mjs` each build a stub by hand. Add a harness
+  helper (`h.stub(pattern, respond)`) and use it in all four, documenting it
+  in `docs/browser-checks.md`. Sonnet 5.5, medium.
