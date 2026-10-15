@@ -21,6 +21,7 @@ import os
 import threading
 import time
 from contextlib import contextmanager
+from datetime import timedelta
 from pathlib import Path
 
 from alembic import command
@@ -292,6 +293,18 @@ def clear_gloss_links(document_id: int) -> None:
         )
 
 
+def age_lrclib_check(document_id: int, age: timedelta) -> None:
+    """Make the document's lyrics look last checked against LRCLIB `age`
+    ago."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "UPDATE documents SET lrclib_checked_at = now() - :age WHERE id = :id"
+            ),
+            {"id": document_id, "age": age},
+        )
+
+
 def empty_gloss_cache() -> None:
     """Empty gloss_lookups, as migrations 0013-0015 do whenever gloss logic
     changes."""
@@ -455,6 +468,7 @@ list_documents = _via_client(main.list_documents)
 update_document_text = _via_client(main.update_document_text)
 link_lrclib = _via_client(main.link_lrclib)
 unlink_lrclib = _via_client(main.unlink_lrclib)
+refresh_lrclib = _via_client(main.refresh_lrclib)
 save_line_timings = _via_client(main.save_line_timings)
 resolve_token_conflict = _via_client(main.resolve_token_conflict)
 accept_phrase_suggestions_endpoint = _via_client(

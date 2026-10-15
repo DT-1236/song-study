@@ -63,7 +63,9 @@ definitions, with playback synced alongside the text.
   stay editable, and use LRCLIB's line timings only while LRCLIB's lyrics
   match them line for line. Replaced lyrics can't be edited in place;
   unlinking keeps them and makes them editable again.
-- Linked documents are refreshed from LRCLIB each time they're opened. For
+- Linked documents are refreshed from LRCLIB when they're opened, at most once
+  a day; a Refresh button next to Unlink reloads them now (at most once every
+  5 minutes). For
   replaced lyrics, a change to the text there re-processes the document from
   scratch, resetting any manually selected readings; a timing-only change
   keeps them. If LRCLIB can't be reached, the last lyrics loaded from it are

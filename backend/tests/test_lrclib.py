@@ -12,7 +12,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Sequence
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from fastapi import HTTPException
@@ -42,6 +42,7 @@ from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
 from tests.support import (
     TEST_USER_ID,
+    age_lrclib_check,
     as_session_user,
     create_document,
     document_tokens,
@@ -51,6 +52,7 @@ from tests.support import (
     lrclib_search,
     lrclib_track_lyrics,
     pick_reading,
+    refresh_lrclib,
     unlink_lrclib,
     update_document_text,
 )
@@ -419,6 +421,10 @@ def test_document_created_from_lrclib_uses_its_lyrics_and_timings(
     ]
 
 
+# Old enough that opening a document checks LRCLIB again.
+STALE = timedelta(hours=24, minutes=1)
+
+
 def _linked_document(fake_lrclib, lines, duration=60.0) -> int:
     fake_lrclib.publish(URI, lines, duration)
     return create_document(DocumentCreate(title="test", lrclib_uri=URI)).id
@@ -434,12 +440,91 @@ def test_loading_keeps_picked_readings_while_lrclib_is_unchanged(
     assert document_tokens(document_id, "今日")[0].gloss.reading == "こんにち"
 
 
+def test_a_recent_check_spares_lrclib_on_load(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+    age_lrclib_check(document_id, timedelta(hours=23, minutes=59))
+    requests_before = len(fake_lrclib.requests)
+
+    assert get_document(document_id).text == WEATHER
+    assert len(fake_lrclib.requests) == requests_before
+
+
+def test_a_load_after_24_hours_checks_lrclib_and_records_it(
+    committed_engine, fake_lrclib
+):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, STALE)
+    requests_before = len(fake_lrclib.requests)
+
+    get_document(document_id)
+    get_document(document_id)
+
+    assert len(fake_lrclib.requests) == requests_before + 1
+
+
+def test_a_failed_check_is_retried_on_the_next_load(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, STALE)
+    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+    get_document(document_id)
+    fake_lrclib.error = None
+    fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+
+    assert get_document(document_id).text == "今日は雨です。"
+
+
+def test_refresh_ignores_the_24_hour_limit(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+    age_lrclib_check(document_id, timedelta(minutes=6))
+
+    assert refresh_lrclib(document_id).text == "今日は雨です。"
+
+
+def test_refresh_is_limited_to_once_in_five_minutes(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, timedelta(minutes=6))
+    refresh_lrclib(document_id)
+    requests_before = len(fake_lrclib.requests)
+
+    with pytest.raises(HTTPException) as refused:
+        refresh_lrclib(document_id)
+
+    assert refused.value.status_code == 429
+    assert len(fake_lrclib.requests) == requests_before
+    age_lrclib_check(document_id, timedelta(minutes=5, seconds=1))
+    refresh_lrclib(document_id)
+
+
+def test_a_failed_refresh_doesnt_start_the_cooldown(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, timedelta(minutes=6))
+    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+    with pytest.raises(HTTPException) as failed:
+        refresh_lrclib(document_id)
+    fake_lrclib.error = None
+
+    assert failed.value.status_code == 502
+    refresh_lrclib(document_id)
+
+
+def test_refresh_needs_a_linked_document(committed_engine, fake_lrclib):
+    document_id = create_document(DocumentCreate(title="test", text=WEATHER)).id
+
+    with pytest.raises(HTTPException) as refused:
+        refresh_lrclib(document_id)
+
+    assert refused.value.status_code == 409
+
+
 def test_timing_update_on_lrclib_keeps_picked_readings(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)], duration=10.0)
     pick_reading(document_id, "今日", "こんにち")
     before = document_tokens(document_id, "今日")[0]
 
     fake_lrclib.publish(URI, [(2.0, WEATHER)], duration=10.0)
+    age_lrclib_check(document_id, STALE)
     document = get_document(document_id)
     after = document_tokens(document_id, "今日")[0]
 
@@ -455,6 +540,7 @@ def test_text_update_on_lrclib_replaces_the_lyrics_and_resets_readings(
     pick_reading(document_id, "今日", "こんにち")
 
     fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+    age_lrclib_check(document_id, STALE)
 
     assert get_document(document_id).text == "今日は雨です。"
     assert document_tokens(document_id, "今日")[0].gloss.reading == "きょう"
@@ -463,6 +549,7 @@ def test_text_update_on_lrclib_replaces_the_lyrics_and_resets_readings(
 def test_unreachable_lrclib_serves_the_stored_lyrics(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, FIRST_SENTENCE)])
     fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+    age_lrclib_check(document_id, STALE)
 
     document = get_document(document_id)
 
@@ -512,6 +599,7 @@ def test_linking_can_keep_the_lyrics_and_readings(committed_engine, fake_lrclib)
     # Once they match, LRCLIB's timings are used, and the lyrics and
     # readings still stay.
     fake_lrclib.publish(URI, [(2.0, WEATHER)], duration=10.0)
+    age_lrclib_check(document_id, STALE)
     document = get_document(document_id)
 
     assert (document.text, document.lrclib_lines) == (

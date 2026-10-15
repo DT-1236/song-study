@@ -4,7 +4,7 @@ import logging
 import os
 import re
 from collections.abc import Callable
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
 from typing import Literal, NamedTuple
@@ -183,6 +183,29 @@ def lrclib_rate_limited(request: Request, exc: LrclibRateLimited) -> JSONRespons
     )
 
 
+class LrclibRefreshTooSoon(Exception):
+    """A manual refresh from LRCLIB asked for before the last check of the
+    document's lyrics is `LRCLIB_REFRESH_COOLDOWN` old."""
+
+    def __init__(self, retry_after_seconds: float):
+        self.retry_after_seconds = retry_after_seconds
+
+
+@app.exception_handler(LrclibRefreshTooSoon)
+def lrclib_refresh_too_soon(
+    request: Request, exc: LrclibRefreshTooSoon
+) -> JSONResponse:
+    """A 429 for a refresh from LRCLIB asked for too soon, saying how long
+    the client should wait."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": "This document's lyrics were checked against LRCLIB a moment ago.",
+            "retry_after_seconds": exc.retry_after_seconds,
+        },
+    )
+
+
 @app.exception_handler(LrclibUnavailable)
 @app.exception_handler(YouTubeMusicUnavailable)
 def upstream_unavailable(
@@ -280,12 +303,13 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
                     f"""
                     INSERT INTO documents (
                         owner_id, title, text, youtube_video_id, lrclib_uri, lrclib_replaces_text, lrclib_lines,
-                        lrclib_lines_text
+                        lrclib_lines_text, lrclib_checked_at
                     )
                     VALUES (
                         :owner_id, :title, :text, :youtube_video_id, :lrclib_uri, :lrclib_replaces_text,
                         CAST(:lrclib_lines AS JSONB),
-                        CASE WHEN :lrclib_lines IS NOT NULL THEN :text END
+                        CASE WHEN :lrclib_lines IS NOT NULL THEN :text END,
+                        CASE WHEN :lrclib_uri IS NOT NULL THEN now() END
                     )
                     RETURNING {DOCUMENT_COLUMNS}
                     """
@@ -322,10 +346,25 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
     return Document(**row._mapping)
 
 
+# How long a linked document's lyrics are trusted before opening it checks
+# LRCLIB for a new version.
+LRCLIB_RECHECK_AFTER = timedelta(hours=24)
+# How soon after the last check a manual refresh is allowed.
+LRCLIB_REFRESH_COOLDOWN = timedelta(minutes=5)
+
+
+def _time_left(checked_at: datetime | None, wait: timedelta) -> timedelta:
+    """How much longer until `wait` has passed since `checked_at`; zero if it
+    has, or if there was no check."""
+    if checked_at is None:
+        return timedelta(0)
+    return max(checked_at + wait - datetime.now(UTC), timedelta(0))
+
+
 @api.get("/documents/{document_id}", response_model=Document)
 def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
-    to a track there."""
+    to a track there and was last checked over `LRCLIB_RECHECK_AFTER` ago."""
     with engine.connect() as conn:
         row = owned_document_row(conn, document_id, user_id)
 
@@ -335,31 +374,73 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     document = Document(**row._mapping)
     if document.lrclib_uri is None:
         return document
+    if _time_left(row.lrclib_checked_at, LRCLIB_RECHECK_AFTER) > timedelta(0):
+        return document
 
-    # Fetched with no transaction open, since LRCLIB can take seconds to
-    # answer.
     try:
-        lyrics = fetch_lyrics(document.lrclib_uri)
+        return _sync_with_lrclib(document_id, user_id, document.lrclib_uri)
     except (LrclibError, LrclibUnavailable) as exc:
         return document.model_copy(
             update={
                 "lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."
             }
         )
-    if _linked_lyrics(row.text, row.lrclib_replaces_text, lyrics) == (
-        row.text,
-        row.lrclib_lines,
-    ):
-        return document
 
+
+@api.post("/documents/{document_id}/lrclib/refresh", response_model=Document)
+def refresh_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
+    """Reload the linked document's lyrics from LRCLIB now, however recently
+    they were checked — but no sooner than `LRCLIB_REFRESH_COOLDOWN` after
+    the last check, so the button can't be used to hammer LRCLIB."""
+    with engine.connect() as conn:
+        row = owned_document_row(conn, document_id, user_id)
+
+    if row is None:
+        raise study.DocumentNotFound()
+    if row.lrclib_uri is None:
+        raise HTTPException(
+            status_code=409, detail="This document isn't linked to LRCLIB."
+        )
+    wait = _time_left(row.lrclib_checked_at, LRCLIB_REFRESH_COOLDOWN)
+    if wait > timedelta(0):
+        raise LrclibRefreshTooSoon(wait.total_seconds())
+
+    try:
+        return _sync_with_lrclib(document_id, user_id, row.lrclib_uri)
+    except LrclibError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _sync_with_lrclib(document_id: int, user_id: int, uri: str) -> Document:
+    """The document, linked to `uri`, with the lyrics LRCLIB has there now
+    stored in it and the check recorded."""
+    # Fetched with no transaction open, since LRCLIB can take seconds to
+    # answer.
+    lyrics = fetch_lyrics(uri)
     with engine.begin() as conn:
         current = _lock_document(conn, document_id, user_id)
         # Left alone if it was unlinked, or linked elsewhere, since `lyrics`
         # was fetched.
-        if current.lrclib_uri != document.lrclib_uri:
+        if current.lrclib_uri != uri:
             return Document(**current._mapping)
+        if _linked_lyrics(current.text, current.lrclib_replaces_text, lyrics) == (
+            current.text,
+            current.lrclib_lines,
+        ):
+            # Nothing changed, so only the check is written.
+            row = conn.execute(
+                text(
+                    f"""
+                    UPDATE documents SET lrclib_checked_at = now()
+                    WHERE id = :id
+                    RETURNING {DOCUMENT_COLUMNS}
+                    """
+                ),
+                {"id": document_id},
+            ).one()
+            return Document(**row._mapping)
         return _store_lrclib_lyrics(
-            conn, current, document.lrclib_uri, lyrics, current.lrclib_replaces_text
+            conn, current, uri, lyrics, current.lrclib_replaces_text
         )
 
 
@@ -405,7 +486,8 @@ def _store_lrclib_lyrics(
             UPDATE documents
             SET text = :text, lrclib_uri = :uri, lrclib_replaces_text = :replace_text,
                 lrclib_lines = CAST(:lines AS JSONB),
-                lrclib_lines_text = CASE WHEN :lines IS NOT NULL THEN :text END
+                lrclib_lines_text = CASE WHEN :lines IS NOT NULL THEN :text END,
+                lrclib_checked_at = now()
             WHERE id = :id
             RETURNING {DOCUMENT_COLUMNS}
             """
