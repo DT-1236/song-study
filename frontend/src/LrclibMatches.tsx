@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ApiError, searchLrclib } from './api'
+import { searchLrclib } from './api'
 import type { LrclibCandidate, SongResult } from './api'
 import { SearchDropdown, SearchResult } from './SearchDropdown'
 import { formatDuration } from './timing'
@@ -60,7 +60,7 @@ export function LrclibMatches({
   // Music names it needn't be LRCLIB's.
   const [artist, setArtist] = useState(song.artists)
   // LRCLIB's rate limit, passed on by the server.
-  const { paused, pauseFor } = useServerPause()
+  const { paused, pauseIfAsked } = useServerPause()
 
   async function search(title: string) {
     try {
@@ -70,9 +70,7 @@ export function LrclibMatches({
         durationSeconds: song.duration_seconds,
       })
     } catch (err) {
-      if (err instanceof ApiError && err.retryAfterSeconds) {
-        pauseFor(err.retryAfterSeconds)
-      }
+      pauseIfAsked(err)
       // Still the dropdown's to report.
       throw err
     }

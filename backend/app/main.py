@@ -401,8 +401,7 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     try:
         return _sync_with_lrclib(document_id, user_id, document.lrclib_uri)
     except (LrclibError, LrclibUnavailable) as exc:
-        error = f"{exc} Showing the lyrics last loaded from it."
-        _record_lrclib_failure(document_id, document.lrclib_uri, error)
+        error = _record_lrclib_failure(document_id, document.lrclib_uri, exc)
         return document.model_copy(update={"lrclib_sync_error": error})
 
 
@@ -426,22 +425,26 @@ def refresh_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document
 
     try:
         return _sync_with_lrclib(document_id, user_id, row.lrclib_uri)
-    except (LrclibError, LrclibUnavailable) as exc:
-        # Recorded so opening the document doesn't retry it straight away;
-        # the refresh cooldown is left alone, so the button can retry it.
-        _record_lrclib_failure(
-            document_id,
-            row.lrclib_uri,
-            f"{exc} Showing the lyrics last loaded from it.",
-        )
-        if isinstance(exc, LrclibUnavailable):
-            raise
+    # Recorded so opening the document doesn't retry it straight away; the
+    # refresh cooldown is left alone, so the button can retry it.
+    except LrclibError as exc:
+        _record_lrclib_failure(document_id, row.lrclib_uri, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except LrclibUnavailable as exc:
+        _record_lrclib_failure(document_id, row.lrclib_uri, exc)
+        raise
 
 
-def _record_lrclib_failure(document_id: int, uri: str, error: str) -> None:
+def _record_lrclib_failure(
+    document_id: int, uri: str, exc: LrclibError | LrclibUnavailable
+) -> str:
     """Record that checking the document's lyrics against `uri` just failed
-    with `error`, unless it has since been linked elsewhere."""
+    with `exc`, unless it has since been linked elsewhere, and return the
+    error to show with the stored lyrics. A rate limit isn't recorded: the
+    lrclib module already holds requests back until it ends."""
+    error = f"{exc} Showing the lyrics last loaded from it."
+    if isinstance(exc, LrclibRateLimited):
+        return error
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -452,6 +455,7 @@ def _record_lrclib_failure(document_id: int, uri: str, error: str) -> None:
             ),
             {"id": document_id, "uri": uri, "error": error},
         )
+    return error
 
 
 def _sync_with_lrclib(document_id: int, user_id: int, uri: str) -> Document:

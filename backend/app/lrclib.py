@@ -77,12 +77,10 @@ class _RateLimit:
         # On the monotonic clock.
         self._until = 0.0
 
-    def check(self) -> None:
-        """Raise LrclibRateLimited if LRCLIB's rate limit hasn't ended."""
+    def remaining(self) -> float:
+        """Seconds until LRCLIB's rate limit ends, or 0 or less once it has."""
         with self._lock:
-            remaining = self._until - time.monotonic()
-        if remaining > 0:
-            raise LrclibRateLimited(remaining)
+            return self._until - time.monotonic()
 
     def start(self, seconds: float) -> None:
         """Remember that LRCLIB asked for no requests for `seconds`, unless
@@ -202,15 +200,12 @@ def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
 
 def _get_json(uri: str) -> Any | None:
     """The JSON at `uri`, or None when LRCLIB answers 404."""
-    try:
-        _rate_limit.check()
-    except LrclibRateLimited as exc:
+    remaining = _rate_limit.remaining()
+    if remaining > 0:
         logger.info(
-            "LRCLIB request skipped, rate-limited for %.1fs: %s",
-            exc.retry_after_seconds,
-            uri,
+            "LRCLIB request skipped, rate-limited for %.1fs: %s", remaining, uri
         )
-        raise
+        raise LrclibRateLimited(remaining)
 
     request = urllib.request.Request(
         uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}

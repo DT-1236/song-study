@@ -480,6 +480,19 @@ def test_a_failed_check_isnt_retried_for_ten_minutes(committed_engine, fake_lrcl
     assert document.lrclib_sync_error.startswith("Couldn't reach LRCLIB.")
 
 
+def test_a_rate_limited_check_is_retried_on_the_next_load(
+    committed_engine, fake_lrclib
+):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, STALE)
+    fake_lrclib.error = LrclibRateLimited(3)
+    assert get_document(document_id).lrclib_sync_error is not None
+    fake_lrclib.error = None
+    fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+
+    assert get_document(document_id).text == "今日は雨です。"
+
+
 def test_a_failed_check_is_retried_after_ten_minutes(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     age_lrclib_check(document_id, STALE)

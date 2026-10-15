@@ -10,11 +10,6 @@ await check('lrclib-search', async (h) => {
   const page = await h.open('/new')
   let respond = () => ({ json: [] })
   const seen = await h.stub(page, '**/lrclib/search?*', () => respond())
-  const requests = () =>
-    seen.map((url) => ({
-      title: url.searchParams.get('title'),
-      artist: url.searchParams.get('artist'),
-    }))
   const found = (name) => ({
     json: [
       {
@@ -51,12 +46,13 @@ await check('lrclib-search', async (h) => {
   await page
     .locator('.search-result-title', { hasText: 'First Song' })
     .waitFor()
+  const sent = seen.map((url) => Object.fromEntries(url.searchParams))
   h.expect(
-    seen.length === 1 &&
-      requests()[0].title === '' &&
-      requests()[0].artist === 'Some Artist',
+    sent.length === 1 &&
+      sent[0].title === '' &&
+      sent[0].artist === 'Some Artist',
     'the artist was sent without a title',
-    JSON.stringify(requests()),
+    JSON.stringify(sent),
   )
 
   h.step('a title alone is searched')

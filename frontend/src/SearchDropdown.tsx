@@ -90,12 +90,7 @@ export function SearchDropdown<T>({
   }, [])
 
   const runSearch = useCallback(
-    async (
-      text: string,
-      searchKind: string | undefined,
-      onMount: boolean,
-      again = false,
-    ) => {
+    async (text: string, onMount: boolean, again = false) => {
       lastQuery.current = text
       const searchId = ++latestSearch.current
       setError(null)
@@ -103,6 +98,7 @@ export function SearchDropdown<T>({
       // Held on to, so a search settling after a newer one asked for caches
       // into the old query's results rather than the newer one's.
       const cache = found.current
+      const searchKind = lastKind.current
       const cached = cache.byKind.get(searchKind)
       if (cached !== undefined) {
         setResults(cached)
@@ -133,7 +129,7 @@ export function SearchDropdown<T>({
   )
 
   useEffect(() => {
-    if (initialQuery) void runSearch(initialQuery, lastKind.current, true)
+    if (initialQuery) void runSearch(initialQuery, true)
     return dropPending
   }, [initialQuery, runSearch, dropPending])
 
@@ -141,7 +137,7 @@ export function SearchDropdown<T>({
     if (kind === lastKind.current) return
     lastKind.current = kind
     // Even while a search is in flight: starting another drops its results.
-    if (lastQuery.current) void runSearch(lastQuery.current, kind, false, true)
+    if (lastQuery.current) void runSearch(lastQuery.current, false, true)
   }, [kind, runSearch])
 
   const trimmed = query.trim()
@@ -149,7 +145,7 @@ export function SearchDropdown<T>({
   const canSubmit = !searching && !disabled && filledIn
 
   function submit() {
-    if (canSubmit) void runSearch(trimmed, kind, false)
+    if (canSubmit) void runSearch(trimmed, false)
   }
 
   // Enter would otherwise submit the surrounding form. Enter that confirms an

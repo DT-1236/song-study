@@ -15,7 +15,6 @@ import {
 } from 'react'
 import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
-  ApiError,
   LRCLIB_URI_PLACEHOLDER,
   acceptPhraseSuggestions,
   addTokenCard,
@@ -1879,7 +1878,7 @@ const TokenizedText = memo(function TokenizedText({
   // from; null hides the play buttons.
   lineTimings: (LineTiming | null)[] | null
   onPlayLine: (start: number) => void
-  // Whether the line being sung is kept on screen.
+  // Whether the line being sung is kept on screen, while `playing`.
   autoScroll: boolean
   playing: boolean
 }) {
@@ -2546,7 +2545,7 @@ function LrclibSource({
   const { saving, error, setError, save } = useSave()
   // The server refuses another refresh for a while after it checks LRCLIB.
   // Not kept across a reload: a refresh tried then is told to wait again.
-  const { paused: refreshPaused, pauseFor } = useServerPause()
+  const { paused: refreshPaused, pauseFor, pauseIfAsked } = useServerPause()
 
   async function refresh() {
     try {
@@ -2554,9 +2553,7 @@ function LrclibSource({
       pauseFor(refreshed.lrclib_refresh_cooldown_seconds)
       return refreshed
     } catch (err) {
-      if (err instanceof ApiError && err.retryAfterSeconds !== undefined) {
-        pauseFor(err.retryAfterSeconds)
-      }
+      pauseIfAsked(err)
       throw err
     }
   }

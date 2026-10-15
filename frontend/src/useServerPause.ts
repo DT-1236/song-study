@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react'
+import { ApiError } from './api'
 
 // A pause the server asked for (say, a rate limit): `paused` is true until
-// the seconds given to the latest `pauseFor` have passed.
+// the seconds given to the latest `pauseFor` have passed. `pauseIfAsked`
+// pauses for an error's Retry-After, when it carries one.
 export function useServerPause() {
   // When the pause ends, as a Date.now().
   const [pausedUntil, setPausedUntil] = useState<number | null>(null)
@@ -20,5 +22,14 @@ export function useServerPause() {
     [],
   )
 
-  return { paused: pausedUntil !== null, pauseFor }
+  const pauseIfAsked = useCallback(
+    (err: unknown) => {
+      if (err instanceof ApiError && err.retryAfterSeconds) {
+        pauseFor(err.retryAfterSeconds)
+      }
+    },
+    [pauseFor],
+  )
+
+  return { paused: pausedUntil !== null, pauseFor, pauseIfAsked }
 }
