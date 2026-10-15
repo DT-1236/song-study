@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { ApiError, errorMessage } from './api'
+import { errorMessage } from './api'
 import { useClickOutside } from './useClickOutside'
 import { useLatest } from './useLatest'
-import { useServerPause } from './useServerPause'
+
+// A text input of the search besides the box, shown above it.
+type SecondInput = {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+}
 
 type Props<T> = {
   id: string
@@ -21,12 +28,12 @@ type Props<T> = {
   // results of a search asked for are always shown.
   onMountResults?: (results: T) => boolean
   failureMessage: string
-  // Whether `query` (trimmed) can be searched. By default, when it isn't
-  // empty; a search that has other fields may allow an empty query.
-  canSearch?: (query: string) => boolean
-  // Further fields of the search, shown above the box. Enter in one of their
-  // text inputs searches, as it does in the box.
-  fields?: ReactNode
+  // Another input the search reads, which `search` takes from the caller's
+  // own state. A search needs one of the two filled in, and Enter in either
+  // searches.
+  secondInput?: SecondInput
+  // Holds off searching, say while the server has asked for a pause.
+  disabled?: boolean
   // Settings shown under the box whether or not there are results.
   controls?: ReactNode
   // The results list, given the latest results and a function that closes it.
@@ -47,8 +54,8 @@ export function SearchDropdown<T>({
   kind,
   onMountResults,
   failureMessage,
-  canSearch = (text) => text !== '',
-  fields,
+  secondInput,
+  disabled = false,
   controls,
   children,
 }: Props<T>) {
@@ -58,8 +65,6 @@ export function SearchDropdown<T>({
   const [showResults, setShowResults] = useState(false)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // The server's request for a pause in searching.
-  const { paused, pauseFor } = useServerPause()
   const rootRef = useRef<HTMLDivElement>(null)
   useClickOutside(rootRef, showResults, () => setShowResults(false))
 
@@ -120,14 +125,11 @@ export function SearchDropdown<T>({
         if (searchId !== latestSearch.current) return
         // The previous results stay as they were, shown with a note below.
         setError(errorMessage(err, failureMessage))
-        if (err instanceof ApiError && err.retryAfterSeconds) {
-          pauseFor(err.retryAfterSeconds)
-        }
       } finally {
         if (searchId === latestSearch.current) setSearching(false)
       }
     },
-    [searchRef, onMountResultsRef, failureMessage, pauseFor],
+    [searchRef, onMountResultsRef, failureMessage],
   )
 
   useEffect(() => {
@@ -143,7 +145,8 @@ export function SearchDropdown<T>({
   }, [kind, runSearch])
 
   const trimmed = query.trim()
-  const canSubmit = !searching && !paused && canSearch(trimmed)
+  const filledIn = trimmed !== '' || !!secondInput?.value.trim()
+  const canSubmit = !searching && !disabled && filledIn
 
   function submit() {
     if (canSubmit) void runSearch(trimmed, kind, false)
@@ -165,14 +168,17 @@ export function SearchDropdown<T>({
           reopen the results. */}
       <label id={`${id}-label`}>{label}</label>
       <div ref={rootRef}>
-        {fields && (
-          <div
-            className="search-dropdown-fields"
-            onKeyDown={(e) => {
-              if (e.target instanceof HTMLInputElement) submitOnEnter(e)
-            }}
-          >
-            {fields}
+        {secondInput && (
+          <div className="search-dropdown-fields">
+            <input
+              id={secondInput.id}
+              type="text"
+              value={secondInput.value}
+              onChange={(e) => secondInput.onChange(e.target.value)}
+              onKeyDown={submitOnEnter}
+              placeholder={secondInput.label}
+              aria-label={secondInput.label}
+            />
           </div>
         )}
         <div className="search-dropdown-row">

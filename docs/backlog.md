@@ -6,13 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
 
-- **LRCLIB-only behavior in the shared `SearchDropdown`.** `fields`,
-  `canSearch` and the rate-limit pause (with `ApiError.retryAfterSeconds`)
-  serve only `LrclibMatches`, and every other `SearchDropdown` user inherits
-  them. Have `LrclibMatches` own the artist input and the pause, and give
-  `SearchDropdown` one generic `disabled` prop plus a slot for a second
-  input. `song-search-toggle` and `lrclib-search` cover it. Opus 5.5,
-  medium: the stale-results note and Enter handling must keep working.
 - **Punctuation test written twice.** `_clean_title` and `_title_key` in
   `backend/app/lrclib.py` each filter on `unicodedata.category`. Extract
   one `_is_punctuation(char)` for both. Haiku 4.5, low.
