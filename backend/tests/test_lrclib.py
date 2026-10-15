@@ -43,6 +43,7 @@ from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE
 from tests.support import (
     TEST_USER_ID,
     age_lrclib_check,
+    age_lrclib_failure,
     as_session_user,
     create_document,
     document_tokens,
@@ -463,15 +464,50 @@ def test_a_load_after_24_hours_checks_lrclib_and_records_it(
     assert len(fake_lrclib.requests) == requests_before + 1
 
 
-def test_a_failed_check_is_retried_on_the_next_load(committed_engine, fake_lrclib):
+def test_a_failed_check_isnt_retried_for_ten_minutes(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, STALE)
+    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+    get_document(document_id)
+    fake_lrclib.error = None
+    age_lrclib_failure(document_id, timedelta(minutes=9, seconds=59))
+    requests_before = len(fake_lrclib.requests)
+
+    document = get_document(document_id)
+
+    assert len(fake_lrclib.requests) == requests_before
+    assert document.text == WEATHER
+    assert document.lrclib_sync_error.startswith("Couldn't reach LRCLIB.")
+
+
+def test_a_failed_check_is_retried_after_ten_minutes(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     age_lrclib_check(document_id, STALE)
     fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
     get_document(document_id)
     fake_lrclib.error = None
     fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+    age_lrclib_failure(document_id, timedelta(minutes=10, seconds=1))
 
-    assert get_document(document_id).text == "今日は雨です。"
+    document = get_document(document_id)
+
+    assert document.text == "今日は雨です。"
+    assert document.lrclib_sync_error is None
+    assert get_document(document_id).lrclib_sync_error is None
+
+
+def test_a_failed_refresh_spares_lrclib_on_load(committed_engine, fake_lrclib):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, STALE)
+    fake_lrclib.error = LrclibError("LRCLIB has no track at that address.")
+    with pytest.raises(HTTPException):
+        refresh_lrclib(document_id)
+    requests_before = len(fake_lrclib.requests)
+
+    document = get_document(document_id)
+
+    assert len(fake_lrclib.requests) == requests_before
+    assert document.lrclib_sync_error.startswith("LRCLIB has no track")
 
 
 def test_refresh_ignores_the_24_hour_limit(committed_engine, fake_lrclib):

@@ -360,6 +360,10 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
 LRCLIB_RECHECK_AFTER = timedelta(hours=24)
 # How soon after the last check a manual refresh is allowed.
 LRCLIB_REFRESH_COOLDOWN = timedelta(minutes=5)
+# How long after a failed check opening the document shows that failure
+# rather than asking LRCLIB again. It's also how long a new version can go
+# unseen once LRCLIB is back, so it stays short.
+LRCLIB_RETRY_FAILED_AFTER = timedelta(minutes=10)
 
 
 def _time_left(checked_at: datetime | None, wait: timedelta) -> timedelta:
@@ -373,7 +377,9 @@ def _time_left(checked_at: datetime | None, wait: timedelta) -> timedelta:
 @api.get("/documents/{document_id}", response_model=Document)
 def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
-    to a track there and was last checked over `LRCLIB_RECHECK_AFTER` ago."""
+    to a track there and was last checked over `LRCLIB_RECHECK_AFTER` ago.
+    A check that failed under `LRCLIB_RETRY_FAILED_AFTER` ago isn't retried:
+    its error is shown with the stored lyrics instead."""
     with engine.connect() as conn:
         row = owned_document_row(conn, document_id, user_id)
 
@@ -385,15 +391,15 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
         return document
     if _time_left(row.lrclib_checked_at, LRCLIB_RECHECK_AFTER) > timedelta(0):
         return document
+    if _time_left(row.lrclib_failed_at, LRCLIB_RETRY_FAILED_AFTER) > timedelta(0):
+        return document.model_copy(update={"lrclib_sync_error": row.lrclib_failure})
 
     try:
         return _sync_with_lrclib(document_id, user_id, document.lrclib_uri)
     except (LrclibError, LrclibUnavailable) as exc:
-        return document.model_copy(
-            update={
-                "lrclib_sync_error": f"{exc} Showing the lyrics last loaded from it."
-            }
-        )
+        error = f"{exc} Showing the lyrics last loaded from it."
+        _record_lrclib_failure(document_id, document.lrclib_uri, error)
+        return document.model_copy(update={"lrclib_sync_error": error})
 
 
 @api.post("/documents/{document_id}/lrclib/refresh", response_model=Document)
@@ -416,8 +422,32 @@ def refresh_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document
 
     try:
         return _sync_with_lrclib(document_id, user_id, row.lrclib_uri)
-    except LrclibError as exc:
+    except (LrclibError, LrclibUnavailable) as exc:
+        # Recorded so opening the document doesn't retry it straight away;
+        # the refresh cooldown is left alone, so the button can retry it.
+        _record_lrclib_failure(
+            document_id,
+            row.lrclib_uri,
+            f"{exc} Showing the lyrics last loaded from it.",
+        )
+        if isinstance(exc, LrclibUnavailable):
+            raise
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+def _record_lrclib_failure(document_id: int, uri: str, error: str) -> None:
+    """Record that checking the document's lyrics against `uri` just failed
+    with `error`, unless it has since been linked elsewhere."""
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE documents SET lrclib_failed_at = now(), lrclib_failure = :error
+                WHERE id = :id AND lrclib_uri = :uri
+                """
+            ),
+            {"id": document_id, "uri": uri, "error": error},
+        )
 
 
 def _sync_with_lrclib(document_id: int, user_id: int, uri: str) -> Document:
@@ -440,7 +470,9 @@ def _sync_with_lrclib(document_id: int, user_id: int, uri: str) -> Document:
             row = conn.execute(
                 text(
                     f"""
-                    UPDATE documents SET lrclib_checked_at = now()
+                    UPDATE documents
+                    SET lrclib_checked_at = now(), lrclib_failed_at = NULL,
+                        lrclib_failure = NULL
                     WHERE id = :id
                     RETURNING {DOCUMENT_COLUMNS}
                     """
@@ -496,7 +528,7 @@ def _store_lrclib_lyrics(
             SET text = :text, lrclib_uri = :uri, lrclib_replaces_text = :replace_text,
                 lrclib_lines = CAST(:lines AS JSONB),
                 lrclib_lines_text = CASE WHEN :lines IS NOT NULL THEN :text END,
-                lrclib_checked_at = now()
+                lrclib_checked_at = now(), lrclib_failed_at = NULL, lrclib_failure = NULL
             WHERE id = :id
             RETURNING {DOCUMENT_COLUMNS}
             """
