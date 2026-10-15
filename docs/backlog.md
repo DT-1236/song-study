@@ -6,13 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
 
-- **Rate-limit memory is a bare module global.** `_rate_limited_until` in
-  `backend/app/lrclib.py` is written from sync handlers running in the
-  threadpool, and each uvicorn worker learns the limit separately. Wrap it
-  in a small object owned by the module (a lock around the deadline, and a
-  `check()` that raises `LrclibRateLimited`) that `_get_json` asks before
-  sending; the tests' `reset_rate_limit` fixture then resets that object.
-  Opus 5.5, medium: a race here is silent.
 - **`logging.basicConfig` runs at import of `app.main`.** Move it to the
   process entry point (or a uvicorn `--log-config`) so importing the app in
   tests and scripts doesn't configure the root logger; keep the `LOG_LEVEL`

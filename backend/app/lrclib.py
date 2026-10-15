@@ -21,6 +21,7 @@ import json
 import logging
 import math
 import re
+import threading
 import time
 import unicodedata
 import urllib.error
@@ -64,9 +65,37 @@ class LrclibRateLimited(LrclibUnavailable):
         )
 
 
-# When LRCLIB's last rate limit ends, on the monotonic clock. Requests before
-# then aren't sent, since they would only extend the limit.
-_rate_limited_until = 0.0
+class _RateLimit:
+    """When LRCLIB's last rate limit ends. Requests before then aren't sent,
+    since they would only extend the limit. Each process learns the limit
+    for itself."""
+
+    def __init__(self):
+        # Handlers run in the threadpool, so a 429 can land while another
+        # request is checking.
+        self._lock = threading.Lock()
+        # On the monotonic clock.
+        self._until = 0.0
+
+    def check(self) -> None:
+        """Raise LrclibRateLimited if LRCLIB's rate limit hasn't ended."""
+        with self._lock:
+            remaining = self._until - time.monotonic()
+        if remaining > 0:
+            raise LrclibRateLimited(remaining)
+
+    def start(self, seconds: float) -> None:
+        """Remember that LRCLIB asked for no requests for `seconds`, unless
+        an earlier answer already asked for longer."""
+        with self._lock:
+            self._until = max(self._until, time.monotonic() + seconds)
+
+    def reset(self) -> None:
+        with self._lock:
+            self._until = 0.0
+
+
+_rate_limit = _RateLimit()
 
 
 def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
@@ -173,13 +202,15 @@ def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
 
 def _get_json(uri: str) -> Any | None:
     """The JSON at `uri`, or None when LRCLIB answers 404."""
-    global _rate_limited_until
-    remaining = _rate_limited_until - time.monotonic()
-    if remaining > 0:
+    try:
+        _rate_limit.check()
+    except LrclibRateLimited as exc:
         logger.info(
-            "LRCLIB request skipped, rate-limited for %.1fs: %s", remaining, uri
+            "LRCLIB request skipped, rate-limited for %.1fs: %s",
+            exc.retry_after_seconds,
+            uri,
         )
-        raise LrclibRateLimited(remaining)
+        raise
 
     request = urllib.request.Request(
         uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -210,7 +241,7 @@ def _get_json(uri: str) -> Any | None:
                 raise LrclibUnavailable(
                     "LRCLIB is rate-limiting requests — try again later."
                 ) from exc
-            _rate_limited_until = time.monotonic() + wait
+            _rate_limit.start(wait)
             raise LrclibRateLimited(wait) from exc
         raise LrclibUnavailable(
             f"LRCLIB responded with an error ({exc.code})."

@@ -131,8 +131,8 @@ class FakeLrclib:
 
 
 @pytest.fixture(autouse=True)
-def reset_rate_limit(monkeypatch):
-    monkeypatch.setattr(lrclib, "_rate_limited_until", 0.0)
+def reset_rate_limit():
+    lrclib._rate_limit.reset()
 
 
 @pytest.fixture
