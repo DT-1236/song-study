@@ -410,9 +410,14 @@ def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
 
     try:
         return _sync_with_lrclib(document_id, user_id, document.lrclib_uri)
-    except (LrclibError, LrclibUnavailable) as exc:
-        error = _record_lrclib_failure(document_id, document.lrclib_uri, exc)
-        return document.model_copy(update={"lrclib_sync_error": error})
+    except LrclibError as exc:
+        _record_lrclib_failure(document_id, document.lrclib_uri, exc)
+        error = exc
+    # Not recorded, since it's no fault of this document's: the lrclib module
+    # holds every request back for a while instead.
+    except LrclibUnavailable as exc:
+        error = exc
+    return document.model_copy(update={"lrclib_sync_error": _sync_error(error)})
 
 
 @api.post("/documents/{document_id}/lrclib/refresh", response_model=Document)
@@ -442,18 +447,15 @@ def refresh_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-def _record_lrclib_failure(
-    document_id: int, uri: str, exc: LrclibError | LrclibUnavailable
-) -> str:
-    """Return the error to show with the stored lyrics after checking the
-    document's lyrics against `uri` failed with `exc`, and record it if
-    LRCLIB refused that track, unless the document has since been linked
-    elsewhere. LRCLIB being unreachable or rate-limiting isn't recorded,
-    since it's no fault of this document's: the lrclib module holds every
-    request back for a while instead."""
-    error = f"{exc} Showing the lyrics last loaded from it."
-    if not isinstance(exc, LrclibError):
-        return error
+def _sync_error(exc: LrclibError | LrclibUnavailable) -> str:
+    """The error shown with a linked document's stored lyrics when checking
+    LRCLIB for new ones failed with `exc`."""
+    return f"{exc} Showing the lyrics last loaded from it."
+
+
+def _record_lrclib_failure(document_id: int, uri: str, exc: LrclibError) -> None:
+    """Record that LRCLIB just refused the document's track at `uri` with
+    `exc`, unless the document has since been linked elsewhere."""
     with engine.begin() as conn:
         conn.execute(
             text(
@@ -462,9 +464,12 @@ def _record_lrclib_failure(
                 WHERE id = :id AND lrclib_uri = :uri
                 """
             ),
-            {"id": document_id, "uri": uri, "error": error},
+            {
+                "id": document_id,
+                "uri": uri,
+                "error": _sync_error(exc),
+            },
         )
-    return error
 
 
 def _sync_with_lrclib(document_id: int, user_id: int, uri: str) -> Document:

@@ -138,6 +138,26 @@ def reset_holds():
     lrclib._outage.reset()
 
 
+class _Clock:
+    """A stand-in for time.monotonic that only moves when told to."""
+
+    def __init__(self):
+        self.now = time.monotonic()
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch) -> _Clock:
+    clock = _Clock()
+    monkeypatch.setattr(time, "monotonic", clock)
+    return clock
+
+
 @pytest.fixture
 def fake_lrclib(monkeypatch):
     fake = FakeLrclib()
@@ -380,7 +400,7 @@ def test_the_client_is_told_to_wait_half_again_as_long():
         TimeoutError(),
     ],
 )
-def test_an_outage_holds_requests_back_for_a_minute(monkeypatch, error):
+def test_an_outage_holds_requests_back_for_a_minute(monkeypatch, clock, error):
     sent = []
 
     def urlopen(request, timeout):
@@ -396,17 +416,15 @@ def test_an_outage_holds_requests_back_for_a_minute(monkeypatch, error):
 
     assert len(sent) == 1
     assert not isinstance(held.value, LrclibRateLimited)
-    assert "trying again in 60 seconds" in str(held.value)
+    assert "trying again in 1 minute" in str(held.value)
 
-    monkeypatch.setattr(time, "monotonic", lambda real=time.monotonic: real() + 61)
+    clock.advance(61)
     with pytest.raises(LrclibUnavailable):
         lrclib._get_json(URI)
     assert len(sent) == 2
 
 
-def test_an_outage_holds_requests_back_longer_each_time_up_to_a_day(monkeypatch):
-    clock = [time.monotonic()]
-    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+def test_an_outage_holds_requests_back_longer_each_time_up_to_a_day(monkeypatch, clock):
     holds = []
 
     def urlopen(request, timeout):
@@ -418,15 +436,13 @@ def test_an_outage_holds_requests_back_longer_each_time_up_to_a_day(monkeypatch)
         with pytest.raises(LrclibUnavailable):
             lrclib._get_json(URI)
         holds.append(lrclib._outage.remaining())
-        clock[0] += holds[-1]
+        clock.advance(holds[-1])
 
     assert holds[:3] == [60, 120, 240]
     assert holds[-2:] == [24 * 60 * 60] * 2
 
 
-def test_an_answer_ends_the_run_of_longer_holds(monkeypatch):
-    clock = [time.monotonic()]
-    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+def test_an_answer_ends_the_run_of_longer_holds(monkeypatch, clock):
     answers = [TimeoutError(), TimeoutError(), None, TimeoutError()]
 
     def urlopen(request, timeout):
@@ -435,16 +451,17 @@ def test_an_answer_ends_the_run_of_longer_holds(monkeypatch):
         return _Response(b"{}")
 
     monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    holds = []
 
-    for _ in range(4):
+    while answers:
         try:
             lrclib._get_json(URI)
         except LrclibUnavailable:
             pass
-        clock[0] += 24 * 60 * 60
+        holds.append(lrclib._outage.remaining())
+        clock.advance(max(holds[-1], 0))
 
-    clock[0] -= 24 * 60 * 60
-    assert lrclib._outage.remaining() == 60
+    assert holds == [60, 120, 0, 60]
 
 
 @pytest.mark.parametrize(
