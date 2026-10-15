@@ -8,16 +8,13 @@ await check('lrclib-search', async (h) => {
   // The failed search below is stubbed on purpose.
   h.expectServerError('/lrclib/search')
   const page = await h.open('/new')
-  const requests = []
   let respond = () => ({ json: [] })
-  await page.route('**/lrclib/search?*', async (route) => {
-    const url = new URL(route.request().url())
-    requests.push({
+  const seen = await h.stub(page, '**/lrclib/search?*', () => respond())
+  const requests = () =>
+    seen.map((url) => ({
       title: url.searchParams.get('title'),
       artist: url.searchParams.get('artist'),
-    })
-    await route.fulfill(respond())
-  })
+    }))
   const found = (name) => ({
     json: [
       {
@@ -55,11 +52,11 @@ await check('lrclib-search', async (h) => {
     .locator('.search-result-title', { hasText: 'First Song' })
     .waitFor()
   h.expect(
-    requests.length === 1 &&
-      requests[0].title === '' &&
-      requests[0].artist === 'Some Artist',
+    seen.length === 1 &&
+      requests()[0].title === '' &&
+      requests()[0].artist === 'Some Artist',
     'the artist was sent without a title',
-    JSON.stringify(requests),
+    JSON.stringify(requests()),
   )
 
   h.step('a title alone is searched')
@@ -89,9 +86,9 @@ await check('lrclib-search', async (h) => {
   await lrclibButton.click()
   await page.locator('.form-error', { hasText: 'Rate limited.' }).waitFor()
   h.expect(await lrclibButton.isDisabled(), 'disabled while limited')
-  const before = requests.length
+  const before = seen.length
   await title.press('Enter')
-  h.expect(requests.length === before, 'Enter searches nothing meanwhile')
+  h.expect(seen.length === before, 'Enter searches nothing meanwhile')
   await page.waitForTimeout(700)
   h.expect(await lrclibButton.isEnabled(), 'enabled again afterwards')
 })

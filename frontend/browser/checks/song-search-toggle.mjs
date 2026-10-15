@@ -6,15 +6,13 @@ import { check } from '../harness.mjs'
 // itself is stubbed, as it reaches YouTube Music.
 await check('song-search-toggle', async (h) => {
   const page = await h.open('/new')
-  const requests = []
+  const kindOf = (url) => (url.searchParams.get('videos') ? 'videos' : 'songs')
   // Songs answer slowly, so a flip can overtake them.
-  await page.route('**/songs/search?*', async (route) => {
-    const url = new URL(route.request().url())
-    const kind = url.searchParams.get('videos') ? 'videos' : 'songs'
+  const seen = await h.stub(page, '**/songs/search?*', async (url) => {
+    const kind = kindOf(url)
     const q = url.searchParams.get('q')
-    requests.push(`${kind}:${q}`)
     await new Promise((done) => setTimeout(done, kind === 'songs' ? 1500 : 0))
-    await route.fulfill({
+    return {
       json: [
         {
           video_id: `${kind}-${q}`,
@@ -25,8 +23,10 @@ await check('song-search-toggle', async (h) => {
           thumbnail_url: null,
         },
       ],
-    })
+    }
   })
+  const requests = () =>
+    seen.map((url) => `${kindOf(url)}:${url.searchParams.get('q')}`)
   const box = page.locator('#song-search-query')
   const toggle = page.locator('.search-include-videos input')
   const shown = () => page.locator('.search-result-title').allTextContents()
@@ -51,7 +51,7 @@ await check('song-search-toggle', async (h) => {
   await toggle.check()
   await toggle.uncheck()
   await page.waitForTimeout(300)
-  h.expect(requests.length === 0, 'no search', JSON.stringify(requests))
+  h.expect(seen.length === 0, 'no search', JSON.stringify(requests()))
 
   h.step('a flip repeats the search for the other kind')
   await box.fill('one')
@@ -64,9 +64,9 @@ await check('song-search-toggle', async (h) => {
   await toggle.uncheck()
   await expectShown('songs:one', 'songs shown again')
   h.expect(
-    requests.join() === 'songs:one,videos:one',
+    requests().join() === 'songs:one,videos:one',
     'no search on flipping back',
-    JSON.stringify(requests),
+    JSON.stringify(requests()),
   )
 
   h.step('a flip mid-search drops the old kind')
@@ -79,13 +79,13 @@ await check('song-search-toggle', async (h) => {
   })
 
   h.step('flipping back uses the songs that settled for the same query')
-  const before = requests.length
+  const before = seen.length
   await toggle.uncheck()
   await expectShown('songs:two', 'songs shown')
   h.expect(
-    requests.length === before,
+    seen.length === before,
     'no search for songs already found',
-    JSON.stringify(requests),
+    JSON.stringify(requests()),
   )
 
   h.step('a new query clears what was found')

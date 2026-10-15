@@ -12,11 +12,6 @@ so it can be picked up without re-deriving the reasoning.
   `_is_punctuation` would change its keys, so this needs a decision on what
   counts as a "spacing" character before it can share code. Opus 5.5, medium:
   the match rule decides which LRCLIB titles are accepted.
-- **`page.route` stubbing repeated per check.** `lrclib-search.mjs`,
-  `song-search-toggle.mjs`, `documents-list.mjs` and
-  `new-document-processing.mjs` each build a stub by hand. Add a harness
-  helper (`h.stub(pattern, respond)`) and use it in all four, documenting it
-  in `docs/browser-checks.md`. Sonnet 5.5, medium.
 
 ## /simplify on the LRCLIB re-check limit and Refresh button (uncommitted, on main)
 

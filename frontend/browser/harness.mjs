@@ -210,6 +210,23 @@ class Harness {
     return page
   }
 
+  // Answers `page`'s requests matching `pattern` (a glob or RegExp) with
+  // whatever `respond(url, request)` returns, which may be async: Playwright
+  // `fulfill` options (`json`, `status`, ...), or nothing to let the request
+  // through to the harness backend. Returns the URLs seen, in order.
+  async stub(page, pattern, respond) {
+    const seen = []
+    await page.route(pattern, async (route) => {
+      const request = route.request()
+      const url = new URL(request.url())
+      seen.push(url)
+      const response = await respond(url, request)
+      if (response === undefined) await route.continue()
+      else await route.fulfill(response)
+    })
+    return seen
+  }
+
   // Saves a screenshot to the check's output folder and returns its path;
   // Read the PNG to look at it.
   async screenshot(page, label, options = {}) {
