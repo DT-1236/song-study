@@ -16,7 +16,6 @@ import {
 import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
   ApiError,
-  LRCLIB_REFRESH_COOLDOWN_SECONDS,
   LRCLIB_URI_PLACEHOLDER,
   acceptPhraseSuggestions,
   addTokenCard,
@@ -2552,7 +2551,7 @@ function LrclibSource({
   async function refresh() {
     try {
       const refreshed = await refreshLrclib(doc.id)
-      pauseFor(LRCLIB_REFRESH_COOLDOWN_SECONDS)
+      pauseFor(refreshed.lrclib_refresh_cooldown_seconds)
       return refreshed
     } catch (err) {
       if (err instanceof ApiError && err.retryAfterSeconds !== undefined) {

@@ -265,6 +265,10 @@ class LineTiming(BaseModel):
     end: float
 
 
+# How soon after the last check a manual refresh is allowed.
+LRCLIB_REFRESH_COOLDOWN = timedelta(minutes=5)
+
+
 class Document(BaseModel):
     id: int
     title: str
@@ -285,6 +289,8 @@ class Document(BaseModel):
     # Why a linked document's lyrics couldn't be refreshed from LRCLIB on
     # this load, in which case the stored ones are returned instead.
     lrclib_sync_error: str | None = None
+    # How long the page waits after a refresh before offering another.
+    lrclib_refresh_cooldown_seconds: float = LRCLIB_REFRESH_COOLDOWN.total_seconds()
 
 
 def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:
@@ -358,8 +364,6 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
 # How long a linked document's lyrics are trusted before opening it checks
 # LRCLIB for a new version.
 LRCLIB_RECHECK_AFTER = timedelta(hours=24)
-# How soon after the last check a manual refresh is allowed.
-LRCLIB_REFRESH_COOLDOWN = timedelta(minutes=5)
 # How long after a failed check opening the document shows that failure
 # rather than asking LRCLIB again. It's also how long a new version can go
 # unseen once LRCLIB is back, so it stays short.

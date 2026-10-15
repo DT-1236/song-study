@@ -27,6 +27,7 @@ export type Document = {
   // Set when a linked document's lyrics couldn't be refreshed from LRCLIB
   // on this load, in which case the stored ones were returned.
   lrclib_sync_error: string | null
+  lrclib_refresh_cooldown_seconds: number
 }
 
 export class ApiError extends Error {
@@ -178,8 +179,8 @@ export async function unlinkLrclib(id: number): Promise<Document> {
 }
 
 // Reloads the document's lyrics from LRCLIB now. The server refuses (with an
-// ApiError carrying retryAfterSeconds) within LRCLIB_REFRESH_COOLDOWN_SECONDS
-// of the last check.
+// ApiError carrying retryAfterSeconds) within the document's
+// lrclib_refresh_cooldown_seconds of the last check.
 export async function refreshLrclib(id: number): Promise<Document> {
   const response = await fetch(`${API_URL}/documents/${id}/lrclib/refresh`, {
     method: 'POST',
@@ -189,10 +190,6 @@ export async function refreshLrclib(id: number): Promise<Document> {
 
   return response.json()
 }
-
-// How long after a check of LRCLIB the server refuses another refresh;
-// LRCLIB_REFRESH_COOLDOWN in backend/app/main.py.
-export const LRCLIB_REFRESH_COOLDOWN_SECONDS = 5 * 60
 
 // Saves `lines` as the document's edited line timings, made for its lyrics
 // as they were when editing started (`text`).
