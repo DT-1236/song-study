@@ -66,6 +66,18 @@ class LrclibRateLimited(LrclibUnavailable):
         )
 
 
+class LrclibHeldBack(LrclibUnavailable):
+    """A request skipped, without being sent, because an outage has LRCLIB
+    held back for another `retry_after_seconds`."""
+
+    def __init__(self, retry_after_seconds: float):
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(
+            "LRCLIB couldn't be reached recently — trying again in "
+            f"{_describe_wait(retry_after_seconds)}."
+        )
+
+
 class _Hold:
     """When a hold on requests to LRCLIB ends, and the error, built from the
     seconds left, that a request held back raises. Each process keeps its
@@ -143,14 +155,7 @@ class _Backoff(_Hold):
 # that drops our requests, is asked less and less often rather than once per
 # document. The longest wait is also how long an update to linked lyrics can
 # go unseen once LRCLIB is back, and a day is as stale as they're let get.
-_outage = _Backoff(
-    lambda remaining: LrclibUnavailable(
-        "LRCLIB couldn't be reached recently — trying again in "
-        f"{_describe_wait(remaining)}."
-    ),
-    first=60,
-    longest=24 * 60 * 60,
-)
+_outage = _Backoff(LrclibHeldBack, first=60, longest=24 * 60 * 60)
 
 
 def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
