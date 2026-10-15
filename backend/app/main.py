@@ -4,6 +4,7 @@ import logging
 import os
 import re
 from collections.abc import Callable
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
@@ -69,11 +70,19 @@ from app.tokenization import (
 from app.users import CurrentUser, OwnedDocument
 from app.youtube_music import Song, YouTubeMusicUnavailable, search_songs
 
-# Uvicorn only configures its own loggers, so without this the app's INFO
-# logs (LRCLIB requests, for one) never show.
-logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
-app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    """Configures the root logger when the server starts, so importing the
+    app (tests, scripts) leaves logging alone.
+    """
+    # Uvicorn only configures its own loggers, so without this the app's INFO
+    # logs (LRCLIB requests, for one) never show.
+    logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
+    yield
+
+
+app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json", lifespan=lifespan)
 
 # The API is served under /api on the app's own origin, so there's no CORS.
 # Its cookie is Secure exactly when the app is served over https.

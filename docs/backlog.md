@@ -6,10 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## /simplify on the LRCLIB artist/title search (single query, cleaned title, rate-limit pause, stale results)
 
-- **`logging.basicConfig` runs at import of `app.main`.** Move it to the
-  process entry point (or a uvicorn `--log-config`) so importing the app in
-  tests and scripts doesn't configure the root logger; keep the `LOG_LEVEL`
-  variable. Sonnet 5.5, low.
 - **LRCLIB-only behavior in the shared `SearchDropdown`.** `fields`,
   `canSearch` and the rate-limit pause (with `ApiError.retryAfterSeconds`)
   serve only `LrclibMatches`, and every other `SearchDropdown` user inherits
