@@ -4,14 +4,8 @@ import { check, DESKTOP, videoFrame } from '../harness.mjs'
 
 await check('run-through', async (h) => {
   const id = await h.videoDocument()
-  const { text } = await h.api('GET', `/documents/${id}`)
   // Each lyric line five seconds long, from 30 s in.
-  const lines = text
-    .split('\n')
-    .map((line, i) =>
-      line.trim() ? { start: 30 + i * 5, end: 35 + i * 5 } : null,
-    )
-  await h.api('PUT', `/documents/${id}/timings`, { text, lines })
+  const lines = await h.timeLines(id, { start: 30, step: 5 })
   const first = lines.find(Boolean)
 
   h.step('Start before the player is ready')

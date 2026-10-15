@@ -1741,12 +1741,6 @@ label.apply-to-all {
   color: var(--accent);
 }
 
-/* The lit icon and the color change stand in for the focus ring, which on a
-   tap shows as a box around the icon (index.css draws it on any focus). */
-.icon-toggle:focus {
-  outline: none;
-}
-
 .icon-toggle:hover:not(:disabled) svg,
 .icon-toggle:focus-visible svg,
 .icon-toggle.on svg {

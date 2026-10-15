@@ -78,16 +78,18 @@ absolute path.
 
 `check(name, body)` calls `body(h)` with:
 
-|                                  |                                                                                                                                                                                                                                                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `h.open(path, device)`           | A page at `path` in a fresh context for `device` (`PHONE`, `NARROW`, `LANDSCAPE`, `DESKTOP`; `PHONES` and `ALL_DEVICES` are lists). Uncaught page errors and 5xx responses fail the check; console errors are reported as notes. Requests to any origin but the harness's and YouTube's are blocked. |
-| `h.step(label)`                  | Names what comes next, so a failure says where it happened.                                                                                                                                                                                                                                          |
-| `h.expect(ok, message, detail?)` | One `PASS`/`FAIL` line.                                                                                                                                                                                                                                                                              |
-| `h.expectNone(list, message)`    | Passes when a measurement's list of offenders is empty.                                                                                                                                                                                                                                              |
-| `h.screenshot(page, label)`      | Saves a full-page PNG and prints its path; Read it to look.                                                                                                                                                                                                                                          |
-| `h.api(method, path, body)`      | Calls `/api` as the test user, for setup beyond the seed.                                                                                                                                                                                                                                            |
-| `h.seed`                         | `{ document_id, user_id }`.                                                                                                                                                                                                                                                                          |
-| `h.videoDocument()`              | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none.                                                                                                                                                                                                  |
+|                                                  |                                                                                                                                                                                                                                                                                                      |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `h.open(path, device)`                           | A page at `path` in a fresh context for `device` (`PHONE`, `NARROW`, `LANDSCAPE`, `DESKTOP`; `PHONES` and `ALL_DEVICES` are lists). Uncaught page errors and 5xx responses fail the check; console errors are reported as notes. Requests to any origin but the harness's and YouTube's are blocked. |
+| `h.step(label)`                                  | Names what comes next, so a failure says where it happened.                                                                                                                                                                                                                                          |
+| `h.expect(ok, message, detail?)`                 | One `PASS`/`FAIL` line.                                                                                                                                                                                                                                                                              |
+| `h.expectNone(list, message)`                    | Passes when a measurement's list of offenders is empty.                                                                                                                                                                                                                                              |
+| `h.screenshot(page, label)`                      | Saves a full-page PNG and prints its path; Read it to look.                                                                                                                                                                                                                                          |
+| `h.api(method, path, body)`                      | Calls `/api` as the test user, for setup beyond the seed.                                                                                                                                                                                                                                            |
+| `h.seed`                                         | `{ document_id, user_id }`.                                                                                                                                                                                                                                                                          |
+| `h.videoDocument()`                              | The id of a document of the seed's text with a YouTube video, made on first use. The seed has none.                                                                                                                                                                                                  |
+| `h.document({ match, title, youtube_video_id })` | The id of the document `match` picks out of the listing, or a new one of the seed's text with that title (or `title(seed)`) and video.                                                                                                                                                               |
+| `h.timeLines(id, { start, step })`               | Times every non-blank line of a document, `step` seconds each from `start`; returns the lines.                                                                                                                                                                                                       |
 
 And from `harness.mjs`, each taking a page: `isShown`, `settle` (waits for
 CSS transitions to finish), `tapOrClick` (`tap()` throws without touch), `sidewaysOverflow`, `smallTapTargets` (under
@@ -168,6 +170,15 @@ BROWSER_WEB_PORT=5211`. The test database is shared, so don't run two
 - **`beforeunload` never fires on `page.close({ runBeforeUnload: true })`**
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).
+- **`videoDocument()` is shared, timings and all.** `mobile-gloss-sheet`
+  and `run-through` save timings to it, and the API can't clear them, so a
+  check that needs an untimed line untimes it in the editor (unsaved), as
+  `mobile-timing-buttons` does. A check that only needs timed lines and no
+  playing video makes its own with `h.document()`.
+- **Don't assume where the page is scrolled.** A closed gloss sheet takes
+  its room with it, and the video sits below the lyrics unless it's sticky,
+  so the end of the lyrics can stop halfway up the screen. Scroll what a
+  check needs into place, as `mobile-gloss-sheet`'s low hold does.
 - **A touch lands on anything clickable within about 8px,** as on a phone
   (Chromium's touch adjustment), so a "tap on blank space" needs about 12px
   clear of tokens, buttons and the gloss sheet around it.

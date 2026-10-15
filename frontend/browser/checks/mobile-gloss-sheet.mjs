@@ -89,16 +89,29 @@ await check('mobile-gloss-sheet', async (h) => {
   const id = await h.videoDocument()
   // Each lyric line a second long, from the start, so playback moves the
   // line being sung down the lyrics quickly.
-  const { text } = await h.api('GET', `/documents/${id}`)
-  const lines = text
-    .split('\n')
-    .map((line, i) => (line.trim() ? { start: i, end: i + 1 } : null))
-  await h.api('PUT', `/documents/${id}/timings`, { text, lines })
+  await h.timeLines(id, { step: 1 })
   const path = `/documents/${id}`
 
   h.step('phone: a tap previews')
   const page = await h.open(path, PHONE)
+  // The first line starts at 0s, so it's marked sung as soon as the player
+  // is ready, paused. Auto-scroll follows playback only: the page stays put.
+  // Parked as soon as there are lyrics, seconds before the player is ready.
+  await page.waitForSelector('.lyrics-box .token')
+  await page.$eval('.content', (el) => (el.scrollTop = el.scrollHeight))
+  const parked = await scrollTop(page)
   await tokenized(page)
+  await playerReady(page)
+  await page.waitForSelector('.lyrics-box .playing')
+  // Effects run before the next frame.
+  await page.evaluate(
+    () => new Promise((done) => requestAnimationFrame(() => setTimeout(done))),
+  )
+  h.expect(
+    (await scrollTop(page)) === parked,
+    'paused, the first line marked sung on load is not scrolled to',
+  )
+  await page.$eval('.content', (el) => (el.scrollTop = 0))
   const f = await finger(page)
   // Holds `locator` long enough to pin it.
   const holdOn = async (locator) => {
@@ -278,21 +291,26 @@ await check('mobile-gloss-sheet', async (h) => {
       true,
     )
   })
+  // Scrolls a glossed token from the middle of the lyrics to between 60% of
+  // the screen and the bar: closing the last pin can leave the page scrolled
+  // to its end, where the lyrics stop well above the video below them.
   const low = await page.evaluate(() => {
     const barTop = document
       .querySelector('.player-controls')
       .getBoundingClientRect().top
-    return [...document.querySelectorAll('.lyrics-box .token')].findIndex(
-      (el) => {
-        const r = el.getBoundingClientRect()
-        return (
-          el.classList.contains('has-gloss') &&
-          r.top > innerHeight * 0.6 &&
-          r.bottom < barTop - 8
-        )
-      },
-    )
+    const tokens = [...document.querySelectorAll('.lyrics-box .token')]
+    const glossed = tokens.filter((el) => el.classList.contains('has-gloss'))
+    const el = glossed[Math.floor(glossed.length / 2)]
+    const target = (innerHeight * 0.6 + barTop - 8) / 2
+    const r = el.getBoundingClientRect()
+    document.querySelector('.content').scrollTop +=
+      (r.top + r.bottom) / 2 - target
+    const moved = el.getBoundingClientRect()
+    return moved.top > innerHeight * 0.6 && moved.bottom < barTop - 8
+      ? tokens.indexOf(el)
+      : -1
   })
+  h.expect(low >= 0, 'a glossed token scrolls low on the screen')
   at = await center(page.locator('.lyrics-box .token').nth(low))
   await f.down(at.x, at.y)
   await page.waitForTimeout(LONG_PRESS_MS * 3)

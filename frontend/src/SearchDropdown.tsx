@@ -10,18 +10,19 @@ type Props<T> = {
   placeholder: string
   // Searched for on mount, when given.
   initialQuery?: string
-  search: (query: string) => Promise<T>
+  // `again` is true when it repeats the last search because `kind` changed,
+  // rather than for a search asked for or the one on mount.
+  search: (query: string, again: boolean) => Promise<T>
+  // What `search` looks for, when it can look for more than one thing. A
+  // change repeats the last search (if any) for the new kind, and results
+  // still coming for the old one never land.
+  kind?: string
   // Takes what the search on mount found, and says whether to show it. The
   // results of a search asked for are always shown.
   onMountResults?: (results: T) => boolean
   failureMessage: string
-  // Settings shown under the box whether or not there are results, given a
-  // function that repeats the last search with the `search` to use for it,
-  // for a setting changed since. It does nothing before a search has been
-  // asked for.
-  controls?: (
-    searchAgain: (search: (query: string) => Promise<T>) => void,
-  ) => ReactNode
+  // Settings shown under the box whether or not there are results.
+  controls?: ReactNode
   // The results list, given the latest results and a function that closes it.
   children: (results: T, close: () => void) => ReactNode
 }
@@ -37,6 +38,7 @@ export function SearchDropdown<T>({
   placeholder,
   initialQuery = '',
   search,
+  kind,
   onMountResults,
   failureMessage,
   controls,
@@ -65,13 +67,13 @@ export function SearchDropdown<T>({
   }, [])
 
   const runSearch = useCallback(
-    async (text: string, onMount: boolean, searchWith = searchRef.current) => {
+    async (text: string, onMount: boolean, again = false) => {
       lastQuery.current = text
       const searchId = ++latestSearch.current
       setSearching(true)
       setError(null)
       try {
-        const found = await searchWith(text)
+        const found = await searchRef.current(text, again)
         if (searchId !== latestSearch.current) return
         setResults(found)
         setShowResults(!onMount || (onMountResultsRef.current?.(found) ?? true))
@@ -90,6 +92,15 @@ export function SearchDropdown<T>({
     if (initialQuery) void runSearch(initialQuery, true)
     return dropPending
   }, [initialQuery, runSearch, dropPending])
+
+  // Compared rather than run on mount, which the search on mount covers.
+  const lastKind = useRef(kind)
+  useEffect(() => {
+    if (kind === lastKind.current) return
+    lastKind.current = kind
+    // Even while a search is in flight: starting another drops its results.
+    if (lastQuery.current) void runSearch(lastQuery.current, false, true)
+  }, [kind, runSearch])
 
   function submit() {
     const trimmed = query.trim()
@@ -135,10 +146,7 @@ export function SearchDropdown<T>({
           </button>
         </div>
 
-        {controls?.((searchWith) => {
-          if (results !== null)
-            void runSearch(lastQuery.current, false, searchWith)
-        })}
+        {controls}
         {error && <p className="form-error">{error}</p>}
         {showResults &&
           results !== null &&

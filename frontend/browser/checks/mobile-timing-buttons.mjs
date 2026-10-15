@@ -21,6 +21,19 @@ await check('mobile-timing-buttons', async (h) => {
     await tapOrClick(page, page.getByRole('button', { name: 'Edit timings' }))
     await page.waitForSelector('.timing-row')
   }
+  // Other checks save timings on videoDocument(), and the API can't clear
+  // them, so this untimes the picked line (unsaved) when it has a time, or
+  // a stamp would ask to overwrite it.
+  async function untimePicked(page) {
+    const timed = page.locator('.timing-row.selected .timing-delete')
+    if (!(await timed.count())) return
+    await tapOrClick(page, timed)
+    await tapOrClick(
+      page,
+      page.getByRole('button', { name: 'Delete', exact: true }),
+    )
+    await page.waitForSelector('.timing-row.selected.untimed')
+  }
   const picked = (page) =>
     page.$eval('.timing-row.selected', (el) => ({
       index: [...el.parentElement.children].indexOf(el),
@@ -68,9 +81,17 @@ await check('mobile-timing-buttons', async (h) => {
     )
     h.expectNone(await sidewaysOverflow(page), `${tag} no sideways scroll`)
 
+    await untimePicked(page)
     const nudgeLater = page.locator(`${bar} [aria-label="Nudge later"]`)
+    // canNudge reaches the bar a render after the line's time changes.
     h.expect(
-      await nudgeLater.isDisabled(),
+      await nudgeLater
+        .and(page.locator(':disabled'))
+        .waitFor({ timeout: 2000 })
+        .then(
+          () => true,
+          () => false,
+        ),
       `${tag} Nudge is disabled while the picked line has no time`,
     )
 
@@ -118,9 +139,12 @@ await check('mobile-timing-buttons', async (h) => {
     (await desk.locator(`${bar} .timing-stamp`).count()) === 0,
     'no timing buttons with a mouse',
   )
+  await untimePicked(desk)
   await desk.keyboard.press('/')
+  await desk.waitForSelector('.timing-row.selected:not(.untimed)')
   const stamped = await picked(desk)
   await desk.keyboard.press('ArrowRight')
+  await desk.waitForSelector('.timing-row.selected .nudged')
   const nudged = await picked(desk)
   h.expect(
     stamped.time !== 'untimed' &&

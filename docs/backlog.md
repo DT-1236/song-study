@@ -4,32 +4,27 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## /simplify on PRs #133, #136, #137, #140, #141, #145–#151 (post-hoc sweep)
+## /simplify on backlog sweep 11 (focus ring, video search toggle, harness helpers, auto-scroll following playback)
 
-- **Focus ring on tap.** `frontend/src/index.css`'s `button:focus` draws the
-  ring on any focus, so a tapped button shows a box; `.icon-toggle:focus` in
-  `App.css` opts out one component, and `.gloss-close` still shows it. Delete
-  `button:focus`, keep `button:focus-visible`, and drop the `.icon-toggle`
-  override. Changes every button's look after a mouse click or tap, so check
-  the desktop pages too. Sonnet 5.5, low.
-- **Video search toggle re-runs through an injected search function.**
-  `SearchDropdown`'s `controls` render prop hands out `searchAgain(searchWith)`
-  only because the toggle's `onChange` runs before `videos` re-renders.
-  Instead give `SearchDropdown` a key prop (the kind) and re-run the last
-  query in an effect when it changes, read `videos` in `SongSearch`'s
-  `search`, and pass the toggle as plain JSX. Touches the race handling in
-  `runSearch`. Opus 5.5, medium: a stale result winning is silent.
-- **Find-or-create documents and even line timings in the harness.**
-  `mobile-document-layout.mjs`'s `timedDocument` copies `videoDocument()`'s
-  find-or-create (`harness.mjs`), and the "time every non-blank line, then
-  PUT /timings" snippet appears in it, `mobile-gloss-sheet.mjs` and
-  `run-through.mjs`. Add `h.document({ match, title, youtube_video_id })`
-  (with `videoDocument()` built on it) and `h.timeLines(id, { start, step })`,
-  and use them in all three. Sonnet 5.5, medium.
-- **Browser checks failing on main.** At `1573c54`, `mobile-gloss-sheet`
-  fails "the pinned sheet opened under the finger", "the hold's release
-  clicks nothing in the sheet" and times out tapping in "phone: a hold low on
-  the screen"; `mobile-timing-buttons` fails "Nudge is disabled while the
-  picked line has no time" on phone and narrow. Work out per assertion
-  whether the app (PRs #137, #145–#146 changed these paths) or the check is
-  wrong, and fix that side. Opus 5.5, medium: some may be real regressions.
+- **Search results cached per kind outside `SearchDropdown`.** `SongSearch`
+  keeps the results per kind in `found`, with its own copy of the query and
+  its own guard against a late search, and `search(query, again)` exists so
+  it can tell a re-submit from a flip. `SearchDropdown` already tracks
+  `lastQuery` and re-runs on a `kind` change: keep the results per kind for
+  that query there, skip the search on a hit, and put `search` back to
+  `(query) => Promise<T>`, which `LrclibMatches` also implements.
+  `song-search-toggle` covers it. Opus 5.5, medium: a stale result winning is
+  silent.
+- **Untimed lines on `videoDocument()` from the harness.** `mobile-gloss-sheet`
+  and `run-through` save timings to the shared video document and the API
+  can't clear them, so `mobile-timing-buttons` untimes its picked line in the
+  editor, and whether that branch runs depends on check order. Give the
+  harness a way to start from untimed lines (a test-only reset in
+  `backend/tests/browser_server.py`, or `videoDocument({ untimed: true })`),
+  use it there, and drop the workaround and its gotcha in
+  `docs/browser-checks.md`. Sonnet 5.5, medium.
+- **"Follow playback only" decided at each page.** `DocumentViewPage` and
+  `NewDocumentForm` each pass `autoScroll && playing` to their lyric views.
+  Pass `playing` through to `useScrollPlayingIntoView` (`useAutoScroll.ts`)
+  so the rule lives there, at the cost of a prop on `SyncedLyrics` and both
+  lyric views in `DocumentViewPage`. Sonnet 5.5, low.

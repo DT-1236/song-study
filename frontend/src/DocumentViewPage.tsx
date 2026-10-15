@@ -3040,6 +3040,8 @@ export function DocumentViewPage() {
   const hasVideo = Boolean(doc?.youtube_video_id)
   // Whether the line being sung is kept on screen. Shared by every document.
   const [autoScroll, setAutoScroll] = useAutoScroll()
+  // As the player bar's play button shows it.
+  const [playing, setPlaying] = useState(false)
   // What's highlighted: a chosen LRCLIB track's timings, while previewing
   // it, or the timings as edited so far, while editing them.
   const shownTimings = useMemo(() => {
@@ -3060,6 +3062,9 @@ export function DocumentViewPage() {
     youtubePlayerRef,
     hasVideo ? shownTimings : null,
   )
+  // Paused, the page stays where the reader put it, even as a ready player
+  // or a seek marks a line sung: auto-scroll follows playback only.
+  const followPlaying = autoScroll && playing
 
   const touch = useMediaQuery(NO_HOVER)
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
@@ -3358,7 +3363,7 @@ export function DocumentViewPage() {
               playingLine={playingLine}
               // Without a video there's nothing to play them from.
               lineTimings={hasVideo ? lineTimings : null}
-              autoScroll={autoScroll}
+              autoScroll={followPlaying}
               onPlayLine={handlePlayLine}
             />
           ) : (
@@ -3374,7 +3379,7 @@ export function DocumentViewPage() {
               }
               playingLine={playingLine}
               onPlayLine={handlePlayLine}
-              autoScroll={autoScroll}
+              autoScroll={followPlaying}
             />
           )}
         </div>
@@ -3385,6 +3390,8 @@ export function DocumentViewPage() {
           playerRef={youtubePlayerRef}
           videoId={doc.youtube_video_id}
           onSeek={handleSeek}
+          playing={playing}
+          onPlayingChange={setPlaying}
           toggles={
             lineTimings && (
               <AutoScrollToggle
