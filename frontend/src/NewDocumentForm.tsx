@@ -47,7 +47,7 @@ export function NewDocumentForm() {
 
   const usingLrclib = lrclibUri.trim() !== ''
   const hasVideo = youtubeVideoId.trim() !== ''
-  const { playingLine, onSeek } = usePlayingLine(
+  const { playingLine, playing, onSeek } = usePlayingLine(
     playerRef,
     hasVideo ? (choiceLyrics?.lines ?? null) : null,
   )
@@ -105,7 +105,8 @@ export function NewDocumentForm() {
         lyrics={choiceLyrics}
         playingLine={playingLine}
         onPlayLine={handlePlayLine}
-        autoScroll={autoScroll}
+        // Follows playback only, as on the document page.
+        autoScroll={autoScroll && playing}
       />
     )
   } else if (loadingLyrics || usingLrclib) {

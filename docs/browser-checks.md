@@ -170,6 +170,15 @@ BROWSER_WEB_PORT=5211`. The test database is shared, so don't run two
 - **`beforeunload` never fires on `page.close({ runBeforeUnload: true })`**
   in headless Brave. Navigating away after a click does (`page.goto('data:…')`
   with a dialog handler).
+- **`videoDocument()` is shared, timings and all.** `mobile-gloss-sheet`
+  and `run-through` save timings to it, and the API can't clear them, so a
+  check that needs an untimed line untimes it in the editor (unsaved), as
+  `mobile-timing-buttons` does. A check that only needs timed lines and no
+  playing video makes its own with `h.document()`.
+- **Don't assume where the page is scrolled.** A closed gloss sheet takes
+  its room with it, and the video sits below the lyrics unless it's sticky,
+  so the end of the lyrics can stop halfway up the screen. Scroll what a
+  check needs into place, as `mobile-gloss-sheet`'s low hold does.
 - **A touch lands on anything clickable within about 8px,** as on a phone
   (Chromium's touch adjustment), so a "tap on blank space" needs about 12px
   clear of tokens, buttons and the gloss sheet around it.

@@ -12,12 +12,14 @@ const PLAYBACK_POLL_MS = 100
 // line) being sung at the player's current time, or null between lines,
 // before any, or while `timings` is null; and `onSeek`, for the player to
 // call on each seek so the highlight follows it at once rather than at the
-// next check.
+// next check; and `playing`, whether the video is playing, as of the same
+// check.
 export function usePlayingLine(
   playerRef: RefObject<YouTubePlayerHandle | null>,
   timings: (LineTiming | null)[] | null,
 ) {
   const [playingLine, setPlayingLine] = useState<number | null>(null)
+  const [playing, setPlaying] = useState(false)
   // Counts the player's seeks: the effect below depends on it, so a seek
   // re-runs it at once, after any other state the same keypress changed (a
   // nudge's new timings).
@@ -30,6 +32,7 @@ export function usePlayingLine(
     // timings re-run this effect, which starts the search over.
     let found = -1
     const update = () => {
+      setPlaying(playerRef.current?.isPlaying() ?? false)
       const time = playerRef.current?.getCurrentTime() ?? null
       if (time === null) return setPlayingLine(null)
       found = lastStartedBy(timings, time, found)
@@ -45,8 +48,9 @@ export function usePlayingLine(
       window.clearInterval(interval)
       // Whatever lines come next, this index isn't into them.
       setPlayingLine(null)
+      setPlaying(false)
     }
   }, [playerRef, timings, seeks])
 
-  return { playingLine, onSeek }
+  return { playingLine, playing, onSeek }
 }

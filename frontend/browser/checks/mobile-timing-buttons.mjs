@@ -68,9 +68,27 @@ await check('mobile-timing-buttons', async (h) => {
     )
     h.expectNone(await sidewaysOverflow(page), `${tag} no sideways scroll`)
 
+    // Other checks save timings on videoDocument(), and the API can't clear
+    // them, so untime the picked line here (unsaved) when it has a time.
+    const timed = page.locator('.timing-row.selected .timing-delete')
+    if (await timed.count()) {
+      await tapOrClick(page, timed)
+      await tapOrClick(
+        page,
+        page.getByRole('button', { name: 'Delete', exact: true }),
+      )
+      await page.waitForSelector('.timing-row.selected.untimed')
+    }
     const nudgeLater = page.locator(`${bar} [aria-label="Nudge later"]`)
+    // canNudge reaches the bar a render after the line's time changes.
     h.expect(
-      await nudgeLater.isDisabled(),
+      await nudgeLater
+        .and(page.locator(':disabled'))
+        .waitFor({ timeout: 2000 })
+        .then(
+          () => true,
+          () => false,
+        ),
       `${tag} Nudge is disabled while the picked line has no time`,
     )
 

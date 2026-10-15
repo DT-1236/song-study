@@ -3056,10 +3056,14 @@ export function DocumentViewPage() {
     )
   }, [lrclibPreview, timingDraft, lineTimings])
 
-  const { playingLine, onSeek: handleSeek } = usePlayingLine(
-    youtubePlayerRef,
-    hasVideo ? shownTimings : null,
-  )
+  const {
+    playingLine,
+    playing,
+    onSeek: handleSeek,
+  } = usePlayingLine(youtubePlayerRef, hasVideo ? shownTimings : null)
+  // Paused, the page stays where the reader put it, even as a ready player
+  // or a seek marks a line sung: auto-scroll follows playback only.
+  const followPlaying = autoScroll && playing
 
   const touch = useMediaQuery(NO_HOVER)
   // On touch, the keys' buttons go in the player bar, which has no keyboard.
@@ -3358,7 +3362,7 @@ export function DocumentViewPage() {
               playingLine={playingLine}
               // Without a video there's nothing to play them from.
               lineTimings={hasVideo ? lineTimings : null}
-              autoScroll={autoScroll}
+              autoScroll={followPlaying}
               onPlayLine={handlePlayLine}
             />
           ) : (
@@ -3374,7 +3378,7 @@ export function DocumentViewPage() {
               }
               playingLine={playingLine}
               onPlayLine={handlePlayLine}
-              autoScroll={autoScroll}
+              autoScroll={followPlaying}
             />
           )}
         </div>
