@@ -2543,15 +2543,17 @@ function LrclibSource({
   children?: ReactNode
 }) {
   const { saving, error, setError, save } = useSave()
-  // The server refuses another refresh for a while after it checks LRCLIB.
-  // Not kept across a reload: a refresh tried then is told to wait again.
+  // The server refuses another refresh for a while after it checks LRCLIB,
+  // and sends how long is left with every copy of the document.
   const { paused: refreshPaused, pauseFor, pauseIfAsked } = useServerPause()
+
+  useEffect(() => {
+    pauseFor(doc.lrclib_refresh_wait_seconds)
+  }, [doc.lrclib_refresh_wait_seconds, pauseFor])
 
   async function refresh() {
     try {
-      const refreshed = await refreshLrclib(doc.id)
-      pauseFor(refreshed.lrclib_refresh_cooldown_seconds)
-      return refreshed
+      return await refreshLrclib(doc.id)
     } catch (err) {
       pauseIfAsked(err)
       throw err

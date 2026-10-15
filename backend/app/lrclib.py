@@ -27,6 +27,7 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
@@ -61,16 +62,17 @@ class LrclibRateLimited(LrclibUnavailable):
         self.retry_after_seconds = retry_after_seconds
         super().__init__(
             "LRCLIB is rate-limiting requests — try again in "
-            f"{math.ceil(retry_after_seconds)} seconds."
+            f"{_describe_wait(retry_after_seconds)}."
         )
 
 
-class _RateLimit:
-    """When LRCLIB's last rate limit ends. Requests before then aren't sent,
-    since they would only extend the limit. Each process learns the limit
-    for itself."""
+class _Hold:
+    """When a hold on requests to LRCLIB ends, and the error, built from the
+    seconds left, that a request held back raises. Each process keeps its
+    own."""
 
-    def __init__(self):
+    def __init__(self, error: Callable[[float], LrclibUnavailable]):
+        self._error = error
         # Handlers run in the threadpool, so a 429 can land while another
         # request is checking.
         self._lock = threading.Lock()
@@ -78,13 +80,21 @@ class _RateLimit:
         self._until = 0.0
 
     def remaining(self) -> float:
-        """Seconds until LRCLIB's rate limit ends, or 0 or less once it has."""
+        """Seconds until the hold ends, or 0 or less once it has."""
         with self._lock:
             return self._until - time.monotonic()
 
+    def check(self, uri: str) -> None:
+        """Raise the hold's error instead of requesting `uri`, while it
+        lasts."""
+        remaining = self.remaining()
+        if remaining > 0:
+            logger.info("LRCLIB request skipped, held for %.1fs: %s", remaining, uri)
+            raise self._error(remaining)
+
     def start(self, seconds: float) -> None:
-        """Remember that LRCLIB asked for no requests for `seconds`, unless
-        an earlier answer already asked for longer."""
+        """Hold requests back for `seconds`, unless already held for
+        longer."""
         with self._lock:
             self._until = max(self._until, time.monotonic() + seconds)
 
@@ -93,7 +103,54 @@ class _RateLimit:
             self._until = 0.0
 
 
-_rate_limit = _RateLimit()
+# Until LRCLIB's last rate limit ends, since requests before then would
+# only extend it.
+_rate_limit = _Hold(LrclibRateLimited)
+
+
+class _Backoff(_Hold):
+    """A hold that doubles with each failure in a row, from `first` seconds
+    up to `longest`, until a request gets an answer."""
+
+    def __init__(
+        self,
+        error: Callable[[float], LrclibUnavailable],
+        first: float,
+        longest: float,
+    ):
+        super().__init__(error)
+        self._first = first
+        self._longest = longest
+        self._next = first
+
+    def fail(self) -> None:
+        """Hold requests back for the next wait, and double the one after."""
+        with self._lock:
+            wait, self._next = self._next, min(self._next * 2, self._longest)
+        self.start(wait)
+
+    def succeed(self) -> None:
+        """Start the next run of failures from the first wait again."""
+        with self._lock:
+            self._next = self._first
+
+    def reset(self) -> None:
+        super().reset()
+        self.succeed()
+
+
+# After LRCLIB couldn't be reached or failed, so that an outage, or a block
+# that drops our requests, is asked less and less often rather than once per
+# document. The longest wait is also how long an update to linked lyrics can
+# go unseen once LRCLIB is back, and a day is as stale as they're let get.
+_outage = _Backoff(
+    lambda remaining: LrclibUnavailable(
+        "LRCLIB couldn't be reached recently — trying again in "
+        f"{_describe_wait(remaining)}."
+    ),
+    first=60,
+    longest=24 * 60 * 60,
+)
 
 
 def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
@@ -200,24 +257,24 @@ def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
 
 def _get_json(uri: str) -> Any | None:
     """The JSON at `uri`, or None when LRCLIB answers 404."""
-    remaining = _rate_limit.remaining()
-    if remaining > 0:
-        logger.info(
-            "LRCLIB request skipped, rate-limited for %.1fs: %s", remaining, uri
-        )
-        raise LrclibRateLimited(remaining)
+    _rate_limit.check(uri)
+    _outage.check(uri)
 
     request = urllib.request.Request(
         uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
     )
     logger.info("LRCLIB request: GET %s", uri)
     started = time.monotonic()
+    # Any answer short of a server error means LRCLIB is up.
+    answered = False
     try:
         try:
             with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                answered = True
                 result, status = json.load(response), response.status
         # HTTPError is a URLError, so it has to be caught first.
         except urllib.error.HTTPError as exc:
+            answered = exc.code < 500
             if exc.code != 404:
                 raise
             result, status = None, 404
@@ -250,10 +307,27 @@ def _get_json(uri: str) -> Any | None:
             exc,
         )
         raise LrclibUnavailable("Couldn't reach LRCLIB.") from exc
+    finally:
+        if answered:
+            _outage.succeed()
+        else:
+            _outage.fail()
     logger.info(
         "LRCLIB response: %s %s in %.2fs", status, uri, time.monotonic() - started
     )
     return result
+
+
+def _describe_wait(seconds: float) -> str:
+    """`seconds`, rounded up, in the largest of seconds, minutes or hours
+    that keeps it at least 1."""
+    for unit, size in (("hour", 3600), ("minute", 60)):
+        if seconds >= size:
+            count = math.ceil(seconds / size)
+            break
+    else:
+        unit, count = "second", math.ceil(seconds)
+    return f"{count} {unit}{'' if count == 1 else 's'}"
 
 
 def _error_body(exc: urllib.error.HTTPError) -> str:

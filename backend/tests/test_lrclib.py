@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -132,8 +133,31 @@ class FakeLrclib:
 
 
 @pytest.fixture(autouse=True)
-def reset_rate_limit():
+def reset_holds():
     lrclib._rate_limit.reset()
+    lrclib._outage.reset()
+
+
+class _Clock:
+    """A stand-in for time.monotonic that only moves when told to."""
+
+    def __init__(self):
+        # Starting from a small whole number keeps sums of whole seconds
+        # exact, where the real clock's value can be large enough to round.
+        self.now = 0.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture
+def clock(monkeypatch) -> _Clock:
+    clock = _Clock()
+    monkeypatch.setattr(time, "monotonic", clock)
+    return clock
 
 
 @pytest.fixture
@@ -370,6 +394,118 @@ def test_the_client_is_told_to_wait_half_again_as_long():
     }
 
 
+@pytest.mark.parametrize(
+    "error",
+    [
+        urllib.error.HTTPError(URI, 503, "Service Unavailable", {}, None),
+        urllib.error.URLError("no route to host"),
+        TimeoutError(),
+    ],
+)
+def test_an_outage_holds_requests_back_for_a_minute(monkeypatch, clock, error):
+    sent = []
+
+    def urlopen(request, timeout):
+        sent.append(request)
+        raise error
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    with pytest.raises(LrclibUnavailable):
+        lrclib._get_json(URI)
+    with pytest.raises(LrclibUnavailable) as held:
+        lrclib._get_json(f"{URI}0")
+
+    assert len(sent) == 1
+    assert not isinstance(held.value, LrclibRateLimited)
+    assert "trying again in 1 minute" in str(held.value)
+
+    clock.advance(61)
+    with pytest.raises(LrclibUnavailable):
+        lrclib._get_json(URI)
+    assert len(sent) == 2
+
+
+def test_an_outage_holds_requests_back_longer_each_time_up_to_a_day(monkeypatch, clock):
+    holds = []
+
+    def urlopen(request, timeout):
+        raise TimeoutError()
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    for _ in range(13):
+        with pytest.raises(LrclibUnavailable):
+            lrclib._get_json(URI)
+        holds.append(lrclib._outage.remaining())
+        clock.advance(holds[-1])
+
+    assert holds[:3] == [60, 120, 240]
+    assert holds[-2:] == [24 * 60 * 60] * 2
+
+
+def test_an_answer_ends_the_run_of_longer_holds(monkeypatch, clock):
+    answers = [TimeoutError(), TimeoutError(), None, TimeoutError()]
+
+    def urlopen(request, timeout):
+        if (answer := answers.pop(0)) is not None:
+            raise answer
+        return _Response(b"{}")
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+    holds = []
+
+    while answers:
+        try:
+            lrclib._get_json(URI)
+        except LrclibUnavailable:
+            pass
+        holds.append(lrclib._outage.remaining())
+        clock.advance(max(holds[-1], 0))
+
+    assert holds == [60, 120, 0, 60]
+
+
+@pytest.mark.parametrize(
+    ("seconds", "expected"),
+    [
+        (0.2, "1 second"),
+        (59.5, "60 seconds"),
+        (60, "1 minute"),
+        (61, "2 minutes"),
+        (3600, "1 hour"),
+        (23.5 * 3600, "24 hours"),
+    ],
+)
+def test_describe_wait(seconds, expected):
+    assert lrclib._describe_wait(seconds) == expected
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        urllib.error.HTTPError(URI, 404, "Not Found", {}, None),
+        urllib.error.HTTPError(URI, 400, "Bad Request", {}, None),
+    ],
+)
+def test_a_refused_request_doesnt_hold_others_back(monkeypatch, error):
+    sent = []
+
+    def urlopen(request, timeout):
+        sent.append(request)
+        raise error
+
+    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
+
+    for _ in range(2):
+        try:
+            lrclib._get_json(URI)
+        except LrclibUnavailable:
+            pass
+
+    assert len(sent) == 2
+
+
 def test_a_missing_track_is_none(monkeypatch):
     def urlopen(request, timeout):
         raise urllib.error.HTTPError(URI, 404, "Not Found", {}, None)
@@ -464,10 +600,10 @@ def test_a_load_after_24_hours_checks_lrclib_and_records_it(
     assert len(fake_lrclib.requests) == requests_before + 1
 
 
-def test_a_failed_check_isnt_retried_for_ten_minutes(committed_engine, fake_lrclib):
+def test_a_refused_check_isnt_retried_for_ten_minutes(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     age_lrclib_check(document_id, STALE)
-    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+    fake_lrclib.error = LrclibError("LRCLIB has no track at that address.")
     get_document(document_id)
     fake_lrclib.error = None
     age_lrclib_failure(document_id, timedelta(minutes=9, seconds=59))
@@ -477,15 +613,18 @@ def test_a_failed_check_isnt_retried_for_ten_minutes(committed_engine, fake_lrcl
 
     assert len(fake_lrclib.requests) == requests_before
     assert document.text == WEATHER
-    assert document.lrclib_sync_error.startswith("Couldn't reach LRCLIB.")
+    assert document.lrclib_sync_error.startswith("LRCLIB has no track")
 
 
-def test_a_rate_limited_check_is_retried_on_the_next_load(
-    committed_engine, fake_lrclib
+@pytest.mark.parametrize(
+    "error", [LrclibRateLimited(3), LrclibUnavailable("Couldn't reach LRCLIB.")]
+)
+def test_an_unavailable_check_is_left_to_the_lrclib_holds(
+    committed_engine, fake_lrclib, error
 ):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     age_lrclib_check(document_id, STALE)
-    fake_lrclib.error = LrclibRateLimited(3)
+    fake_lrclib.error = error
     assert get_document(document_id).lrclib_sync_error is not None
     fake_lrclib.error = None
     fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
@@ -493,10 +632,10 @@ def test_a_rate_limited_check_is_retried_on_the_next_load(
     assert get_document(document_id).text == "今日は雨です。"
 
 
-def test_a_failed_check_is_retried_after_ten_minutes(committed_engine, fake_lrclib):
+def test_a_refused_check_is_retried_after_ten_minutes(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     age_lrclib_check(document_id, STALE)
-    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
+    fake_lrclib.error = LrclibError("LRCLIB has no track at that address.")
     get_document(document_id)
     fake_lrclib.error = None
     fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
@@ -544,6 +683,17 @@ def test_refresh_is_limited_to_once_in_five_minutes(committed_engine, fake_lrcli
     assert len(fake_lrclib.requests) == requests_before
     age_lrclib_check(document_id, timedelta(minutes=5, seconds=1))
     refresh_lrclib(document_id)
+
+
+def test_the_document_says_how_long_until_a_refresh_is_allowed(
+    committed_engine, fake_lrclib
+):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, timedelta(minutes=2))
+    assert 170 < get_document(document_id).lrclib_refresh_wait_seconds <= 180
+
+    age_lrclib_check(document_id, timedelta(minutes=6))
+    assert get_document(document_id).lrclib_refresh_wait_seconds == 0
 
 
 def test_a_failed_refresh_doesnt_start_the_cooldown(committed_engine, fake_lrclib):

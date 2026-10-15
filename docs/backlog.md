@@ -4,24 +4,14 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## /simplify on backlog sweep 12 (search cache, LRCLIB rate limit and failed checks, harness stubs, refresh cooldown)
+## /simplify on PR #159 (refresh cooldown sent with the document, LRCLIB outage backoff)
 
-- **Outage backoff per document rather than per process.** A failed check
-  is recorded on its document (`lrclib_failed_at`, `lrclib_failure`,
-  migration 0038), so during an LRCLIB outage each linked document still
-  waits out one request timeout before it stops asking. Have `_RateLimit`
-  in `backend/app/lrclib.py` also hold requests back for a short while
-  after a timeout or connection error, for every document and search, and
-  keep the per-document record only for that document's own errors
-  (`LrclibError`, such as a 404 at its URI) — or drop it, with a migration
-  removing the columns. Touches `get_document`, `refresh_lrclib`,
-  `_record_lrclib_failure` and their tests in `test_lrclib.py`. Opus 5.5,
-  medium: it decides how long stale lyrics can hide an update.
-- **Refresh cooldown unknown until a refresh is refused.** On load the
-  Refresh button is enabled even within `LRCLIB_REFRESH_COOLDOWN` of the
-  last check, and only the 429 disables it. Send the time left
-  (`_time_left(row.lrclib_checked_at, LRCLIB_REFRESH_COOLDOWN)`) on
-  `Document` in place of the constant `lrclib_refresh_cooldown_seconds`,
-  and have `LrclibSource` in `DocumentViewPage.tsx` start `pauseFor` from
-  it whenever a document arrives. `lrclib-refresh.mjs` asserts "enabled
-  after a reload", which changes. Sonnet 5.5, medium.
+- **Tell the client how long an LRCLIB outage hold lasts.** While
+  `_outage` in `backend/app/lrclib.py` holds requests back, the 502 it
+  causes carries only a message, so `pauseIfAsked` on the frontend can't
+  pause searches or the Refresh button the way it does for a rate limit's 429. Give the held-back error a `retry_after_seconds` (a subclass of
+  `LrclibUnavailable` with its own handler in `backend/app/main.py`, or a
+  field on it the 502 handler includes) and have the frontend pause on a 502
+  that has one. Touches the exception handlers, `useServerPause.ts` /
+  `api.ts`, and their tests. Sonnet 5.5, medium: the rate limit's 429 path
+  is the pattern to follow.
