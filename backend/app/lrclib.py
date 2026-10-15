@@ -65,10 +65,8 @@ class LrclibRateLimited(LrclibUnavailable):
         )
 
 
-class _RateLimit:
-    """When LRCLIB's last rate limit ends. Requests before then aren't sent,
-    since they would only extend the limit. Each process learns the limit
-    for itself."""
+class _Hold:
+    """When a hold on requests to LRCLIB ends. Each process keeps its own."""
 
     def __init__(self):
         # Handlers run in the threadpool, so a 429 can land while another
@@ -78,13 +76,13 @@ class _RateLimit:
         self._until = 0.0
 
     def remaining(self) -> float:
-        """Seconds until LRCLIB's rate limit ends, or 0 or less once it has."""
+        """Seconds until the hold ends, or 0 or less once it has."""
         with self._lock:
             return self._until - time.monotonic()
 
     def start(self, seconds: float) -> None:
-        """Remember that LRCLIB asked for no requests for `seconds`, unless
-        an earlier answer already asked for longer."""
+        """Hold requests back for `seconds`, unless already held for
+        longer."""
         with self._lock:
             self._until = max(self._until, time.monotonic() + seconds)
 
@@ -93,7 +91,42 @@ class _RateLimit:
             self._until = 0.0
 
 
-_rate_limit = _RateLimit()
+# Until LRCLIB's last rate limit ends, since requests before then would
+# only extend it.
+_rate_limit = _Hold()
+
+
+class _Backoff(_Hold):
+    """A hold that doubles with each failure in a row, from `first` seconds
+    up to `longest`, until a request gets an answer."""
+
+    def __init__(self, first: float, longest: float):
+        super().__init__()
+        self._first = first
+        self._longest = longest
+        self._next = first
+
+    def fail(self) -> None:
+        """Hold requests back for the next wait, and double the one after."""
+        with self._lock:
+            wait, self._next = self._next, min(self._next * 2, self._longest)
+        self.start(wait)
+
+    def succeed(self) -> None:
+        """Start the next run of failures from the first wait again."""
+        with self._lock:
+            self._next = self._first
+
+    def reset(self) -> None:
+        super().reset()
+        self.succeed()
+
+
+# After LRCLIB couldn't be reached or failed, so that an outage, or a block
+# that drops our requests, is asked less and less often rather than once per
+# document. The longest wait is also how long an update to linked lyrics can
+# go unseen once LRCLIB is back, and a day is as stale as they're let get.
+_outage = _Backoff(first=60, longest=24 * 60 * 60)
 
 
 def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
@@ -206,6 +239,17 @@ def _get_json(uri: str) -> Any | None:
             "LRCLIB request skipped, rate-limited for %.1fs: %s", remaining, uri
         )
         raise LrclibRateLimited(remaining)
+    remaining = _outage.remaining()
+    if remaining > 0:
+        logger.info(
+            "LRCLIB request skipped, held after a failure for %.1fs: %s",
+            remaining,
+            uri,
+        )
+        raise LrclibUnavailable(
+            "LRCLIB couldn't be reached recently — trying again in "
+            f"{_describe_wait(remaining)}."
+        )
 
     request = urllib.request.Request(
         uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
@@ -230,6 +274,11 @@ def _get_json(uri: str) -> Any | None:
             exc.headers.get("Retry-After"),
             _error_body(exc),
         )
+        # Any answer short of a server error means LRCLIB is up.
+        if exc.code >= 500:
+            _outage.fail()
+        else:
+            _outage.succeed()
         if exc.code == 429:
             wait = parse_retry_after(exc.headers.get("Retry-After"))
             if wait is None:
@@ -249,11 +298,28 @@ def _get_json(uri: str) -> Any | None:
             type(exc).__name__,
             exc,
         )
+        # Unreadable JSON is an odd answer rather than no answer, so it
+        # isn't held against the next request.
+        if not isinstance(exc, ValueError):
+            _outage.fail()
         raise LrclibUnavailable("Couldn't reach LRCLIB.") from exc
+    _outage.succeed()
     logger.info(
         "LRCLIB response: %s %s in %.2fs", status, uri, time.monotonic() - started
     )
     return result
+
+
+def _describe_wait(seconds: float) -> str:
+    """`seconds`, rounded up, in the largest of seconds, minutes or hours
+    that keeps it at least 1."""
+    for unit, size in (("hour", 3600), ("minute", 60)):
+        if seconds >= size:
+            count = math.ceil(seconds / size)
+            break
+    else:
+        unit, count = "second", math.ceil(seconds)
+    return f"{count} {unit}{'' if count == 1 else 's'}"
 
 
 def _error_body(exc: urllib.error.HTTPError) -> str:

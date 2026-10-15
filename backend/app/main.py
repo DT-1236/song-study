@@ -373,9 +373,10 @@ def create_document(document: DocumentCreate, user_id: CurrentUser) -> Document:
 # How long a linked document's lyrics are trusted before opening it checks
 # LRCLIB for a new version.
 LRCLIB_RECHECK_AFTER = timedelta(hours=24)
-# How long after a failed check opening the document shows that failure
-# rather than asking LRCLIB again. It's also how long a new version can go
-# unseen once LRCLIB is back, so it stays short.
+# How long after LRCLIB refused a check (no track at the document's address,
+# or no lyrics there) opening the document shows that refusal rather than
+# asking LRCLIB again. It's also how long a track published there can go
+# unseen, so it stays short.
 LRCLIB_RETRY_FAILED_AFTER = timedelta(minutes=10)
 
 
@@ -391,8 +392,8 @@ def _time_left(checked_at: datetime | None, wait: timedelta) -> timedelta:
 def get_document(document_id: OwnedDocument, user_id: CurrentUser) -> Document:
     """The document, its lyrics first refreshed from LRCLIB if it's linked
     to a track there and was last checked over `LRCLIB_RECHECK_AFTER` ago.
-    A check that failed under `LRCLIB_RETRY_FAILED_AFTER` ago isn't retried:
-    its error is shown with the stored lyrics instead."""
+    A check LRCLIB refused under `LRCLIB_RETRY_FAILED_AFTER` ago isn't
+    retried: its error is shown with the stored lyrics instead."""
     with engine.connect() as conn:
         row = owned_document_row(conn, document_id, user_id)
 
@@ -439,20 +440,19 @@ def refresh_lrclib(document_id: OwnedDocument, user_id: CurrentUser) -> Document
     except LrclibError as exc:
         _record_lrclib_failure(document_id, row.lrclib_uri, exc)
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    except LrclibUnavailable as exc:
-        _record_lrclib_failure(document_id, row.lrclib_uri, exc)
-        raise
 
 
 def _record_lrclib_failure(
     document_id: int, uri: str, exc: LrclibError | LrclibUnavailable
 ) -> str:
-    """Record that checking the document's lyrics against `uri` just failed
-    with `exc`, unless it has since been linked elsewhere, and return the
-    error to show with the stored lyrics. A rate limit isn't recorded: the
-    lrclib module already holds requests back until it ends."""
+    """Return the error to show with the stored lyrics after checking the
+    document's lyrics against `uri` failed with `exc`, and record it if
+    LRCLIB refused that track, unless the document has since been linked
+    elsewhere. LRCLIB being unreachable or rate-limiting isn't recorded,
+    since it's no fault of this document's: the lrclib module holds every
+    request back for a while instead."""
     error = f"{exc} Showing the lyrics last loaded from it."
-    if isinstance(exc, LrclibRateLimited):
+    if not isinstance(exc, LrclibError):
         return error
     with engine.begin() as conn:
         conn.execute(
