@@ -1,8 +1,8 @@
 import { check } from '../harness.mjs'
 
 // The Refresh button next to Unlink on a linked document: it disables after a
-// refresh, and stays enabled across a reload until the server says a refresh
-// is too soon. The harness backend can't reach LRCLIB, so the document is
+// refresh, and on load follows the wait the server sends with the document
+// (and a too-soon 429 disables it too). The harness backend can't reach LRCLIB, so the document is
 // shown as linked and the refresh endpoint is stubbed.
 await check('lrclib-refresh', async (h) => {
   const id = h.seed.document_id
@@ -10,7 +10,10 @@ await check('lrclib-refresh', async (h) => {
     ...doc,
     lrclib_uri: 'https://lrclib.net/api/get/1',
     lrclib_replaces_text: true,
+    lrclib_refresh_wait_seconds: wait,
   })
+  // Seconds the stubbed server says are left before another refresh.
+  let wait = 0
   let tooSoon = false
   // The refreshes the latest page sent.
   let refreshes = []
@@ -56,6 +59,7 @@ await check('lrclib-refresh', async (h) => {
   await h.screenshot(page, 'enabled')
 
   h.step('a refresh disables the button')
+  wait = 300
   await refresh.click()
   await page.waitForFunction(() =>
     [...document.querySelectorAll('button')].some(
@@ -69,11 +73,22 @@ await check('lrclib-refresh', async (h) => {
   )
   await h.screenshot(page, 'disabled')
 
-  h.step('after a reload it is enabled; a too-soon 429 disables it again')
+  h.step('a document loaded within the cooldown has Refresh disabled')
+  const waiting = await openLinked()
+  h.expect(
+    await waiting.getByRole('button', { name: 'Refresh' }).isDisabled(),
+    'Refresh is disabled after a reload within the cooldown',
+  )
+  await h.screenshot(waiting, 'disabled-on-load')
+
+  h.step(
+    'once the cooldown has passed it is enabled; a too-soon 429 disables it',
+  )
+  wait = 0
   tooSoon = true
   const reloaded = await openLinked()
   const again = reloaded.getByRole('button', { name: 'Refresh' })
-  h.expect(await again.isEnabled(), 'Refresh is enabled after a reload')
+  h.expect(await again.isEnabled(), 'Refresh is enabled after the cooldown')
   await again.click()
   await reloaded.locator('.form-error', { hasText: 'a moment ago' }).waitFor()
   h.expect(await again.isDisabled(), 'Refresh is disabled by the 429')

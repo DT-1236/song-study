@@ -147,6 +147,7 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-15 | LRCLIB re-check limit and manual Refresh                               | #157 | /simplify (4 subagents)                | Sonnet 5.5, medium          | —    | 30    | 2.2M       | 10k    | M    |
 | 2026-10-15 | Backlog sweep 12: gather and commit items                              | #158 | backlog sweep                          | Opus 5.5, medium            | —    | 50    | 3.2M       | 19k    | M    |
 | 2026-10-15 | Backlog sweep 12                                                       | #158 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 47    | 4.5M       | 17k    | M    |
+| 2026-10-15 | Refresh cooldown sent with the document (backlog)                      | —    | initial pass                           | Sonnet 5.5, medium          | —    | 18    | 944k       | 8k     | S    |
 
 ## Post-mortem log
 

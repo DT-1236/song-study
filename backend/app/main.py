@@ -289,8 +289,17 @@ class Document(BaseModel):
     # Why a linked document's lyrics couldn't be refreshed from LRCLIB on
     # this load, in which case the stored ones are returned instead.
     lrclib_sync_error: str | None = None
-    # How long the page waits after a refresh before offering another.
-    lrclib_refresh_cooldown_seconds: float = LRCLIB_REFRESH_COOLDOWN.total_seconds()
+    # How long until the page may ask LRCLIB for a refresh again; 0 once it
+    # may. Counted from the row's last check, so it's right on load too.
+    lrclib_refresh_wait_seconds: float = 0
+
+    @model_validator(mode="before")
+    @classmethod
+    def _count_refresh_wait(cls, data):
+        if isinstance(data, dict) and "lrclib_checked_at" in data:
+            wait = _time_left(data["lrclib_checked_at"], LRCLIB_REFRESH_COOLDOWN)
+            data = {**data, "lrclib_refresh_wait_seconds": wait.total_seconds()}
+        return data
 
 
 def _fetch_lrclib_for_link(value: str) -> tuple[str, LrclibLyrics]:

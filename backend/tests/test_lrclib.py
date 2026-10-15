@@ -546,6 +546,17 @@ def test_refresh_is_limited_to_once_in_five_minutes(committed_engine, fake_lrcli
     refresh_lrclib(document_id)
 
 
+def test_the_document_says_how_long_until_a_refresh_is_allowed(
+    committed_engine, fake_lrclib
+):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    age_lrclib_check(document_id, timedelta(minutes=2))
+    assert 170 < get_document(document_id).lrclib_refresh_wait_seconds <= 180
+
+    age_lrclib_check(document_id, timedelta(minutes=6))
+    assert get_document(document_id).lrclib_refresh_wait_seconds == 0
+
+
 def test_a_failed_refresh_doesnt_start_the_cooldown(committed_engine, fake_lrclib):
     document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
     age_lrclib_check(document_id, timedelta(minutes=6))
