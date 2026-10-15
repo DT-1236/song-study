@@ -29,7 +29,16 @@ export type Document = {
   lrclib_sync_error: string | null
 }
 
-export class ApiError extends Error {}
+export class ApiError extends Error {
+  // Set when the server asks the client to stop sending the same request for
+  // this long (a rate limit upstream).
+  retryAfterSeconds?: number
+
+  constructor(message: string, retryAfterSeconds?: number) {
+    super(message)
+    this.retryAfterSeconds = retryAfterSeconds
+  }
+}
 
 export type CurrentUser = {
   id: number
@@ -83,7 +92,12 @@ async function assertOk(
     throw new ApiError(body.detail[0].msg.replace(/^Value error,\s*/, ''))
   }
   if (typeof body?.detail === 'string') {
-    throw new ApiError(body.detail)
+    throw new ApiError(
+      body.detail,
+      typeof body.retry_after_seconds === 'number'
+        ? body.retry_after_seconds
+        : undefined,
+    )
   }
   throw new ApiError(`Request failed (${response.status})`)
 }

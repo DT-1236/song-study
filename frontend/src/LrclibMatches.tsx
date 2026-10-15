@@ -34,9 +34,9 @@ function CandidateText({ candidate }: { candidate: LrclibCandidate }) {
   )
 }
 
-// Searches LRCLIB for the picked song's lyrics, by track title (the song's
-// to start with), and reports the match chosen (or null for "none"). The
-// song's artist and length still rank what's found, and matches of another
+// Searches LRCLIB for the picked song's lyrics, by artist and track title
+// (the song's to start with), and reports the match chosen (or null for
+// "none"). The song's length ranks what's found, and matches of another
 // length sit behind a toggle. A synced match of the right length is chosen up
 // front; otherwise the results open. `chosen` is the choice the parent kept,
 // or undefined while there's none, and shows below the search box as the
@@ -55,6 +55,9 @@ export function LrclibMatches({
   noneLabel?: string
 }) {
   const [showOthers, setShowOthers] = useState(false)
+  // Searched with the title, and editable since the song's artist as YouTube
+  // Music names it needn't be LRCLIB's.
+  const [artist, setArtist] = useState(song.artists)
 
   // Chooses up front a synced match of the right length, the first one found
   // when there is any, and shows the results otherwise.
@@ -119,10 +122,22 @@ export function LrclibMatches({
         label="Lyrics from LRCLIB"
         placeholder="Track title"
         initialQuery={song.title}
+        // Either the title or the artist will do.
+        canSearch={(title) => title !== '' || artist.trim() !== ''}
+        fields={
+          <input
+            id="lrclib-search-artist"
+            type="text"
+            value={artist}
+            onChange={(e) => setArtist(e.target.value)}
+            placeholder="Artist"
+            aria-label="Artist"
+          />
+        }
         search={(title) =>
           searchLrclib({
             title,
-            artist: song.artists,
+            artist,
             durationSeconds: song.duration_seconds,
           })
         }

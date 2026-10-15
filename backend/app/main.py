@@ -1,5 +1,7 @@
 import dataclasses
 import json
+import logging
+import os
 import re
 from collections.abc import Callable
 from datetime import datetime
@@ -53,6 +55,7 @@ from app.lrclib import (
     LrclibCandidate,
     LrclibError,
     LrclibLyrics,
+    LrclibRateLimited,
     LrclibUnavailable,
     fetch_lyrics,
     normalize_lrclib_uri,
@@ -65,6 +68,10 @@ from app.tokenization import (
 )
 from app.users import CurrentUser, OwnedDocument
 from app.youtube_music import Song, YouTubeMusicUnavailable, search_songs
+
+# Uvicorn only configures its own loggers, so without this the app's INFO
+# logs (LRCLIB requests, for one) never show.
+logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 
 app = FastAPI(docs_url="/api/docs", openapi_url="/api/openapi.json")
 
@@ -154,6 +161,24 @@ def tokens_not_groupable(request: Request, exc: TokensNotGroupable) -> JSONRespo
         status_code=422,
         content={
             "detail": "Those tokens aren't one word read and parsed the same way, so they can't be decided for together."
+        },
+    )
+
+
+# How much longer than LRCLIB's own wait the client is told to hold off, so
+# its next request lands after the limit has surely lifted.
+RATE_LIMIT_CLIENT_FACTOR = 1.5
+
+
+@app.exception_handler(LrclibRateLimited)
+def lrclib_rate_limited(request: Request, exc: LrclibRateLimited) -> JSONResponse:
+    """A 429 for LRCLIB's rate limit, saying how long the client should
+    stop sending it searches."""
+    return JSONResponse(
+        status_code=429,
+        content={
+            "detail": str(exc),
+            "retry_after_seconds": exc.retry_after_seconds * RATE_LIMIT_CLIENT_FACTOR,
         },
     )
 
@@ -665,11 +690,13 @@ def songs_search(
 @api.get("/lrclib/search", response_model=list[LrclibCandidate])
 def lrclib_search(
     user_id: CurrentUser,
-    title: str = Query(min_length=1),
+    title: str = "",
     artist: str = "",
     # In seconds; left out when the song's length isn't known.
     duration: float | None = Query(default=None, gt=0),
 ):
+    if not title.strip() and not artist.strip():
+        raise HTTPException(422, "Enter a title or an artist to search for.")
     return search_tracks(title, artist, duration)
 
 

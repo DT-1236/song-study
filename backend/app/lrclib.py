@@ -9,25 +9,30 @@ A track id's lyrics can change — publishing to LRCLIB adds a new version to
 the same track — so a linked document is re-fetched on each load and
 compared against what was stored (see app/main.py).
 
-Tracks are found by a song's title, artist and length (search_tracks).
-LRCLIB's search only matches whole words and ignores length, so the title
-and length matching happen here.
+Tracks are found by a song's artist and cleaned title, then ranked by length
+(search_tracks). LRCLIB's search ignores length, so the length matching
+happens here.
 """
 
 from __future__ import annotations
 
+import email.utils
 import json
+import logging
 import math
 import re
+import time
 import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
-from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, Literal
 
 from app.sanitize import sanitize_text
+
+logger = logging.getLogger(__name__)
 
 # LRCLIB asks every client to identify itself this way.
 USER_AGENT = "song-study (https://github.com/DT-1236/song-study)"
@@ -45,6 +50,40 @@ class LrclibError(Exception):
 class LrclibUnavailable(Exception):
     """LRCLIB couldn't be reached or failed, rather than refusing the
     request."""
+
+
+class LrclibRateLimited(LrclibUnavailable):
+    """LRCLIB telling us, or us remembering it told us, to wait
+    `retry_after_seconds` before the next request."""
+
+    def __init__(self, retry_after_seconds: float):
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(
+            "LRCLIB is rate-limiting requests — try again in "
+            f"{math.ceil(retry_after_seconds)} seconds."
+        )
+
+
+# When LRCLIB's last rate limit ends, on the monotonic clock. Requests before
+# then aren't sent, since they would only extend the limit.
+_rate_limited_until = 0.0
+
+
+def parse_retry_after(value: str | None, now: datetime | None = None) -> float | None:
+    """The seconds a `Retry-After` header `value` asks for, whether it's a
+    number of seconds or an HTTP date; None if it's absent or unreadable."""
+    if value is None:
+        return None
+    value = value.strip()
+    if value.isascii() and value.isdigit():
+        return float(value)
+    try:
+        date = email.utils.parsedate_to_datetime(value)
+    except (TypeError, ValueError):
+        return None
+    if date.tzinfo is None:
+        date = date.replace(tzinfo=UTC)
+    return max(0.0, (date - (now or datetime.now(UTC))).total_seconds())
 
 
 _TRACK_ID_RE = re.compile(r"\d+")
@@ -134,27 +173,69 @@ def parse_synced_lyrics(lrc: str, duration: float | None) -> LrclibLyrics:
 
 def _get_json(uri: str) -> Any | None:
     """The JSON at `uri`, or None when LRCLIB answers 404."""
+    global _rate_limited_until
+    remaining = _rate_limited_until - time.monotonic()
+    if remaining > 0:
+        logger.info(
+            "LRCLIB request skipped, rate-limited for %.1fs: %s", remaining, uri
+        )
+        raise LrclibRateLimited(remaining)
+
     request = urllib.request.Request(
         uri, headers={"User-Agent": USER_AGENT, "Accept": "application/json"}
     )
+    logger.info("LRCLIB request: GET %s", uri)
+    started = time.monotonic()
     try:
-        with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
-            return json.load(response)
-    # HTTPError is a URLError, so it has to be caught first.
+        try:
+            with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
+                result, status = json.load(response), response.status
+        # HTTPError is a URLError, so it has to be caught first.
+        except urllib.error.HTTPError as exc:
+            if exc.code != 404:
+                raise
+            result, status = None, 404
     except urllib.error.HTTPError as exc:
-        if exc.code == 404:
-            return None
+        logger.warning(
+            "LRCLIB error: %s %s in %.2fs, Retry-After %s, body %r",
+            exc.code,
+            uri,
+            time.monotonic() - started,
+            exc.headers.get("Retry-After"),
+            _error_body(exc),
+        )
         if exc.code == 429:
-            retry_after = exc.headers.get("Retry-After")
-            wait = f" in {retry_after} seconds" if retry_after else " later"
-            raise LrclibUnavailable(
-                f"LRCLIB is rate-limiting requests — try again{wait}."
-            ) from exc
+            wait = parse_retry_after(exc.headers.get("Retry-After"))
+            if wait is None:
+                raise LrclibUnavailable(
+                    "LRCLIB is rate-limiting requests — try again later."
+                ) from exc
+            _rate_limited_until = time.monotonic() + wait
+            raise LrclibRateLimited(wait) from exc
         raise LrclibUnavailable(
             f"LRCLIB responded with an error ({exc.code})."
         ) from exc
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        logger.warning(
+            "LRCLIB request failed: %s after %.2fs: %s: %s",
+            uri,
+            time.monotonic() - started,
+            type(exc).__name__,
+            exc,
+        )
         raise LrclibUnavailable("Couldn't reach LRCLIB.") from exc
+    logger.info(
+        "LRCLIB response: %s %s in %.2fs", status, uri, time.monotonic() - started
+    )
+    return result
+
+
+def _error_body(exc: urllib.error.HTTPError) -> str:
+    """The start of the body LRCLIB sent with an error, for the log."""
+    try:
+        return exc.read(500).decode("utf-8", errors="replace")
+    except OSError:
+        return ""
 
 
 def fetch_lyrics(uri: str) -> LrclibLyrics:
@@ -210,37 +291,17 @@ class LrclibCandidate:
 def search_tracks(
     title: str, artist: str = "", duration: float | None = None
 ) -> list[LrclibCandidate]:
-    """LRCLIB tracks with lyrics for the song `title` by `artist`, `duration`
-    seconds long, whose title is the song's, contains it, or is contained in
-    it. Best match first: the right length, then synced, then the same
+    """LRCLIB tracks with lyrics for the song `title` by `artist` (either may
+    be empty, not both), `duration` seconds long, whose title is the song's,
+    contains it, or is contained in it. Best match first: the right length, then synced, then the same
     title, then the closest length."""
     title, artist = title.strip(), artist.strip()
-    queries = _search_queries(title, artist)
-    with ThreadPoolExecutor(max_workers=len(queries)) as pool:
-        futures = [
-            pool.submit(_get_json, f"{_API_SEARCH}?{urllib.parse.urlencode(query)}")
-            for query in queries
-        ]
-    responses, errors = [], []
-    for future in futures:
-        try:
-            result = future.result()
-        except LrclibUnavailable as exc:
-            errors.append(exc)
-            continue
-        if result is None:
-            errors.append(LrclibUnavailable("Couldn't search LRCLIB."))
-        else:
-            responses.append(result)
-    # A failed variant only means fewer matches, so it's only an error when
-    # every variant failed.
-    if not responses:
-        raise errors[0]
+    query = urllib.parse.urlencode(_search_query(title, artist))
+    results = _get_json(f"{_API_SEARCH}?{query}")
+    if results is None:
+        raise LrclibUnavailable("Couldn't search LRCLIB.")
 
-    records: dict[int, dict] = {}
-    for results in responses:
-        for record in results:
-            records.setdefault(record["id"], record)
+    records: dict[int, dict] = {record["id"]: record for record in results}
     wanted = _title_key(title)
     candidates = [
         candidate
@@ -258,22 +319,17 @@ def search_tracks(
     return candidates
 
 
-def _search_queries(title: str, artist: str) -> list[dict[str, str]]:
+def _search_query(title: str, artist: str) -> dict[str, str]:
     # LRCLIB matches whole words only, and a Japanese title with no spaces is
     # one word, so a decorated title ("… (TV Size)") never finds the plain
-    # one. Each variant here can find tracks the others miss.
+    # one: the title is cleaned before it's searched.
+    if not title:
+        # LRCLIB's search needs a track name or a free-text query.
+        return {"q": artist}
+    query = {"track_name": _clean_title(title) or title}
     if artist:
-        queries = [
-            {"track_name": title, "artist_name": artist},
-            {"q": f"{title} {artist}"},
-        ]
-    else:
-        queries = [{"track_name": title}]
-    queries.append({"q": title})
-    cleaned = _clean_title(title)
-    if cleaned and cleaned != title:
-        queries.append({"q": cleaned})
-    return queries
+        query["artist_name"] = artist
+    return query
 
 
 # A trailing bracketed part: "(TV Size)", "[Remix]", "（feat. …）", "【MV】".
@@ -283,11 +339,12 @@ _TRAILING_BRACKETS_RE = re.compile(
 # A trailing " - …" subtitle: ' - From "THE FIRST TAKE"', " - Into The Night".
 _TRAILING_SUBTITLE_RE = re.compile(r"\s+[-–—]\s+.*$")
 _TRAILING_FEATURING_RE = re.compile(r"\s+(?:feat\.|ft\.|featuring)\s.*$", re.IGNORECASE)
+_APOSTROPHES = "'’"
 
 
 def _clean_title(title: str) -> str:
-    """`title` without the version or credit decorations that can trail
-    a song's title."""
+    """`title` without trailing version or credit decorations, or
+    punctuation other than apostrophes."""
     previous = None
     while title != previous:
         previous = title
@@ -297,7 +354,14 @@ def _clean_title(title: str) -> str:
             _TRAILING_FEATURING_RE,
         ):
             title = pattern.sub("", title)
-    return title
+    # Replaced by a space rather than dropped, so "Re-Start" stays two words.
+    title = "".join(
+        " "
+        if unicodedata.category(char).startswith("P") and char not in _APOSTROPHES
+        else char
+        for char in title
+    )
+    return " ".join(title.split())
 
 
 def _title_key(title: str) -> str:
