@@ -6,8 +6,8 @@ newer `lyricsfile` field has a per-line `words` list, empty on every record
 checked), so lyrics are timed, and highlighted, by line.
 
 A track id's lyrics can change — publishing to LRCLIB adds a new version to
-the same track — so a linked document is re-fetched on each load and
-compared against what was stored (see app/main.py).
+the same track — so a linked document is re-fetched when loaded, at most
+once a day, and compared against what was stored (see app/main.py).
 
 Tracks are found by a song's artist and cleaned title, then ranked by length
 (search_tracks). LRCLIB's search ignores length, so the length matching

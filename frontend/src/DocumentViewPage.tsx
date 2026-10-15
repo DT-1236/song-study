@@ -15,6 +15,8 @@ import {
 } from 'react'
 import { Link, useBlocker, useParams } from 'react-router-dom'
 import {
+  ApiError,
+  LRCLIB_REFRESH_COOLDOWN_SECONDS,
   LRCLIB_URI_PLACEHOLDER,
   acceptPhraseSuggestions,
   addTokenCard,
@@ -26,6 +28,7 @@ import {
   fetchPieceWords,
   linkLrclib,
   pickPieceWord,
+  refreshLrclib,
   resolvePhraseFurigana,
   saveLineTimings,
   setTokensIgnored,
@@ -66,6 +69,7 @@ import { useLatest } from './useLatest'
 import { useLrclibChoice } from './useLrclibChoice'
 import { usePersistentState } from './usePersistentState'
 import { useSave } from './useSave'
+import { useServerPause } from './useServerPause'
 import { useTimingEditor, useTimingKeyPresses } from './useTimingEditor'
 import type { TimingKey } from './useTimingEditor'
 import { useTransient } from './useTransient'
@@ -94,9 +98,9 @@ const LRCLIB_KEPT_NOTE =
   "These lyrics are this document's own. LRCLIB supplies their line timings while its lyrics match them line " +
   'for line.'
 const LRCLIB_SYNC_NOTE =
-  'Lyrics load from LRCLIB each time this page opens. If they change there (say, someone uploads a corrected ' +
-  "version), they replace these and any readings you've manually selected are reset — a timing-only update " +
-  'keeps them.'
+  'Lyrics are reloaded from LRCLIB when this page opens, at most once a day; Refresh reloads them now. If they ' +
+  "change there (say, someone uploads a corrected version), they replace these and any readings you've manually " +
+  'selected are reset — a timing-only update keeps them.'
 
 // True when a composite gloss (a compound with no JMDict entry of its own,
 // shown broken into parts instead — see gloss.source) has a piece whose own
@@ -2539,6 +2543,22 @@ function LrclibSource({
   children?: ReactNode
 }) {
   const { saving, error, setError, save } = useSave()
+  // The server refuses another refresh for a while after it checks LRCLIB.
+  // Not kept across a reload: a refresh tried then is told to wait again.
+  const { paused: refreshPaused, pauseFor } = useServerPause()
+
+  async function refresh() {
+    try {
+      const refreshed = await refreshLrclib(doc.id)
+      pauseFor(LRCLIB_REFRESH_COOLDOWN_SECONDS)
+      return refreshed
+    } catch (err) {
+      if (err instanceof ApiError && err.retryAfterSeconds !== undefined) {
+        pauseFor(err.retryAfterSeconds)
+      }
+      throw err
+    }
+  }
 
   return (
     <>
@@ -2558,16 +2578,26 @@ function LrclibSource({
               {doc.lrclib_uri ? 'Change' : 'Link to LRCLIB'}
             </button>
             {doc.lrclib_uri && (
-              <button
-                type="button"
-                className="lyrics-edit-toggle"
-                disabled={saving}
-                onClick={() =>
-                  save(() => unlinkLrclib(doc.id), onDocumentUpdated)
-                }
-              >
-                Unlink
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="lyrics-edit-toggle"
+                  disabled={saving || refreshPaused}
+                  onClick={() => save(refresh, onDocumentUpdated)}
+                >
+                  Refresh
+                </button>
+                <button
+                  type="button"
+                  className="lyrics-edit-toggle"
+                  disabled={saving}
+                  onClick={() =>
+                    save(() => unlinkLrclib(doc.id), onDocumentUpdated)
+                  }
+                >
+                  Unlink
+                </button>
+              </>
             )}
           </div>
         )}

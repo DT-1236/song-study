@@ -143,6 +143,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-14 | Backlog sweep 11                                                       | #154 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 70    | 5.2M       | 19k    | L    |
 | 2026-10-15 | LRCLIB search by artist and cleaned title, rate limit                  | #155 | initial pass                           | Sonnet 5.5, medium          | —    | 61    | 4.9M       | 34k    | M    |
 | 2026-10-15 | LRCLIB search by artist and cleaned title, rate limit                  | #155 | /simplify (4 subagents)                | Sonnet 5.5, medium          | —    | 32    | 1.8M       | 10k    | M    |
+| 2026-10-15 | LRCLIB re-check limit and manual Refresh                               | #157 | initial pass                           | Sonnet 5.5, medium          | —    | 26    | 1.9M       | 22k    | M    |
+| 2026-10-15 | LRCLIB re-check limit and manual Refresh                               | #157 | /simplify (4 subagents)                | Sonnet 5.5, medium          | —    | 30    | 2.2M       | 10k    | M    |
 
 ## Post-mortem log
 

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import { ApiError, errorMessage } from './api'
 import { useClickOutside } from './useClickOutside'
 import { useLatest } from './useLatest'
+import { useServerPause } from './useServerPause'
 
 type Props<T> = {
   id: string
@@ -58,9 +59,8 @@ export function SearchDropdown<T>({
   const [showResults, setShowResults] = useState(false)
   const [searching, setSearching] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // When the server's request for a pause in searching ends, as a Date.now().
-  const [pausedUntil, setPausedUntil] = useState<number | null>(null)
-  const paused = pausedUntil !== null
+  // The server's request for a pause in searching.
+  const { paused, pauseFor } = useServerPause()
   const rootRef = useRef<HTMLDivElement>(null)
   useClickOutside(rootRef, showResults, () => setShowResults(false))
 
@@ -93,13 +93,13 @@ export function SearchDropdown<T>({
         // The previous results stay as they were, shown with a note below.
         setError(errorMessage(err, failureMessage))
         if (err instanceof ApiError && err.retryAfterSeconds) {
-          setPausedUntil(Date.now() + err.retryAfterSeconds * 1000)
+          pauseFor(err.retryAfterSeconds)
         }
       } finally {
         if (searchId === latestSearch.current) setSearching(false)
       }
     },
-    [searchRef, onMountResultsRef, failureMessage],
+    [searchRef, onMountResultsRef, failureMessage, pauseFor],
   )
 
   useEffect(() => {
@@ -115,15 +115,6 @@ export function SearchDropdown<T>({
     // Even while a search is in flight: starting another drops its results.
     if (lastQuery.current) void runSearch(lastQuery.current, false, true)
   }, [kind, runSearch])
-
-  useEffect(() => {
-    if (pausedUntil === null) return
-    const timer = window.setTimeout(
-      () => setPausedUntil(null),
-      pausedUntil - Date.now(),
-    )
-    return () => window.clearTimeout(timer)
-  }, [pausedUntil])
 
   const trimmed = query.trim()
   const canSubmit = !searching && !paused && canSearch(trimmed)
