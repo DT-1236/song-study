@@ -55,6 +55,7 @@ from app.kanji import MAX_DECK_WORDS, CardKanji, KanjiEntry
 from app.lrclib import (
     LrclibCandidate,
     LrclibError,
+    LrclibHeldBack,
     LrclibLyrics,
     LrclibRateLimited,
     LrclibUnavailable,
@@ -212,6 +213,16 @@ def lrclib_refresh_too_soon(
             "detail": "This document's lyrics were checked against LRCLIB a moment ago.",
             "retry_after_seconds": exc.retry_after_seconds,
         },
+    )
+
+
+@app.exception_handler(LrclibHeldBack)
+def lrclib_held_back(request: Request, exc: LrclibHeldBack) -> JSONResponse:
+    """A 502 for a request held back during an LRCLIB outage, saying how
+    long the client should stop sending requests that reach LRCLIB."""
+    return JSONResponse(
+        status_code=502,
+        content={"detail": str(exc), "retry_after_seconds": exc.retry_after_seconds},
     )
 
 

@@ -24,6 +24,7 @@ from app import lrclib
 from app.db import owned_document_row
 from app.lrclib import (
     LrclibError,
+    LrclibHeldBack,
     LrclibLyrics,
     LrclibRateLimited,
     LrclibUnavailable,
@@ -37,6 +38,7 @@ from app.main import (
     DocumentTextUpdate,
     LineTiming,
     LrclibLink,
+    lrclib_held_back,
     lrclib_rate_limited,
 )
 from app.tokenization import tokenize_document
@@ -394,6 +396,16 @@ def test_the_client_is_told_to_wait_half_again_as_long():
     }
 
 
+def test_the_client_is_told_how_long_an_outage_hold_lasts():
+    response = lrclib_held_back(None, LrclibHeldBack(90))
+
+    assert response.status_code == 502
+    assert json.loads(response.body) == {
+        "detail": "LRCLIB couldn't be reached recently — trying again in 2 minutes.",
+        "retry_after_seconds": 90,
+    }
+
+
 @pytest.mark.parametrize(
     "error",
     [
@@ -417,7 +429,7 @@ def test_an_outage_holds_requests_back_for_a_minute(monkeypatch, clock, error):
         lrclib._get_json(f"{URI}0")
 
     assert len(sent) == 1
-    assert not isinstance(held.value, LrclibRateLimited)
+    assert isinstance(held.value, LrclibHeldBack)
     assert "trying again in 1 minute" in str(held.value)
 
     clock.advance(61)
