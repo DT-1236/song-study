@@ -138,18 +138,6 @@ def test_a_card_is_mature_at_21_days_of_stability_and_due_once_its_date_comes(
     assert readiness.due == 4
 
 
-def test_the_documents_list_shows_each_songs_readiness(committed_engine):
-    document_id = create_tokenized_document(SONG)
-    start_song_session(document_id)
-    _recalled_now(committed_engine, "聞こえる")
-
-    page = list_documents(page=1, page_size=20, sort_by="id", sort_dir="asc")
-
-    [item] = [item for item in page.items if item.id == document_id]
-    assert item.readiness.readiness == pytest.approx(2 / 6)
-    assert item.readiness.words == 5
-
-
 def test_the_documents_list_gives_each_song_only_its_own_words(committed_engine):
     first = create_tokenized_document(SONG)
     start_song_session(first)

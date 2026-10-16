@@ -4,38 +4,15 @@ import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
 
-from app.main import (
-    ConflictResolution,
-    DocumentCreate,
-    DocumentTextUpdate,
-    LineTimingsUpdate,
-    LrclibLink,
-    PhraseAcceptance,
-    ReadingCorrection,
-    TokensIgnored,
-    TokensReading,
-)
+from app.main import DocumentCreate, DocumentTextUpdate
 from app.users import owned_document_id
 from tests.support import (
     TEST_USER_ID,
-    accept_phrase_suggestions_endpoint,
     api_routes,
-    apply_tokens_reading,
     as_user,
-    correct_token_reading,
     create_document,
-    get_alternate_readings,
     get_document,
-    get_document_tokens,
-    link_lrclib,
     list_documents,
-    refresh_lrclib,
-    resolve_phrase_furigana_endpoint,
-    resolve_token_conflict,
-    save_line_timings,
-    set_tokens_ignored,
-    unlink_lrclib,
-    unmerge_phrase_tokens,
     update_document_text,
 )
 
@@ -68,30 +45,11 @@ def test_routes_treat_another_users_document_as_missing(committed_engine, other_
     with as_user(other_user):
         theirs = create_document(DocumentCreate(title="theirs", text="い"))
 
+    # A read and a write: that every other route keyed by a document is scoped
+    # the same way is test_every_route_keyed_by_a_document_is_owner_scoped's.
     for call in (
         lambda: get_document(theirs.id),
-        lambda: get_document_tokens(theirs.id),
-        lambda: get_alternate_readings(theirs.id, 1),
-        lambda: unlink_lrclib(theirs.id),
-        lambda: refresh_lrclib(theirs.id),
         lambda: update_document_text(theirs.id, DocumentTextUpdate(text="う")),
-        lambda: link_lrclib(theirs.id, LrclibLink(uri="lrclib:/1")),
-        lambda: resolve_token_conflict(theirs.id, 1, ConflictResolution(conflict_id=1)),
-        lambda: accept_phrase_suggestions_endpoint(
-            theirs.id, PhraseAcceptance(conflict_ids=[1])
-        ),
-        lambda: resolve_phrase_furigana_endpoint(
-            theirs.id, ConflictResolution(conflict_id=1)
-        ),
-        lambda: unmerge_phrase_tokens(theirs.id, 1),
-        lambda: correct_token_reading(theirs.id, 1, ReadingCorrection(reading="あ")),
-        lambda: apply_tokens_reading(
-            theirs.id, TokensReading(token_ids=[1], reading="あ")
-        ),
-        lambda: set_tokens_ignored(
-            theirs.id, TokensIgnored(token_ids=[1], ignored=True)
-        ),
-        lambda: save_line_timings(theirs.id, LineTimingsUpdate(text="い", lines=[])),
     ):
         with pytest.raises(HTTPException) as exc:
             call()

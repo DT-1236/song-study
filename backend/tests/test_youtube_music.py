@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from app import youtube_music
-from app.youtube_music import Song, YouTubeMusicUnavailable, search_songs
+from app.youtube_music import Song, search_songs
 from tests.support import as_session_user, songs_search
 
 
@@ -83,12 +83,6 @@ def test_videos_are_searched_instead_of_songs(fake_client):
 def test_results_are_cut_to_ten(fake_client):
     fake_client(results=[{**FULL, "videoId": f"v{i}"} for i in range(20)])
     assert len(search_songs("t")) == 10
-
-
-def test_library_failure_becomes_unavailable(fake_client):
-    fake_client(error=KeyError("YouTube changed"))
-    with pytest.raises(YouTubeMusicUnavailable):
-        search_songs("t")
 
 
 def test_endpoint_returns_songs(fake_client):

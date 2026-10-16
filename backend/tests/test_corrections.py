@@ -114,16 +114,6 @@ def test_each_word_of_a_katakana_token_is_offered_as_its_piece(committed_engine)
     assert words[("会う", "あう")].token_ids == [token.id]
 
 
-def test_offering_another_users_songs_words_is_refused(committed_engine, other_user):
-    with as_user(other_user):
-        theirs = create_tokenized_document(text="君")
-
-    with pytest.raises(HTTPException) as exc:
-        get_document_words(theirs)
-
-    assert exc.value.status_code == 404
-
-
 # Adding a word of a katakana token
 
 

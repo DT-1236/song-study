@@ -588,22 +588,6 @@ class TestFuriganaAlignment:
             ]
             assert not flagged
 
-    def test_spans_always_exactly_partition_the_surface(self):
-        # No gaps, no overlaps, in order — the invariant the frontend
-        # relies on to render furigana by just walking the span list.
-        for surface, reading in [
-            ("荒技", "アラワザ"),
-            ("揃える", "ソロエル"),
-            ("今日", "キョウ"),
-        ]:
-            spans, _, _ = build_furigana_spans(surface, reading)
-            pos = 0
-            for span in spans:
-                assert span["start"] == pos
-                assert span["text"] == surface[span["start"] : span["end"]]
-                pos = span["end"]
-            assert pos == len(surface)
-
 
 class TestSliceSpansByToken:
     """Dividing a merged phrase's furigana spans back across its tokens."""

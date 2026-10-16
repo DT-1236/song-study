@@ -27,7 +27,8 @@ from app.glosses import (
     search_readings,
     shown_pieces,
 )
-from tests.support import jmdict_search
+from app.main import DocumentCreate
+from tests.support import create_document, get_document_tokens, jmdict_search
 
 
 class TestIsProbablyEnglish:
@@ -358,6 +359,19 @@ class TestGetOrCreateGlossLookup:
         ).one()
         assert row.source == "english_stub"
         assert row.entries == []
+
+
+# JMDict's entry for する, "to do".
+_TO_DO = 1157170
+
+
+def test_suru_is_glossed_as_to_do(committed_engine):
+    # する normalizes to 為る, which read on its own is なる, "to become".
+    document_id = create_document(DocumentCreate(title="t", text="そうする。")).id
+    [suru] = [t for t in get_document_tokens(document_id) if t.surface == "する"]
+
+    assert (suru.gloss.lookup_form, suru.gloss.reading) == ("為る", "する")
+    assert {sense.entry_idseq for sense in suru.gloss.senses} == {_TO_DO}
 
 
 def _tier(query, entry) -> str:

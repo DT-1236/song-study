@@ -7,37 +7,58 @@ records where the last audit left the suite and when the next one is due.
 
 ## Where the last audit left the suite
 
-The last audit was PR #42, on 2026-10-05. Measured on 2026-10-05 after
-PR #45:
+The last audit was on 2026-10-15, after PR #160 (the one before was PR #42,
+on 2026-10-05). Measured after it:
 
-- 151 test functions, 347 collected with parametrization, in 4.9k lines
-  of `backend/tests`, against 5.9k lines of `backend/app`.
-- 98% line coverage of `app` (1,920 statements, 31 missed; lowest file
-  `resplit.py` at 95%). Coverage isn't a project dependency; to measure it
-  again, install `coverage` into a throwaway directory and run
+- 454 test functions (methods of test classes included), 668 collected with
+  parametrization, in 8.8k lines of `backend/tests`, against 9.4k lines of
+  `backend/app`.
+- 99% line coverage of `app` (3,227 statements, 45 missed; lowest file
+  `resplit.py` at 95%). Nearly all the misses are a document or token
+  vanishing between a request's ownership check and its next statement.
+  Coverage isn't a project dependency; to measure it again, install
+  `coverage` into a throwaway directory and run
   `PYTHONPATH=<that directory> .venv/bin/python -m coverage run --source=app -m pytest`,
   then `coverage report`.
-- 7.2s for the whole suite (`pytest -q`).
-- The frontend, as of PR #45, has 25 Vitest tests in one file
-  (`src/timing.test.ts`), covering only the line-timing logic in
-  `src/timing.ts`. They run in well under a second.
+- 13.4–14.4s for the whole suite (`pytest -q`, three runs), down from
+  15.7–16.8s. The time is spread across the database-backed tests rather than
+  concentrated in a few: each request through the test client costs about
+  4ms, of which SQL is under half.
+- The frontend has 25 Vitest tests in one file (`src/timing.test.ts`),
+  covering only the line-timing logic in `src/timing.ts`. They run in well
+  under a second.
+
+What it cut, as a guide to what the next one should look for:
+
+- A test of a route's ownership check where
+  `test_every_route_keyed_by_a_document_is_owner_scoped` already covers the
+  route.
+- A unit test of an error that the same route's test already shows reaching
+  the client, and a route test of a helper another route's test covers.
+- A test whose setup never reached the code it was named for (a linked
+  document checked so recently that loading it skipped LRCLIB).
+- A test of a one-off data migration, once the migration has run on the app
+  database and in production. After that it can only catch an edit to an old
+  migration, while the app code it drives keeps changing under it.
+- An assertion that could never fail: a name checked for absence that
+  wasn't any of the inputs.
 
 ## When to audit again
 
 Audit again when any of these is reached, whichever comes first:
 
-- **The backend suite takes 15s or more** (about double). A suite that
-  slow stops being run before every commit, which is what the last audit's
-  11s → 6.5s cleanup was for.
+- **The backend suite takes 20s or more.** That's half again what this
+  audit left, rather than double, because 14s is already close to the most
+  that's comfortable before every commit.
 - **Backend coverage drops below 95%**, which means code is arriving
   without tests. This applies to the backend only. The frontend is mostly
   layout and components, with little logic worth testing, so its coverage
   is expected to stay low and isn't a reason to audit.
-- **About 225 test functions** (half again as many). Growth is where
+- **About 680 test functions** (half again as many). Growth is where
   duplicates and tests that only check their own fixture creep in.
-  The project has averaged about 3.4 test functions per merged PR so far
-  (151 over 44 PRs in four weeks), so at that pace this is roughly 20 PRs,
-  or two to three weeks.
+  From PR #45 to PR #160 the suite grew by about 1.9 test functions per
+  merged PR (268 to 479 over 113 PRs), so at that pace this is roughly 120
+  PRs.
 - **The frontend's tests reach beyond line timing**, such as a second test
   file or a browser environment like jsdom. They were kept small on purpose,
   so check that each addition tests logic where a mistake would go

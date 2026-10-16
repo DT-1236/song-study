@@ -9,7 +9,6 @@ from __future__ import annotations
 import threading
 from typing import NamedTuple
 
-from alembic import command
 from sqlalchemy import text
 
 from app import processing
@@ -25,7 +24,6 @@ from app.tokenization import tokenize_document
 from tests.fixtures.kumo_no_ito import FIRST_SENTENCE, SECOND_SENTENCE, TEXT, TITLE
 from tests.support import (
     BackgroundCall,
-    alembic_config,
     clear_gloss_links,
     create_document,
     fetch_document_tokens,
@@ -97,10 +95,13 @@ def test_first_processing_takes_a_fixed_number_of_round_trips(committed_engine):
     assert round_trips(viewed) == 4
 
 
-def test_a_dropped_piece_lookup_is_cached_again_by_the_first_view(committed_engine):
+def test_a_dropped_piece_lookup_is_cached_again_by_the_first_view(
+    committed_engine, monkeypatch
+):
     """A composite gloss's piece whose lookup row was deleted, with no token
     linked to it, is looked up and kept by the next view, not looked up again
-    on every one after."""
+    on every one after. With every token still linked, only that lookup is
+    repaired."""
     document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
     get_document_tokens(document_id)
     with committed_engine.begin() as conn:
@@ -117,6 +118,10 @@ def test_a_dropped_piece_lookup_is_cached_again_by_the_first_view(committed_engi
         ).rowcount
     assert dropped > 0
 
+    def fail(*args):
+        raise AssertionError("repair_gloss_links ran with every token linked")
+
+    monkeypatch.setattr("app.main.repair_gloss_links", fail)
     repaired = statements_sent(
         committed_engine, lambda: get_document_tokens(document_id)
     )
@@ -125,32 +130,6 @@ def test_a_dropped_piece_lookup_is_cached_again_by_the_first_view(committed_engi
     viewed = statements_sent(committed_engine, lambda: get_document_tokens(document_id))
     assert round_trips(viewed, "INSERT INTO gloss_lookups") == 0
     assert round_trips(viewed) == 4
-
-
-def test_a_dropped_piece_lookup_alone_does_not_relink_glosses(
-    committed_engine, monkeypatch
-):
-    """With every token linked, only the dropped lookup is repaired."""
-    document_id = create_document(DocumentCreate(title=TITLE, text=TEXT)).id
-    get_document_tokens(document_id)
-    with committed_engine.begin() as conn:
-        conn.execute(
-            text(
-                """
-                DELETE FROM gloss_lookups
-                WHERE id NOT IN (
-                    SELECT gloss_lookup_id FROM tokens
-                    WHERE gloss_lookup_id IS NOT NULL
-                )
-                """
-            )
-        )
-
-    def fail(*args):
-        raise AssertionError("repair_gloss_links ran with every token linked")
-
-    monkeypatch.setattr("app.main.repair_gloss_links", fail)
-    get_document_tokens(document_id)
 
 
 def test_requests_while_processing_start_no_second_job(background_jobs, monkeypatch):
@@ -396,27 +375,6 @@ def test_a_job_that_writes_no_tokens_is_not_started_again(
 
     assert (progress.status, progress.tokens) == ("ready", [])
     assert processed.texts == [""]
-
-
-def test_the_migration_marks_documents_with_tokens_as_processed(committed_engine):
-    tokenized = create_document(DocumentCreate(title=TITLE, text=FIRST_SENTENCE)).id
-    get_document_tokens(tokenized)
-    untouched = create_document(DocumentCreate(title=TITLE, text=SECOND_SENTENCE)).id
-
-    config = alembic_config()
-    command.downgrade(config, "0034")
-    try:
-        command.upgrade(config, "0035")
-    finally:
-        command.upgrade(config, "head")
-
-    with committed_engine.connect() as conn:
-        marked = dict(
-            conn.execute(
-                text("SELECT id, processed_at IS NOT NULL FROM documents")
-            ).all()
-        )
-    assert marked == {tokenized: True, untouched: False}
 
 
 def test_fetch_fills_in_missing_gloss_links_keeping_a_picked_reading(committed_engine):
