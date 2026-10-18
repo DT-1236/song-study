@@ -67,6 +67,15 @@ class Audio:
 
 
 @dataclass(frozen=True)
+class LineReading:
+    """The furigana over one run of a line, as [begin, end) offsets."""
+
+    begin: int
+    end: int
+    reading: str
+
+
+@dataclass(frozen=True)
 class Line:
     """The line of a song a card plays."""
 
@@ -96,6 +105,8 @@ class Line:
     # token's gloss it is.
     correction: Literal["reading", "word"] | None
     piece: int | None
+    # The furigana of every kanji run on the line, as the page shows it.
+    furigana: list[LineReading]
 
 
 @dataclass(frozen=True)
@@ -145,6 +156,26 @@ class Song:
     timings: list[dict | None] | None
     # Its tokens, grouped into what's glossed together (see cards._units).
     units: list[list]
+
+    @cached_property
+    def furigana_by_line(self) -> dict[int, list[LineReading]]:
+        """The furigana of each line's kanji runs, by the line's index."""
+        by_line: dict[int, list[LineReading]] = {}
+        for unit in self.units:
+            for row in unit:
+                start = self.text.rfind("\n", 0, row.char_begin) + 1
+                index = line_index(self.text, row.char_begin)
+                for span in row.furigana:
+                    if span["reading"]:
+                        offset = row.char_begin - start
+                        by_line.setdefault(index, []).append(
+                            LineReading(
+                                offset + span["start"],
+                                offset + span["end"],
+                                span["reading"],
+                            )
+                        )
+        return by_line
 
 
 def load_songs(
@@ -224,6 +255,7 @@ class _Occurrence:
             self.found.written_as,
             self.found.correction,
             self.found.piece if self.found.correction == "word" else None,
+            self.song.furigana_by_line.get(index, []),
         )
 
 

@@ -1,5 +1,17 @@
 import type { CardKanji, KanjiEntry } from './api'
 
+// How hard a kanji is to learn, 0 (easiest) to 9: KANJIDIC2 grades 1-6 are
+// the school years, 8 the rest of the jōyō kanji, 9-10 the name kanji.
+function gradeTier(grade: number): number {
+  return Math.min(Math.max(grade - 1, 0), 9)
+}
+
+// How rare a kanji is, 0 (most common) to 9, from its KANJIDIC2 newspaper
+// frequency rank (1-2500, 1 being the most common): one tier per 250 ranks.
+function frequencyTier(frequency: number): number {
+  return Math.min(Math.floor((frequency - 1) / 250), 9)
+}
+
 function KanjiCard({
   kanji,
   entry,
@@ -14,26 +26,33 @@ function KanjiCard({
   const deckWords = entry.deck_words
     .filter((word) => word.card_id !== cardId)
     .slice(0, maxDeckWords)
-  const meta = [
-    entry.grade !== null && `grade ${entry.grade}`,
-    entry.frequency !== null && `freq ${entry.frequency}`,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const readings = [...entry.on_readings, ...kanji.kun_readings]
-
   return (
     <section className="kanji-card">
       <div className="kanji-card-head">
         <span className="kanji-character">{kanji.character}</span>
-        <span className="kanji-readings">
-          {readings.join('・')}
+        <span className="kanji-kun">
+          {kanji.kun_readings.join('・')}
           {kanji.more_kun > 0 && (
             <span className="kanji-more"> +{kanji.more_kun} more</span>
           )}
         </span>
+        <span className="kanji-on">{entry.on_readings.join('・')}</span>
       </div>
-      {meta && <div className="kanji-meta">{meta}</div>}
+      {(entry.grade !== null || entry.frequency !== null) && (
+        <div className="kanji-meta">
+          {entry.grade !== null && (
+            <span className={`kanji-tier-${gradeTier(entry.grade)}`}>
+              grade {entry.grade}
+            </span>
+          )}
+          {entry.grade !== null && entry.frequency !== null && ' · '}
+          {entry.frequency !== null && (
+            <span className={`kanji-tier-${frequencyTier(entry.frequency)}`}>
+              freq {entry.frequency}
+            </span>
+          )}
+        </div>
+      )}
       <div className="kanji-meanings">{entry.meanings.join(', ')}</div>
       {entry.radical && (
         <div className="kanji-radical">

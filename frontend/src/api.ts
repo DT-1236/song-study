@@ -724,6 +724,8 @@ export type CardLine = {
   // an accepted phrase.
   correction: 'reading' | 'word' | null
   piece: number | null
+  // The furigana over each kanji run of `text`, as [begin, end) offsets.
+  furigana: { begin: number; end: number; reading: string }[]
 }
 
 export type CardOption = {

@@ -1,6 +1,38 @@
-import type { QueuedCard } from './api'
+import type { ReactNode } from 'react'
+import type { CardLine, QueuedCard } from './api'
 import { codePointSlice, optionText, wordLabel } from './cardText'
 import { SenseList } from './SenseList'
+
+// The line's text from `begin` to `end`, with its furigana over the kanji
+// runs inside the range when `furigana` is set.
+function lineSlice(
+  line: CardLine,
+  begin: number,
+  end: number | undefined,
+  furigana: boolean,
+) {
+  const text = codePointSlice(line.text, begin, end)
+  if (!furigana) return text
+
+  const stop = end ?? Array.from(line.text).length
+  const parts: ReactNode[] = []
+  let at = begin
+  // Readings are in order, and each lies within one token, so none
+  // straddles the range's edges.
+  for (const reading of line.furigana) {
+    if (reading.begin < at || reading.end > stop) continue
+    parts.push(codePointSlice(line.text, at, reading.begin))
+    parts.push(
+      <ruby key={reading.begin}>
+        {codePointSlice(line.text, reading.begin, reading.end)}
+        <rt>{reading.reading}</rt>
+      </ruby>,
+    )
+    at = reading.end
+  }
+  parts.push(codePointSlice(line.text, at, stop))
+  return parts
+}
 
 // The card's line, dimmed except its target until the reveal brightens it.
 function LineText({ card, revealed }: { card: QueuedCard; revealed: boolean }) {
@@ -21,20 +53,20 @@ function LineText({ card, revealed }: { card: QueuedCard; revealed: boolean }) {
   return (
     <p className="study-line">
       <span className={dim}>
-        {codePointSlice(line.text, 0, begin)}
+        {lineSlice(line, 0, begin, revealed)}
         {bracketed && '['}
-        {codePointSlice(line.text, begin, focusBegin)}
+        {lineSlice(line, begin, focusBegin, revealed)}
       </span>
       <mark className="study-focus">
-        {codePointSlice(line.text, focusBegin, focusEnd)}
+        {lineSlice(line, focusBegin, focusEnd, revealed)}
       </mark>
       {line.written_as && (
         <span className="study-written-as">（{line.written_as}）</span>
       )}
       <span className={dim}>
-        {codePointSlice(line.text, focusEnd, end)}
+        {lineSlice(line, focusEnd, end, revealed)}
         {bracketed && ']'}
-        {codePointSlice(line.text, end)}
+        {lineSlice(line, end, undefined, revealed)}
       </span>
     </p>
   )

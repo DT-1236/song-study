@@ -160,6 +160,7 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
             SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end,
                    t.normalized_form, t.dictionary_form, t.part_of_speech,
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
+                   COALESCE(t.furigana_override, t.furigana_spans) AS furigana,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase,
                    -- A group's members share the group's gloss, which is never

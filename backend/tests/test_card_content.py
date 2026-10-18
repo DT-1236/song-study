@@ -305,6 +305,17 @@ def test_a_words_card_plays_the_line_its_word_is_on(committed_engine):
     assert line.token_id == document_tokens(document_id, "聞こえ")[0].id
 
 
+def test_a_cards_line_has_the_furigana_of_its_kanji(committed_engine):
+    document_id = create_tokenized_document(SONG)
+
+    line = _card(start_song_session(document_id).cards, "聞こえる").line
+
+    assert [(_span(line, (r.begin, r.end)), r.reading) for r in line.furigana] == [
+        ("声", "こえ"),
+        ("聞", "き"),
+    ]
+
+
 def test_a_grammar_cards_line_points_at_the_grammar_in_its_group(committed_engine):
     document_id = create_tokenized_document(SONG)
 
