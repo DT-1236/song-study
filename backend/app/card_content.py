@@ -12,9 +12,12 @@ from __future__ import annotations
 
 import random
 import re
+from bisect import bisect_right
+from collections import defaultdict
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass, field, replace
 from functools import cached_property
+from itertools import accumulate
 from typing import Literal
 
 from sqlalchemy import text
@@ -67,6 +70,15 @@ class Audio:
 
 
 @dataclass(frozen=True)
+class LineReading:
+    """The furigana over one run of a line, as [begin, end) offsets."""
+
+    begin: int
+    end: int
+    reading: str
+
+
+@dataclass(frozen=True)
 class Line:
     """The line of a song a card plays."""
 
@@ -96,6 +108,8 @@ class Line:
     # token's gloss it is.
     correction: Literal["reading", "word"] | None
     piece: int | None
+    # The furigana of every kanji run on the line, as the page shows it.
+    furigana: list[LineReading]
 
 
 @dataclass(frozen=True)
@@ -145,6 +159,24 @@ class Song:
     timings: list[dict | None] | None
     # Its tokens, grouped into what's glossed together (see cards._units).
     units: list[list]
+
+    @cached_property
+    def furigana_by_line(self) -> dict[int, list[LineReading]]:
+        """The furigana of each line's kanji runs, by the line's index."""
+        # Where each line starts, to place a token on its line.
+        starts = list(accumulate(len(line) + 1 for line in self.text.split("\n")))
+        starts.insert(0, 0)
+        by_line: dict[int, list[LineReading]] = defaultdict(list)
+        for unit in self.units:
+            for row in unit:
+                index = bisect_right(starts, row.char_begin) - 1
+                offset = row.char_begin - starts[index]
+                by_line[index].extend(
+                    LineReading(offset + span["start"], offset + span["end"], reading)
+                    for span in row.furigana
+                    if (reading := span["reading"])
+                )
+        return by_line
 
 
 def load_songs(
@@ -224,6 +256,7 @@ class _Occurrence:
             self.found.written_as,
             self.found.correction,
             self.found.piece if self.found.correction == "word" else None,
+            self.song.furigana_by_line.get(index, []),
         )
 
 
@@ -628,38 +661,15 @@ def _writes_its_kanji(occurrence: _Occurrence | None) -> bool:
     return occurrence is not None and occurrence.found.written_as is None
 
 
-def _furigana(conn, occurrences: Iterable[_Occurrence | None]) -> dict[int, list]:
-    """The furigana, as the page shows it, of each token in the groups of the
-    occurrences that write their kanji, by token id."""
-    token_ids = [
-        row.id
-        for occurrence in occurrences
-        if _writes_its_kanji(occurrence)
-        for row in occurrence.unit
-    ]
-    rows = conn.execute(
-        text(
-            """
-            SELECT id, COALESCE(furigana_override, furigana_spans) AS spans
-            FROM tokens WHERE id = ANY(:token_ids)
-            """
-        ),
-        {"token_ids": token_ids},
-    )
-    return {row.id: row.spans for row in rows}
-
-
-def _written_kanji(
-    key: CardKey, occurrence: _Occurrence | None, furigana: dict[int, list]
-) -> list[KanjiInWord]:
-    """The kanji of the group a card's word or grammar term is in on its line,
-    given the `furigana` of the line's tokens; those of the word on its own
-    when the line doesn't write them (see _writes_its_kanji)."""
+def _written_kanji(key: CardKey, occurrence: _Occurrence | None) -> list[KanjiInWord]:
+    """The kanji of the group a card's word or grammar term is in on its line;
+    those of the word on its own when the line doesn't write them (see
+    _writes_its_kanji)."""
     if _writes_its_kanji(occurrence):
         return [
             kanji
             for row in occurrence.unit
-            for kanji in kanji_in_spans(furigana[row.id], row.dictionary_form)
+            for kanji in kanji_in_spans(row.furigana, row.dictionary_form)
         ]
     return kanji_in_word(key.lookup_form, key.reading) if key.reading else []
 
@@ -701,9 +711,8 @@ def queue_contents(
     # Every word card's own gloss, in one lookup.
     glosses.fetch(targets.values())
 
-    furigana = _furigana(conn, chosen)
     written = [
-        _written_kanji(key, occurrence, furigana)
+        _written_kanji(key, occurrence)
         for key, occurrence in zip(keys, chosen, strict=True)
     ]
     characters = {item.character for kanji in written for item in kanji}

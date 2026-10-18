@@ -2245,6 +2245,10 @@ label.apply-to-all {
   overflow-wrap: anywhere;
 }
 
+.study-line:not(.revealed) rt {
+  visibility: hidden;
+}
+
 .study-dim {
   color: var(--text-muted);
   opacity: 0.55;
@@ -2356,6 +2360,10 @@ label.apply-to-all {
   display: flex;
   align-items: baseline;
   gap: 0.75rem;
+}
+
+.kanji-on {
+  margin-left: auto;
 }
 
 .kanji-character {

@@ -152,6 +152,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-15 | Refresh cooldown and LRCLIB outage backoff                             | #159 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 36    | 2.5M       | 11k    | M    |
 | 2026-10-15 | LRCLIB outage hold sent to the client (backlog)                        | #160 | initial pass                           | Sonnet 5.5, medium          | —    | 12    | 575k       | 4k     | S    |
 | 2026-10-15 | Test audit: prune duplicates and migration tests, backlog gaps         | #161 | initial pass                           | Opus 5.5, high              | —    | 75    | 15.5M      | 61k    | XL   |
+| 2026-10-17 | Kanji panel layout, difficulty tiers, line furigana on reveal          | #162 | initial pass                           | Sonnet 5.5, medium          | —    | 33    | 1.9M       | 13k    | M    |
+| 2026-10-17 | Kanji panel layout, difficulty tiers, line furigana on reveal          | #162 | /simplify (4 subagents)                | Sonnet 5.5, medium          | —    | 33    | 1.8M       | 11k    | M    |
 
 ## Post-mortem log
 
