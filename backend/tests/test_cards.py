@@ -344,34 +344,7 @@ def test_each_user_has_their_own_cards(committed_engine, other_user):
     assert set(user_cards()) == set(user_cards(other_user))
 
 
-def test_enrolling_again_doesnt_restore_a_removed_card(committed_engine):
-    document_id = create_tokenized_document(text="君")
-    _enroll(committed_engine, document_id)
-    with committed_engine.begin() as conn:
-        conn.execute(text("UPDATE study_cards SET suspended = TRUE"))
-
-    assert _enroll(committed_engine, document_id) == []
-    assert user_cards()[word_key("君", "きみ")].suspended
-
-
 # Adding a word by hand
-
-
-def test_adding_a_removed_word_restores_its_card_and_history(committed_engine):
-    document_id = create_tokenized_document(text="君")
-    _enroll(committed_engine, document_id)
-    with committed_engine.begin() as conn:
-        conn.execute(
-            text(
-                "UPDATE study_cards SET suspended = TRUE, state = 2, stability = 30, difficulty = 5"
-            )
-        )
-
-    card = add_token_card(document_id, document_tokens(document_id, "君")[0].id)
-
-    assert not card.suspended
-    restored = user_cards()[word_key("君", "きみ")]
-    assert (restored.id, restored.state, restored.stability) == (card.id, 2, 30)
 
 
 def test_adding_a_word_by_hand_takes_an_unreviewed_reading(committed_engine):

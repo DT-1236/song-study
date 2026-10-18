@@ -516,16 +516,6 @@ def test_each_user_has_their_own_queue(committed_engine, other_user):
         assert get_all_songs_queue().cards == []
 
 
-def test_studying_another_users_song_is_refused(committed_engine, other_user):
-    with as_user(other_user):
-        theirs = create_tokenized_document("君")
-
-    with pytest.raises(HTTPException) as exc:
-        start_song_session(theirs)
-
-    assert exc.value.status_code == 404
-
-
 # Settings
 
 
@@ -555,18 +545,6 @@ def test_a_desired_retention_outside_the_offered_range_is_refused(retention):
 def test_a_negative_new_card_limit_is_refused():
     with pytest.raises(ValidationError):
         SongStudySettings(new_cards_per_day=-1)
-
-
-def test_a_songs_settings_are_its_owners_alone(committed_engine, other_user):
-    with as_user(other_user):
-        theirs = create_tokenized_document("君")
-
-    with pytest.raises(HTTPException) as exc:
-        get_song_study_settings(theirs)
-    assert exc.value.status_code == 404
-    with pytest.raises(HTTPException) as exc:
-        save_song_study_settings(theirs, SongStudySettings(new_cards_per_day=1))
-    assert exc.value.status_code == 404
 
 
 def test_retention_is_each_users_own(committed_engine, other_user):

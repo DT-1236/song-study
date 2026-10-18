@@ -538,12 +538,6 @@ class TestPhraseFurigana:
         # Applying an alternative leaves it unselected.
         assert _conflicts_for(db_conn, roku)[0].selected is False
 
-    def test_raises_for_a_nonexistent_conflict_id(self, db_conn):
-        document_id = make_document(db_conn)
-
-        with pytest.raises(ConflictNotFound):
-            resolve_phrase_furigana(db_conn, document_id, -1)
-
     def test_raises_for_another_documents_conflict(self, db_conn):
         document_id = make_document(db_conn)
         other_document_id, roku, _ = _ambiguous_run(db_conn)

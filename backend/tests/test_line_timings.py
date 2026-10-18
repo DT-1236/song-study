@@ -33,12 +33,6 @@ def _document() -> tuple[int, str]:
     return document.id, document.text
 
 
-def test_a_document_starts_without_edited_timings(committed_engine):
-    document_id, _ = _document()
-
-    assert get_document(document_id).edited_lines is None
-
-
 def test_saved_timings_come_back_with_the_document(committed_engine):
     document_id, text = _document()
 

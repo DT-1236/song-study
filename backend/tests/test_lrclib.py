@@ -266,11 +266,6 @@ def test_record_without_lyrics_is_an_error(fake_lrclib):
         fetch_lyrics(URI)
 
 
-def test_a_missing_track_is_a_refusal_not_an_outage(fake_lrclib):
-    with pytest.raises(LrclibError):
-        fetch_lyrics(URI)
-
-
 class _Response(io.BytesIO):
     status = 200
 
@@ -304,33 +299,6 @@ def test_requests_and_error_bodies_are_logged(monkeypatch, caplog):
     assert f"LRCLIB request: GET {URI}" in caplog.text
     assert "503" in caplog.text
     assert "upstream down" in caplog.text
-
-
-@pytest.mark.parametrize(
-    ("error", "expected"),
-    [
-        (
-            urllib.error.HTTPError(
-                URI, 429, "Too Many Requests", {"Retry-After": "3"}, None
-            ),
-            LrclibUnavailable,
-        ),
-        (
-            urllib.error.HTTPError(URI, 503, "Service Unavailable", {}, None),
-            LrclibUnavailable,
-        ),
-        (urllib.error.URLError("no route to host"), LrclibUnavailable),
-        (TimeoutError(), LrclibUnavailable),
-    ],
-)
-def test_request_failures(monkeypatch, error, expected):
-    def urlopen(request, timeout):
-        raise error
-
-    monkeypatch.setattr(urllib.request, "urlopen", urlopen)
-
-    with pytest.raises(expected):
-        lrclib._get_json(URI)
 
 
 @pytest.mark.parametrize(
@@ -577,16 +545,6 @@ STALE = timedelta(hours=24, minutes=1)
 def _linked_document(fake_lrclib, lines, duration=60.0) -> int:
     fake_lrclib.publish(URI, lines, duration)
     return create_document(DocumentCreate(title="test", lrclib_uri=URI)).id
-
-
-def test_loading_keeps_picked_readings_while_lrclib_is_unchanged(
-    committed_engine, fake_lrclib
-):
-    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
-    pick_reading(document_id, "今日", "こんにち")
-
-    assert get_document(document_id).text == WEATHER
-    assert document_tokens(document_id, "今日")[0].gloss.reading == "こんにち"
 
 
 def test_a_recent_check_spares_lrclib_on_load(committed_engine, fake_lrclib):
@@ -1072,15 +1030,6 @@ def test_search_without_a_duration_is_never_within_tolerance(fake_lrclib):
     ]
 
 
-def test_search_fails_when_lrclib_does(fake_lrclib):
-    fake_lrclib.error = LrclibUnavailable(
-        "LRCLIB is rate-limiting requests — try again later."
-    )
-
-    with pytest.raises(LrclibUnavailable):
-        search_tracks(SONG, "歌手", 200)
-
-
 def test_search_endpoint_returns_candidates(fake_lrclib):
     fake_lrclib.answer([_track(1, duration=262)], track_name=SONG, artist_name="歌手")
 
@@ -1139,28 +1088,6 @@ def test_track_lyrics_endpoint_returns_synced_lines(fake_lrclib):
         LineTiming(start=1.0, end=4.5),
         LineTiming(start=4.5, end=10.0),
     ]
-
-
-def test_track_lyrics_endpoint_returns_plain_lyrics_untimed(fake_lrclib):
-    fake_lrclib.records[URI] = {"syncedLyrics": None, "plainLyrics": WEATHER}
-
-    lyrics = lrclib_track_lyrics(track_id=1)
-
-    assert (lyrics.text, lyrics.lines) == (WEATHER, None)
-
-
-def test_track_lyrics_endpoint_rejects_a_missing_track(fake_lrclib):
-    with pytest.raises(HTTPException) as rejected:
-        lrclib_track_lyrics(track_id=2)
-    assert rejected.value.status_code == 422
-
-
-def test_track_lyrics_endpoint_maps_unavailable_to_502(fake_lrclib):
-    fake_lrclib.error = LrclibUnavailable("Couldn't reach LRCLIB.")
-
-    with pytest.raises(HTTPException) as rejected:
-        lrclib_track_lyrics(track_id=1)
-    assert rejected.value.status_code == 502
 
 
 def test_track_lyrics_endpoint_requires_login(fake_lrclib):

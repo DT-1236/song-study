@@ -86,7 +86,7 @@ def test_a_word_sharing_a_meaningful_word_with_the_target_isnt_a_wrong_option():
     # "calling" is call + ing.
     vocation = _word("励む", ["to follow a calling"], ["to strive"])
 
-    assert "天職" not in _forms(pick_wrong_options(CALL, [vocation, SING, LAUGH]))
+    assert "励む" not in _forms(pick_wrong_options(CALL, [vocation, SING, LAUGH]))
 
 
 def test_a_word_shared_only_in_a_qualifier_doesnt_make_a_wrong_option_a_synonym():
