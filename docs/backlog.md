@@ -65,3 +65,17 @@ so it can be picked up without re-deriving the reasoning.
   `requirements.txt`, and record the new time in `docs/test-audits.md`.
   Opus 5, medium: the change is to the guard that keeps tests off the app
   database, and getting it wrong wipes real data.
+
+## /simplify on the kanji panel and line furigana branch
+
+- **Furigana is fetched by callers that never read it.**
+  `cards._token_rows` selects `furigana` for every caller, but only
+  `card_content` (the queue's lines and kanji) reads it. Give it a
+  `with_furigana` parameter that `units_by_document` passes through from
+  `load_songs`, and have `document_units`'s callers leave it off. Saves one
+  jsonb column per token on those paths. Sonnet 5, low.
+- **A ruby reading straddling a slice edge is dropped.** `lineSlice` in
+  `StudyCardView.tsx` skips a reading that crosses a cut between the dimmed
+  and focused parts, which holds only while focus and group edges fall on
+  token edges. Build the line's segments once with both the readings' and
+  the cuts' boundaries as cut points. Sonnet 5, medium.

@@ -705,6 +705,9 @@ export type CardAudio = {
 
 // The line of a song a card plays. Offsets are [begin, end) in Unicode code
 // points, as the backend counts them, not in UTF-16 units.
+// The furigana over one run of a card's line, as [begin, end) offsets.
+export type LineReading = { begin: number; end: number; reading: string }
+
 export type CardLine = {
   document_id: number
   title: string
@@ -725,7 +728,7 @@ export type CardLine = {
   correction: 'reading' | 'word' | null
   piece: number | null
   // The furigana over each kanji run of `text`, as [begin, end) offsets.
-  furigana: { begin: number; end: number; reading: string }[]
+  furigana: LineReading[]
 }
 
 export type CardOption = {

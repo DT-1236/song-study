@@ -2245,6 +2245,10 @@ label.apply-to-all {
   overflow-wrap: anywhere;
 }
 
+.study-line:not(.revealed) rt {
+  visibility: hidden;
+}
+
 .study-dim {
   color: var(--text-muted);
   opacity: 0.55;
@@ -2372,46 +2376,6 @@ label.apply-to-all {
 .kanji-components,
 .kanji-status {
   color: var(--text-muted);
-}
-
-.kanji-tier-0 {
-  color: #4ade80;
-}
-
-.kanji-tier-1 {
-  color: #71e577;
-}
-
-.kanji-tier-2 {
-  color: #97eb6d;
-}
-
-.kanji-tier-3 {
-  color: #bef264;
-}
-
-.kanji-tier-4 {
-  color: #d2e14f;
-}
-
-.kanji-tier-5 {
-  color: #e7d039;
-}
-
-.kanji-tier-6 {
-  color: #fbbf24;
-}
-
-.kanji-tier-7 {
-  color: #fca33c;
-}
-
-.kanji-tier-8 {
-  color: #fe8753;
-}
-
-.kanji-tier-9 {
-  color: #ff6b6b;
 }
 
 .kanji-status.mature {

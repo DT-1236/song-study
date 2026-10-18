@@ -1,37 +1,29 @@
-import type { ReactNode } from 'react'
 import type { CardLine, QueuedCard } from './api'
 import { codePointSlice, optionText, wordLabel } from './cardText'
+import { renderSegments, type FuriganaSegment } from './furigana'
 import { SenseList } from './SenseList'
 
 // The line's text from `begin` to `end`, with its furigana over the kanji
-// runs inside the range when `furigana` is set.
-function lineSlice(
-  line: CardLine,
-  begin: number,
-  end: number | undefined,
-  furigana: boolean,
-) {
-  const text = codePointSlice(line.text, begin, end)
-  if (!furigana) return text
-
+// runs inside the range.
+function lineSlice(line: CardLine, begin: number, end?: number) {
   const stop = end ?? Array.from(line.text).length
-  const parts: ReactNode[] = []
+  const segments: FuriganaSegment[] = []
   let at = begin
-  // Readings are in order, and each lies within one token, so none
-  // straddles the range's edges.
+  // Each reading lies within one token, so none straddles the range's edges.
   for (const reading of line.furigana) {
     if (reading.begin < at || reading.end > stop) continue
-    parts.push(codePointSlice(line.text, at, reading.begin))
-    parts.push(
-      <ruby key={reading.begin}>
-        {codePointSlice(line.text, reading.begin, reading.end)}
-        <rt>{reading.reading}</rt>
-      </ruby>,
-    )
+    segments.push({
+      text: codePointSlice(line.text, at, reading.begin),
+      reading: null,
+    })
+    segments.push({
+      text: codePointSlice(line.text, reading.begin, reading.end),
+      reading: reading.reading,
+    })
     at = reading.end
   }
-  parts.push(codePointSlice(line.text, at, stop))
-  return parts
+  segments.push({ text: codePointSlice(line.text, at, stop), reading: null })
+  return renderSegments(segments)
 }
 
 // The card's line, dimmed except its target until the reveal brightens it.
@@ -51,22 +43,22 @@ function LineText({ card, revealed }: { card: QueuedCard; revealed: boolean }) {
   const dim = revealed ? '' : 'study-dim'
 
   return (
-    <p className="study-line">
+    <p className={`study-line ${revealed ? 'revealed' : ''}`}>
       <span className={dim}>
-        {lineSlice(line, 0, begin, revealed)}
+        {lineSlice(line, 0, begin)}
         {bracketed && '['}
-        {lineSlice(line, begin, focusBegin, revealed)}
+        {lineSlice(line, begin, focusBegin)}
       </span>
       <mark className="study-focus">
-        {lineSlice(line, focusBegin, focusEnd, revealed)}
+        {lineSlice(line, focusBegin, focusEnd)}
       </mark>
       {line.written_as && (
         <span className="study-written-as">（{line.written_as}）</span>
       )}
       <span className={dim}>
-        {lineSlice(line, focusEnd, end, revealed)}
+        {lineSlice(line, focusEnd, end)}
         {bracketed && ']'}
-        {lineSlice(line, end, undefined, revealed)}
+        {lineSlice(line, end, undefined)}
       </span>
     </p>
   )

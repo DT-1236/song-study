@@ -1,15 +1,26 @@
 import type { CardKanji, KanjiEntry } from './api'
 
-// How hard a kanji is to learn, 0 (easiest) to 9: KANJIDIC2 grades 1-6 are
-// the school years, 8 the rest of the jōyō kanji, 9-10 the name kanji.
-function gradeTier(grade: number): number {
-  return Math.min(Math.max(grade - 1, 0), 9)
-}
+// Easy to hard, green through amber to red.
+const TIER_COLORS = [
+  '#4ade80',
+  '#71e577',
+  '#97eb6d',
+  '#bef264',
+  '#d2e14f',
+  '#e7d039',
+  '#fbbf24',
+  '#fca33c',
+  '#fe8753',
+  '#ff6b6b',
+]
 
-// How rare a kanji is, 0 (most common) to 9, from its KANJIDIC2 newspaper
-// frequency rank (1-2500, 1 being the most common): one tier per 250 ranks.
-function frequencyTier(frequency: number): number {
-  return Math.min(Math.floor((frequency - 1) / 250), 9)
+const clampTier = (tier: number) =>
+  Math.min(Math.max(Math.floor(tier), 0), TIER_COLORS.length - 1)
+
+// A grade or frequency, colored by how hard `tier` (0, easiest, to 9) says
+// the kanji is.
+function Tier({ tier, children }: { tier: number; children: string }) {
+  return <span style={{ color: TIER_COLORS[clampTier(tier)] }}>{children}</span>
 }
 
 function KanjiCard({
@@ -26,6 +37,20 @@ function KanjiCard({
   const deckWords = entry.deck_words
     .filter((word) => word.card_id !== cardId)
     .slice(0, maxDeckWords)
+  // KANJIDIC2 grades 1-6 are the school years, 8 the rest of the jōyō kanji
+  // and 9-10 the name kanji; its newspaper frequency rank runs 1-2500, 1
+  // being the most common, so a tier is 250 ranks.
+  const meta = [
+    entry.grade !== null && (
+      <Tier tier={entry.grade - 1}>{`grade ${entry.grade}`}</Tier>
+    ),
+    entry.frequency !== null && (
+      <Tier
+        tier={(entry.frequency - 1) / 250}
+      >{`freq ${entry.frequency}`}</Tier>
+    ),
+  ].filter(Boolean)
+
   return (
     <section className="kanji-card">
       <div className="kanji-card-head">
@@ -38,19 +63,14 @@ function KanjiCard({
         </span>
         <span className="kanji-on">{entry.on_readings.join('・')}</span>
       </div>
-      {(entry.grade !== null || entry.frequency !== null) && (
+      {meta.length > 0 && (
         <div className="kanji-meta">
-          {entry.grade !== null && (
-            <span className={`kanji-tier-${gradeTier(entry.grade)}`}>
-              grade {entry.grade}
+          {meta.map((item, i) => (
+            <span key={i}>
+              {i > 0 && ' · '}
+              {item}
             </span>
-          )}
-          {entry.grade !== null && entry.frequency !== null && ' · '}
-          {entry.frequency !== null && (
-            <span className={`kanji-tier-${frequencyTier(entry.frequency)}`}>
-              freq {entry.frequency}
-            </span>
-          )}
+          ))}
         </div>
       )}
       <div className="kanji-meanings">{entry.meanings.join(', ')}</div>
