@@ -66,6 +66,28 @@ so it can be picked up without re-deriving the reasoning.
   Opus 5, medium: the change is to the guard that keeps tests off the app
   database, and getting it wrong wipes real data.
 
+## English lyrics (processing an all-English song)
+
+- **Gloss an English word by how it's written, not Sudachi's katakana.**
+  Sudachi normalizes many English words to katakana (How → ハウ, home →
+  ホーム, once → ワンス), so `_lookup`'s `is_probably_english` check on the
+  key's `lookup_form` misses them. They get JMDict glosses (ホーム
+  "platform"), or the composite and katakana fallbacks' nonsense (ワンス →
+  わん "bowl", ドント → どんと), and harvest makes cards of the JMDict
+  ones. The document view already hides them, since `is_english` there
+  checks the surface. Give a token whose surface `is_probably_english` a
+  key built from its surface, in both `gloss_key` and `own_gloss_key`
+  (which then needs the surface from its callers in `cards.py`,
+  `conflicts.py` and `attach_glosses`), so the two agree and the key lands
+  on the English stub. Add a migration that clears `gloss_lookup_id` on
+  such tokens outside groups, for `repair_gloss_links` to relink them on
+  the next fetch, as 0013 and 0022 do. Test with a public-domain English
+  text (Amazing Grace, 1779): its words link `english_stub` and harvest
+  nothing, and a kana or kanji token's key is unchanged. Romaji Sudachi
+  turns into kana (kimi → キミ) loses its JMDict gloss, which is accepted.
+  Opus 5, medium: a key `gloss_key` and `own_gloss_key` disagree on
+  relinks or re-keys cards silently.
+
 ## /simplify on the kanji panel and line furigana branch
 
 - **Furigana is fetched by callers that never read it.**
