@@ -410,6 +410,7 @@ def _predicate_request(members: list) -> GroupGlossRequest:
         members,
         [_page_reading(member) for member in members],
         own_gloss_key(
+            head.surface,
             head.normalized_form,
             head.dictionary_form,
             head.part_of_speech,
@@ -647,7 +648,7 @@ def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
     members = conn.execute(
         text(
             """
-            SELECT t.id, t.normalized_form, t.dictionary_form, t.part_of_speech,
+            SELECT t.id, t.surface, t.normalized_form, t.dictionary_form, t.part_of_speech,
                    COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS selected_reading,
                    c.value -> 'furigana_spans' AS selected_furigana_spans
             FROM tokens t
@@ -668,6 +669,7 @@ def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
         for member in members
         if (
             key := own_gloss_key(
+                member.surface,
                 member.normalized_form,
                 member.dictionary_form,
                 member.part_of_speech,

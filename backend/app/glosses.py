@@ -572,6 +572,16 @@ def citation_key(normalized_form: str, dictionary_form: str) -> GlossKey:
     return (normalized_form, headword_reading(normalized_form, dictionary_form))
 
 
+def _unpicked_key(surface: str, normalized_form: str, dictionary_form: str) -> GlossKey:
+    """The cache key a token is glossed under when no reading was picked for
+    it: an English word's as it's written, since Sudachi normalizes many to
+    katakana (How -> ハウ) that JMDict would gloss as Japanese, and any other
+    word's citation key."""
+    if is_probably_english(surface):
+        return (surface, surface)
+    return citation_key(normalized_form, dictionary_form)
+
+
 def gloss_key(record: TokenRecord) -> GlossKey | None:
     """The cache key a newly tokenized token is glossed under, or None if it
     doesn't get a gloss."""
@@ -579,22 +589,23 @@ def gloss_key(record: TokenRecord) -> GlossKey | None:
         return None
     # For a flagged token, this is also the key of the default option
     # create_conflicts selects.
-    return citation_key(record.normalized_form, record.dictionary_form)
+    return _unpicked_key(record.surface, record.normalized_form, record.dictionary_form)
 
 
 def own_gloss_key(
+    surface: str,
     normalized_form: str,
     dictionary_form: str,
     part_of_speech,
     selected_reading: str | None,
 ) -> GlossKey | None:
     """The gloss key for a stored token: under `selected_reading`, if a
-    reading was picked, else its citation form's, or None if it isn't
+    reading was picked, else as gloss_key keys it, or None if it isn't
     glossable."""
     if selected_reading is not None:
         return (normalized_form, selected_reading)
     if is_lexical(part_of_speech):
-        return citation_key(normalized_form, dictionary_form)
+        return _unpicked_key(surface, normalized_form, dictionary_form)
     return None
 
 
@@ -1358,7 +1369,7 @@ def attach_glosses(conn, document_id: int) -> None:
     unlinked = conn.execute(
         text(
             """
-            SELECT t.id, t.normalized_form, t.dictionary_form, t.part_of_speech,
+            SELECT t.id, t.surface, t.normalized_form, t.dictionary_form, t.part_of_speech,
                    COALESCE(c.value ->> 'citation_reading', c.value ->> 'reading') AS selected_reading
             FROM tokens t
             LEFT JOIN conflicts c ON c.token_id = t.id AND c.selected
@@ -1376,6 +1387,7 @@ def attach_glosses(conn, document_id: int) -> None:
         # Under a picked reading, or a correction would revert whenever this
         # runs.
         key = own_gloss_key(
+            row.surface,
             row.normalized_form,
             row.dictionary_form,
             row.part_of_speech,

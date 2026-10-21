@@ -158,7 +158,7 @@ def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> l
         text(
             f"""
             SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end,
-                   t.normalized_form, t.dictionary_form, t.part_of_speech,
+                   t.surface, t.normalized_form, t.dictionary_form, t.part_of_speech,
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
                    COALESCE(t.furigana_override, t.furigana_spans) AS furigana,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
@@ -233,6 +233,7 @@ def _own_word(row, explicit: bool) -> tuple[CardKey, str | None] | None:
     ):
         return None
     key = own_gloss_key(
+        row.surface,
         row.normalized_form,
         row.dictionary_form,
         row.part_of_speech,
