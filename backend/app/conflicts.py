@@ -409,13 +409,7 @@ def _predicate_request(members: list) -> GroupGlossRequest:
     return predicate_group_request(
         members,
         [_page_reading(member) for member in members],
-        own_gloss_key(
-            head.surface,
-            head.normalized_form,
-            head.dictionary_form,
-            head.part_of_speech,
-            head.selected_citation_reading,
-        ),
+        own_gloss_key(head, head.selected_citation_reading),
     )
 
 
@@ -667,16 +661,7 @@ def unmerge_phrase(conn, document_id: int, token_id: int) -> list[int]:
     keys = {
         member.id: key
         for member in members
-        if (
-            key := own_gloss_key(
-                member.surface,
-                member.normalized_form,
-                member.dictionary_form,
-                member.part_of_speech,
-                member.selected_reading,
-            )
-        )
-        is not None
+        if (key := own_gloss_key(member, member.selected_reading)) is not None
     }
     gloss_ids = store_glosses(
         conn,

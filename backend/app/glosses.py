@@ -572,14 +572,14 @@ def citation_key(normalized_form: str, dictionary_form: str) -> GlossKey:
     return (normalized_form, headword_reading(normalized_form, dictionary_form))
 
 
-def _unpicked_key(surface: str, normalized_form: str, dictionary_form: str) -> GlossKey:
-    """The cache key a token is glossed under when no reading was picked for
-    it: an English word's as it's written, since Sudachi normalizes many to
+def _unpicked_key(token) -> GlossKey:
+    """The cache key `token`, a TokenRecord or token row, is glossed under
+    when no reading was picked for it: an English word's as it's written, since Sudachi normalizes many to
     katakana (How -> ハウ) that JMDict would gloss as Japanese, and any other
     word's citation key."""
-    if is_probably_english(surface):
-        return (surface, surface)
-    return citation_key(normalized_form, dictionary_form)
+    if is_probably_english(token.surface):
+        return (token.surface, token.surface)
+    return citation_key(token.normalized_form, token.dictionary_form)
 
 
 def gloss_key(record: TokenRecord) -> GlossKey | None:
@@ -589,23 +589,17 @@ def gloss_key(record: TokenRecord) -> GlossKey | None:
         return None
     # For a flagged token, this is also the key of the default option
     # create_conflicts selects.
-    return _unpicked_key(record.surface, record.normalized_form, record.dictionary_form)
+    return _unpicked_key(record)
 
 
-def own_gloss_key(
-    surface: str,
-    normalized_form: str,
-    dictionary_form: str,
-    part_of_speech,
-    selected_reading: str | None,
-) -> GlossKey | None:
-    """The gloss key for a stored token: under `selected_reading`, if a
-    reading was picked, else as gloss_key keys it, or None if it isn't
-    glossable."""
+def own_gloss_key(token, selected_reading: str | None) -> GlossKey | None:
+    """The gloss key for `token`, a stored token's row: under
+    `selected_reading`, if a reading was picked, else as gloss_key keys it,
+    or None if it isn't glossable."""
     if selected_reading is not None:
-        return (normalized_form, selected_reading)
-    if is_lexical(part_of_speech):
-        return _unpicked_key(surface, normalized_form, dictionary_form)
+        return (token.normalized_form, selected_reading)
+    if is_lexical(token.part_of_speech):
+        return _unpicked_key(token)
     return None
 
 
@@ -1386,13 +1380,7 @@ def attach_glosses(conn, document_id: int) -> None:
     for row in unlinked:
         # Under a picked reading, or a correction would revert whenever this
         # runs.
-        key = own_gloss_key(
-            row.surface,
-            row.normalized_form,
-            row.dictionary_form,
-            row.part_of_speech,
-            row.selected_reading,
-        )
+        key = own_gloss_key(row, row.selected_reading)
         if key is None:
             continue
         keys[row.id] = key

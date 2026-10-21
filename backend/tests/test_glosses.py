@@ -36,6 +36,7 @@ from tests.fixtures import amazing_grace, kumo_no_ito
 from tests.support import (
     clear_gloss_links,
     create_document,
+    create_tokenized_document,
     get_document_tokens,
     jmdict_search,
 )
@@ -387,10 +388,10 @@ class TestEnglishWordsKeyedBySurface:
         records = tokenize_document(kumo_no_ito.FIRST_SENTENCE)
 
         for r in records:
-            if gloss_key(r) is not None:
-                assert gloss_key(r) == citation_key(
-                    r.normalized_form, r.dictionary_form
-                ), r.surface
+            if (key := gloss_key(r)) is not None:
+                assert key == citation_key(r.normalized_form, r.dictionary_form), (
+                    r.surface
+                )
 
     @pytest.mark.parametrize(
         "text",
@@ -399,17 +400,11 @@ class TestEnglishWordsKeyedBySurface:
     )
     def test_a_stored_token_is_keyed_as_when_it_was_tokenized(self, text):
         for r in tokenize_document(text):
-            assert own_gloss_key(
-                r.surface,
-                r.normalized_form,
-                r.dictionary_form,
-                r.part_of_speech,
-                None,
-            ) == gloss_key(r), r.surface
+            assert own_gloss_key(r, None) == gloss_key(r), r.surface
 
 
 def test_english_lyrics_are_glossed_by_the_english_stub(committed_engine):
-    document_id = create_document(DocumentCreate(title="t", text=amazing_grace.TEXT)).id
+    document_id = create_tokenized_document(text=amazing_grace.TEXT)
 
     def english_sources():
         return {
