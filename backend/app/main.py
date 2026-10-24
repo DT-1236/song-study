@@ -825,6 +825,7 @@ class JmdictEntry(BaseModel):
 
 @api.get("/jmdict/search", response_model=list[JmdictEntry])
 def jmdict_search(
+    user_id: CurrentUser,
     q: str = Query(min_length=1),
     max_results_per_tier: int = Query(default=3, ge=1, le=20),
 ) -> list[JmdictEntry]:

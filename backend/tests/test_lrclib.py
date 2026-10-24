@@ -47,7 +47,6 @@ from tests.support import (
     TEST_USER_ID,
     age_lrclib_check,
     age_lrclib_failure,
-    as_session_user,
     create_document,
     document_tokens,
     get_document,
@@ -1071,13 +1070,6 @@ def test_search_endpoint_maps_unavailable_to_502(fake_lrclib):
     assert rejected.value.status_code == 502
 
 
-def test_search_endpoint_requires_login(fake_lrclib):
-    with as_session_user(), pytest.raises(HTTPException) as rejected:
-        lrclib_search(title=SONG)
-    assert rejected.value.status_code == 401
-    assert fake_lrclib.requests == []
-
-
 def test_track_lyrics_endpoint_returns_synced_lines(fake_lrclib):
     fake_lrclib.publish(URI, [(1.0, FIRST_SENTENCE), (4.5, SECOND_SENTENCE)], 10.0)
 
@@ -1088,12 +1080,3 @@ def test_track_lyrics_endpoint_returns_synced_lines(fake_lrclib):
         LineTiming(start=1.0, end=4.5),
         LineTiming(start=4.5, end=10.0),
     ]
-
-
-def test_track_lyrics_endpoint_requires_login(fake_lrclib):
-    fake_lrclib.publish(URI, [(1.0, FIRST_SENTENCE)])
-
-    with as_session_user(), pytest.raises(HTTPException) as rejected:
-        lrclib_track_lyrics(track_id=1)
-    assert rejected.value.status_code == 401
-    assert fake_lrclib.requests == []

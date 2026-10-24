@@ -6,15 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## Test audit on PR #161 (the backend suite after PR #160)
 
-- **One test that every route needs a login.** Write it like
-  `test_every_route_keyed_by_a_document_is_owner_scoped` in
-  `backend/tests/test_users.py`: every route from `api_routes()` resolves
-  `current_user_id` among its dependencies, except the auth router's login,
-  callback and logout. Name the exceptions by path, so a new unauthenticated
-  route fails the test. Then delete the three per-route checks it replaces:
-  `test_search_endpoint_requires_login` and
-  `test_track_lyrics_endpoint_requires_login` in `test_lrclib.py`, and
-  `test_endpoint_requires_login` in `test_youtube_music.py`. Sonnet 5, low.
 - **Applying a reading to a token of an accepted phrase.** `/tokens/reading`
   unmerges the phrase before applying it (`select_reading` in
   `app/conflicts.py`, its `in_accepted_phrase` branch), and no test reaches

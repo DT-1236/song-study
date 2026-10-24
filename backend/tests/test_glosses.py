@@ -452,7 +452,7 @@ class TestSearchJmdict:
 
     def test_ranks_closer_matches_first_and_caps_the_looser_ones(self):
         # 柿 has two entries of its own: かき, "persimmon", and こけら, "wood chips".
-        assert [_tier("柿", entry) for entry in jmdict_search("柿")] == [
+        assert [_tier("柿", entry) for entry in jmdict_search(q="柿")] == [
             *["exact"] * 2,
             *["prefix"] * 3,
             *["suffix"] * 3,
@@ -460,7 +460,7 @@ class TestSearchJmdict:
         ]
 
     def test_exact_matches_are_never_capped(self):
-        entries = jmdict_search("柿", max_results_per_tier=1)
+        entries = jmdict_search(q="柿", max_results_per_tier=1)
 
         assert [_tier("柿", entry) for entry in entries] == [
             *["exact"] * 2,

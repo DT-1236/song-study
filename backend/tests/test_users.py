@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from app.main import DocumentCreate, DocumentTextUpdate
-from app.users import owned_document_id
+from app.users import current_user_id, owned_document_id
 from tests.support import (
     TEST_USER_ID,
     api_routes,
@@ -89,3 +89,16 @@ def test_every_route_keyed_by_a_document_is_owner_scoped():
     ]
 
     assert unscoped == []
+
+
+def test_every_route_needs_a_login():
+    """Every route resolves the logged-in user, so a new route is private
+    unless it is deliberately listed here as one that sets up the login."""
+    open_paths = {"/auth/login", "/auth/callback", "/auth/logout"}
+    unauthenticated = {
+        route.path
+        for route in api_routes()
+        if current_user_id not in set(_dependency_calls(route.dependant))
+    }
+
+    assert unauthenticated == open_paths
