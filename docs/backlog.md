@@ -22,10 +22,6 @@ so it can be picked up without re-deriving the reasoning.
   checking nothing changes. The second needs two tokens spelled alike where
   one was given another reading first. Sonnet 5, medium: building that
   second case takes some reading of `_shared_reading`.
-- **A phrase with a member marked as needing no gloss isn't harvested.**
-  `app/cards.py` drops an accepted phrase from the harvest when any of its
-  word's tokens is `gloss_ignored`, unless it was added by hand. Add it to
-  `test_cards.py`'s harvest tests with 真に受けてみて. Sonnet 5, low.
 - **A linked document unlinked while its LRCLIB check is in flight.**
   `_sync_with_lrclib` in `app/main.py` leaves the document alone when its
   `lrclib_uri` changed after the lyrics were fetched, and no test reaches

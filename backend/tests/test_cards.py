@@ -196,6 +196,30 @@ def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engi
     }
 
 
+def test_an_accepted_phrase_with_a_member_marked_as_needing_no_gloss_is_left_out(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="真に受けてみて")
+    [suggestion] = [
+        c.id
+        for t in get_document_tokens(document_id)
+        for c in t.conflicts
+        if c.kind == "phrase"
+    ]
+    accept_phrase_suggestions_endpoint(
+        document_id, PhraseAcceptance(conflict_ids=[suggestion])
+    )
+    set_tokens_ignored(
+        document_id,
+        TokensIgnored(
+            token_ids=[document_tokens(document_id, "真")[0].id], ignored=True
+        ),
+    )
+
+    harvested = _harvest(committed_engine, document_id)
+    assert word_key("真に受ける", "まにうける") not in harvested
+
+
 def test_a_harvest_after_the_gloss_cache_is_emptied_looks_its_words_up_again(
     committed_engine,
 ):
