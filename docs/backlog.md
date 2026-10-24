@@ -6,12 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## Test audit on PR #161 (the backend suite after PR #160)
 
-- **A linked document unlinked while its LRCLIB check is in flight.**
-  `_sync_with_lrclib` in `app/main.py` leaves the document alone when its
-  `lrclib_uri` changed after the lyrics were fetched, and no test reaches
-  it. In `test_lrclib.py`, make the fake's response unlink the document (a
-  direct `UPDATE`) before returning new lyrics, then check the load keeps
-  the stored text and stays unlinked. Sonnet 5, medium.
 - **resplit's two refusals.** `app/resplit.py` keeps Sudachi's split when
   the rejoined head isn't one accepted morpheme, and when the head or the
   rest has an out-of-vocabulary morpheme. Neither is reached, which is why

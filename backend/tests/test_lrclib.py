@@ -12,7 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -97,9 +97,14 @@ class FakeLrclib:
         self.searches: dict[frozenset, list[dict] | Exception] = {}
         self.error: Exception | None = None
         self.requests: list[str] = []
+        # Run on each request before it's answered, to change the world
+        # while a check is in flight.
+        self.on_request: Callable[[], None] | None = None
 
     def __call__(self, uri: str) -> dict | list | None:
         self.requests.append(uri)
+        if self.on_request is not None:
+            self.on_request()
         if self.error is not None:
             raise self.error
         if (params := _search_params(uri)) is not None:
@@ -712,6 +717,33 @@ def test_text_update_on_lrclib_replaces_the_lyrics_and_resets_readings(
 
     assert get_document(document_id).text == "今日は雨です。"
     assert document_tokens(document_id, "今日")[0].gloss.reading == "きょう"
+
+
+def test_a_document_unlinked_during_its_check_keeps_its_text(
+    committed_engine, fake_lrclib
+):
+    document_id = _linked_document(fake_lrclib, [(1.0, WEATHER)])
+    fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
+    age_lrclib_check(document_id, STALE)
+
+    def unlink():
+        with committed_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "UPDATE documents SET lrclib_uri = NULL,"
+                    " lrclib_replaces_text = NULL WHERE id = :id"
+                ),
+                {"id": document_id},
+            )
+
+    fake_lrclib.on_request = unlink
+
+    document = get_document(document_id)
+    fake_lrclib.on_request = None
+
+    assert document.text == WEATHER
+    assert document.lrclib_uri is None
+    assert get_document(document_id).text == WEATHER
 
 
 def test_unreachable_lrclib_serves_the_stored_lyrics(committed_engine, fake_lrclib):
