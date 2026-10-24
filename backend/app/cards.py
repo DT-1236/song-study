@@ -147,20 +147,30 @@ class NotStudyable(Exception):
     pass
 
 
-def _token_rows(conn, document_ids: list[int], token_id: int | None = None) -> list:
+def _token_rows(
+    conn,
+    document_ids: list[int],
+    token_id: int | None = None,
+    with_furigana: bool = False,
+) -> list:
     """The documents' tokens (with `token_id`, only its unit's), each
     document's in order, each with its selected reading, for the first token
     of an accepted phrase, the phrase, and for a token sung in katakana, its
     gloss as the hiragana's words (see app.katakana) and the words the user
     picked for its pieces, and for a member of a group, how many pieces the
-    group's gloss has."""
+    group's gloss has. Only with `with_furigana` do the rows carry their
+    furigana spans (else `furigana` is NULL), which saves a jsonb column per
+    token for callers that never read it."""
+    furigana = (
+        "COALESCE(t.furigana_override, t.furigana_spans)" if with_furigana else "NULL"
+    )
     return conn.execute(
         text(
             f"""
             SELECT t.id, t.document_id, t.position, t.char_begin, t.char_end,
                    t.surface, t.normalized_form, t.dictionary_form, t.part_of_speech,
                    t.needs_review, t.review_reason, t.gloss_ignored, t.phrase_start_position,
-                   COALESCE(t.furigana_override, t.furigana_spans) AS furigana,
+                   {furigana} AS furigana,
                    COALESCE(rc.value ->> 'citation_reading', rc.value ->> 'reading') AS selected_reading,
                    pc.value AS accepted_phrase,
                    -- A group's members share the group's gloss, which is never
@@ -213,10 +223,13 @@ def document_units(conn, document_id: int) -> list[list]:
     return _units(_token_rows(conn, [document_id]))
 
 
-def units_by_document(conn, document_ids: list[int]) -> dict[int, list[list]]:
-    """As document_units, for each of the documents that has tokens."""
+def units_by_document(
+    conn, document_ids: list[int], with_furigana: bool = False
+) -> dict[int, list[list]]:
+    """As document_units, for each of the documents that has tokens, whose
+    rows carry their furigana only with `with_furigana`."""
     rows_by_document: dict[int, list] = {}
-    for row in _token_rows(conn, document_ids):
+    for row in _token_rows(conn, document_ids, with_furigana=with_furigana):
         rows_by_document.setdefault(row.document_id, []).append(row)
     return {document_id: _units(rows) for document_id, rows in rows_by_document.items()}
 

@@ -191,7 +191,7 @@ def load_songs(
         ),
         {"user_id": user_id, "document_ids": document_ids},
     ).all()
-    units = units_by_document(conn, [row.id for row in rows])
+    units = units_by_document(conn, [row.id for row in rows], with_furigana=True)
     return {
         row.id: Song(
             row.id,
