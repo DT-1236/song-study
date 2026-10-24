@@ -1220,8 +1220,8 @@ def _shared_reading(glosses: list[dict], piece: int) -> str:
         if piece >= len(pieces) or not is_word_piece(pieces[piece]):
             raise WordNotOffered()
         readings.add(pieces[piece]["key"][1])
-    # Tokens spelled the same are glossed the same, unless one was given
-    # another reading.
+    # lock_token_group only lets tokens through that share a katakana gloss,
+    # so this guards that invariant rather than a case the app reaches.
     if len(readings) != 1:
         raise WordNotOffered()
     [reading] = readings

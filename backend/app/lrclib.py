@@ -54,28 +54,29 @@ class LrclibUnavailable(Exception):
     request."""
 
 
-class LrclibRateLimited(LrclibUnavailable):
+class _LrclibWait(LrclibUnavailable):
+    """LRCLIB unavailable for another `retry_after_seconds`, with a message
+    saying so after the subclass's `reason`."""
+
+    reason: str
+
+    def __init__(self, retry_after_seconds: float):
+        self.retry_after_seconds = retry_after_seconds
+        super().__init__(f"{self.reason} {_describe_wait(retry_after_seconds)}.")
+
+
+class LrclibRateLimited(_LrclibWait):
     """LRCLIB telling us, or us remembering it told us, to wait
     `retry_after_seconds` before the next request."""
 
-    def __init__(self, retry_after_seconds: float):
-        self.retry_after_seconds = retry_after_seconds
-        super().__init__(
-            "LRCLIB is rate-limiting requests — try again in "
-            f"{_describe_wait(retry_after_seconds)}."
-        )
+    reason = "LRCLIB is rate-limiting requests — try again in"
 
 
-class LrclibHeldBack(LrclibUnavailable):
+class LrclibHeldBack(_LrclibWait):
     """A request skipped, without being sent, because an outage has LRCLIB
     held back for another `retry_after_seconds`."""
 
-    def __init__(self, retry_after_seconds: float):
-        self.retry_after_seconds = retry_after_seconds
-        super().__init__(
-            "LRCLIB couldn't be reached recently — trying again in "
-            f"{_describe_wait(retry_after_seconds)}."
-        )
+    reason = "LRCLIB couldn't be reached recently — trying again in"
 
 
 class _Hold:

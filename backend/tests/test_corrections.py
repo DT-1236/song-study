@@ -26,6 +26,7 @@ from tests.support import (
     SOME,
     TO_FIT,
     YES,
+    accept_phrase_suggestion,
     add_token_card,
     as_user,
     correct_card_reading,
@@ -734,19 +735,8 @@ def test_the_queue_says_how_each_cards_word_can_be_corrected(committed_engine):
 
 
 def test_an_accepted_phrase_cant_be_corrected_from_its_card(committed_engine):
-    from app.main import PhraseAcceptance
-    from tests.support import accept_phrase_suggestions_endpoint
-
     document_id = create_tokenized_document(text="真に受けてみて")
-    [suggestion] = [
-        c.id
-        for t in get_document_tokens(document_id)
-        for c in t.conflicts
-        if c.kind == "phrase"
-    ]
-    accept_phrase_suggestions_endpoint(
-        document_id, PhraseAcceptance(conflict_ids=[suggestion])
-    )
+    accept_phrase_suggestion(document_id)
 
     lines = {
         card.lookup_form: card.line for card in start_song_session(document_id).cards
@@ -758,19 +748,8 @@ def test_an_accepted_phrase_cant_be_corrected_from_its_card(committed_engine):
 def test_correcting_an_accepted_phrases_reading_from_its_card_is_refused(
     committed_engine,
 ):
-    from app.main import PhraseAcceptance
-    from tests.support import accept_phrase_suggestions_endpoint
-
     document_id = create_tokenized_document(text="真に受けてみて")
-    [suggestion] = [
-        c.id
-        for t in get_document_tokens(document_id)
-        for c in t.conflicts
-        if c.kind == "phrase"
-    ]
-    accept_phrase_suggestions_endpoint(
-        document_id, PhraseAcceptance(conflict_ids=[suggestion])
-    )
+    accept_phrase_suggestion(document_id)
     card = _card_for(document_id, "真")
 
     with pytest.raises(HTTPException) as exc:

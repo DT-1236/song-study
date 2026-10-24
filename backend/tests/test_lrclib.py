@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from app import lrclib
+from app import lrclib, main
 from app.db import owned_document_row
 from app.lrclib import (
     LrclibError,
@@ -726,17 +726,9 @@ def test_a_document_unlinked_during_its_check_keeps_its_text(
     fake_lrclib.publish(URI, [(1.0, "今日は雨です。")])
     age_lrclib_check(document_id, STALE)
 
-    def unlink():
-        with committed_engine.begin() as conn:
-            conn.execute(
-                text(
-                    "UPDATE documents SET lrclib_uri = NULL,"
-                    " lrclib_replaces_text = NULL WHERE id = :id"
-                ),
-                {"id": document_id},
-            )
-
-    fake_lrclib.on_request = unlink
+    # Called directly: a request through the test client would wait on the
+    # one in flight.
+    fake_lrclib.on_request = lambda: main.unlink_lrclib(document_id, TEST_USER_ID)
 
     document = get_document(document_id)
     fake_lrclib.on_request = None

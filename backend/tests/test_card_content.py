@@ -27,10 +27,9 @@ from app.grammar import (
 from app.main import (
     DocumentCreate,
     LineTimingsUpdate,
-    PhraseAcceptance,
 )
 from tests.support import (
-    accept_phrase_suggestions_endpoint,
+    accept_phrase_suggestion,
     create_document,
     create_tokenized_document,
     document_tokens,
@@ -328,15 +327,7 @@ def test_a_grammar_cards_line_points_at_the_grammar_in_its_group(committed_engin
 
 def test_an_accepted_phrases_card_points_at_the_whole_phrase(committed_engine):
     document_id = create_tokenized_document("真に受けてみて")
-    [suggestion] = [
-        c.id
-        for t in get_document_tokens(document_id)
-        for c in t.conflicts
-        if c.kind == "phrase"
-    ]
-    accept_phrase_suggestions_endpoint(
-        document_id, PhraseAcceptance(conflict_ids=[suggestion])
-    )
+    accept_phrase_suggestion(document_id)
 
     line = _card(start_song_session(document_id).cards, "真に受ける").line
 

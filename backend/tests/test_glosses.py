@@ -30,13 +30,12 @@ from app.glosses import (
     search_readings,
     shown_pieces,
 )
-from app.main import DocumentCreate
 from app.tokenization import tokenize_document
 from tests.fixtures import amazing_grace, kumo_no_ito
 from tests.support import (
     clear_gloss_links,
-    create_document,
     create_tokenized_document,
+    document_tokens,
     get_document_tokens,
     jmdict_search,
 )
@@ -427,8 +426,7 @@ _TO_DO = 1157170
 
 def test_suru_is_glossed_as_to_do(committed_engine):
     # する normalizes to 為る, which read on its own is なる, "to become".
-    document_id = create_document(DocumentCreate(title="t", text="そうする。")).id
-    [suru] = [t for t in get_document_tokens(document_id) if t.surface == "する"]
+    [suru] = document_tokens(create_tokenized_document("そうする。"), "する")
 
     assert (suru.gloss.lookup_form, suru.gloss.reading) == ("為る", "する")
     assert {sense.entry_idseq for sense in suru.gloss.senses} == {_TO_DO}
@@ -452,7 +450,7 @@ class TestSearchJmdict:
 
     def test_ranks_closer_matches_first_and_caps_the_looser_ones(self):
         # 柿 has two entries of its own: かき, "persimmon", and こけら, "wood chips".
-        assert [_tier("柿", entry) for entry in jmdict_search(q="柿")] == [
+        assert [_tier("柿", entry) for entry in jmdict_search("柿")] == [
             *["exact"] * 2,
             *["prefix"] * 3,
             *["suffix"] * 3,
@@ -460,7 +458,7 @@ class TestSearchJmdict:
         ]
 
     def test_exact_matches_are_never_capped(self):
-        entries = jmdict_search(q="柿", max_results_per_tier=1)
+        entries = jmdict_search("柿", max_results_per_tier=1)
 
         assert [_tier("柿", entry) for entry in entries] == [
             *["exact"] * 2,

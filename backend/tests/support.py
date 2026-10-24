@@ -121,28 +121,29 @@ def insert_test_user(conn) -> None:
     )
 
 
-def _drop_test_database(create_again: bool) -> None:
-    """Drop the test database, and with `create_again` create it empty."""
+def _admin(statement: str) -> None:
+    """Run `statement` on the test database's server, outside any database
+    it could drop."""
     # Pooled connections still point at the database being dropped.
     engine.dispose()
-    url = engine.url
-    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    admin = create_engine(
+        engine.url.set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
     with admin.connect() as conn:
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)'))
-        if create_again:
-            conn.execute(text(f'CREATE DATABASE "{url.database}"'))
+        conn.execute(text(statement))
     admin.dispose()
 
 
 def drop_test_database() -> None:
     """Drop the test database, as a pytest-xdist worker does with its own at
     the end of a run: its name is only meaningful to that run."""
-    _drop_test_database(create_again=False)
+    _admin(f'DROP DATABASE IF EXISTS "{engine.url.database}" WITH (FORCE)')
 
 
 def recreate_test_database() -> None:
     """Drop and re-create the test database, then migrate it to head."""
-    _drop_test_database(create_again=True)
+    drop_test_database()
+    _admin(f'CREATE DATABASE "{engine.url.database}"')
     command.upgrade(alembic_config(), "head")
     with engine.begin() as conn:
         insert_test_user(conn)
@@ -558,3 +559,17 @@ pick_piece_word_endpoint = _via_client(main.pick_piece_word_endpoint)
 get_document_words = _via_client(main.get_document_words)
 correct_card_reading = _via_client(main.correct_card_reading)
 correct_card_word = _via_client(main.correct_card_word)
+
+
+def accept_phrase_suggestion(document_id: int) -> list:
+    """Accept the document's one phrase suggestion, returning the tokens it
+    changed."""
+    [suggestion] = [
+        c.id
+        for t in get_document_tokens(document_id)
+        for c in t.conflicts
+        if c.kind == "phrase"
+    ]
+    return accept_phrase_suggestions_endpoint(
+        document_id, main.PhraseAcceptance(conflict_ids=[suggestion])
+    )

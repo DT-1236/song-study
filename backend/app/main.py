@@ -10,7 +10,7 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import Literal, NamedTuple
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -68,7 +68,7 @@ from app.tokenization import (
     dictionary_form_note,
     mixed_reading,
 )
-from app.users import CurrentUser, OwnedDocument
+from app.users import CurrentUser, OwnedDocument, current_user_id
 from app.youtube_music import Song, YouTubeMusicUnavailable, search_songs
 
 
@@ -236,8 +236,8 @@ def upstream_unavailable(
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
-api = APIRouter(prefix="/api")
-api.include_router(auth_router)
+# Every route needs a login except the auth router's, which sets one up.
+api = APIRouter(prefix="/api", dependencies=[Depends(current_user_id)])
 
 
 def _sanitize_lyrics(value: str) -> str | None:
@@ -825,7 +825,6 @@ class JmdictEntry(BaseModel):
 
 @api.get("/jmdict/search", response_model=list[JmdictEntry])
 def jmdict_search(
-    user_id: CurrentUser,
     q: str = Query(min_length=1),
     max_results_per_tier: int = Query(default=3, ge=1, le=20),
 ) -> list[JmdictEntry]:
@@ -1709,3 +1708,4 @@ def save_song_study_settings(
 
 
 app.include_router(api)
+app.include_router(auth_router, prefix="/api")
