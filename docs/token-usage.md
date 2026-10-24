@@ -156,6 +156,19 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-17 | Kanji panel layout, difficulty tiers, line furigana on reveal          | #162 | /simplify (4 subagents)                | Sonnet 5.5, medium          | —    | 33    | 1.8M       | 11k    | M    |
 | 2026-10-20 | Gloss English lyrics by their surface (backlog)                        | #164 | initial pass                           | Opus 5.5, medium            | —    | 32    | 2.3M       | 15k    | M    |
 | 2026-10-20 | Gloss English lyrics by their surface (backlog)                        | #164 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 26    | 1.4M       | 5k     | M    |
+| 2026-10-24 | Backlog sweep 13: non-kana reading refused                             | #165 | backlog item                           | Haiku 4.5, low              | —    | 38    | 1.9M       | 8k     | M    |
+| 2026-10-24 | Backlog sweep 13: every route needs a login                            | #165 | backlog item                           | Sonnet 5.5, low             | —    | 13    | 520k       | 4k     | S    |
+| 2026-10-24 | Backlog sweep 13: no-gloss phrase left out of the harvest              | #165 | backlog item                           | Sonnet 5.5, low             | —    | 5     | 180k       | 2k     | S    |
+| 2026-10-24 | Backlog sweep 13: furigana only where it's read                        | #165 | backlog item                           | Sonnet 5.5, low             | —    | 9     | 330k       | 3k     | S    |
+| 2026-10-24 | Backlog sweep 13: reading applied in an accepted phrase                | #165 | backlog item                           | Sonnet 5.5, medium          | —    | 9     | 390k       | 3k     | S    |
+| 2026-10-24 | Backlog sweep 13: katakana piece pick refusals                         | #165 | backlog item                           | Sonnet 5.5, medium          | —    | 18    | 920k       | 8k     | S    |
+| 2026-10-24 | Backlog sweep 13: unlinked while the LRCLIB check is in flight         | #165 | backlog item                           | Sonnet 5.5, medium          | —    | 8     | 330k       | 4k     | S    |
+| 2026-10-24 | Backlog sweep 13: resplit's two refusals                               | #165 | backlog item                           | Sonnet 5.5, medium          | —    | 13    | 520k       | 8k     | S    |
+| 2026-10-24 | Backlog sweep 13: ruby reading straddling a slice edge                 | #165 | backlog item                           | Sonnet 5.5, medium          | —    | 21    | 810k       | 6k     | S    |
+| 2026-10-24 | Backlog sweep 13: backend suite in parallel                            | #165 | backlog item                           | Opus 5.5, medium            | —    | 27    | 1.6M       | 16k    | M    |
+| 2026-10-24 | Backlog sweep 13: orchestrate subagents, review and commit items       | #165 | backlog sweep                          | Opus 5.5, medium            | —    | 59    | 5.6M       | 26k    | L    |
+| 2026-10-24 | Backlog sweep 13, with #160 and #161                                   | #165 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 75    | 7.1M       | 38k    | L    |
+| 2026-10-24 | Backlog sweep 13                                                       | #165 | /code-review (1 subagent) and fixes    | Opus 5.5, medium            | —    | 45    | 5.4M       | 23k    | L    |
 
 ## Post-mortem log
 
