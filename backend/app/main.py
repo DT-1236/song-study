@@ -836,7 +836,6 @@ def jmdict_search(
 
 @api.get("/songs/search", response_model=list[Song])
 def songs_search(
-    user_id: CurrentUser,
     q: str = Query(min_length=1),
     videos: bool = False,
 ):
@@ -845,7 +844,6 @@ def songs_search(
 
 @api.get("/lrclib/search", response_model=list[LrclibCandidate])
 def lrclib_search(
-    user_id: CurrentUser,
     title: str = "",
     artist: str = "",
     # In seconds; left out when the song's length isn't known.
@@ -863,7 +861,7 @@ class LrclibTrackLyrics(BaseModel):
 
 
 @api.get("/lrclib/tracks/{track_id}", response_model=LrclibTrackLyrics)
-def lrclib_track_lyrics(track_id: int, user_id: CurrentUser) -> LrclibTrackLyrics:
+def lrclib_track_lyrics(track_id: int) -> LrclibTrackLyrics:
     """The lyrics LRCLIB's track `track_id` has now, as linking it would
     load them — or a 422 if LRCLIB refuses it."""
     _, lyrics = _fetch_lrclib_for_link(str(track_id))

@@ -193,6 +193,8 @@ def test_an_accepted_phrase_with_a_member_marked_as_needing_no_gloss_is_left_out
 ):
     document_id = create_tokenized_document(text="真に受けてみて")
     accept_phrase_suggestion(document_id)
+    phrase = word_key("真に受ける", "まにうける")
+    assert phrase in _harvest(committed_engine, document_id)
     set_tokens_ignored(
         document_id,
         TokensIgnored(
@@ -201,7 +203,10 @@ def test_an_accepted_phrase_with_a_member_marked_as_needing_no_gloss_is_left_out
     )
 
     harvested = _harvest(committed_engine, document_id)
-    assert word_key("真に受ける", "まにうける") not in harvested
+    # Still accepted, so it's the ignored member that leaves it out.
+    assert get_document_tokens(document_id)[0].group_kind == "phrase"
+    assert phrase not in harvested
+    assert harvested
 
 
 def test_a_harvest_after_the_gloss_cache_is_emptied_looks_its_words_up_again(

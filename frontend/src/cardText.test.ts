@@ -21,9 +21,16 @@ describe('sliceSegments', () => {
     expect(right[1]).toEqual({ text: '日', reading: null })
   })
 
-  it('gives a straddling reading to the side holding more of its run', () => {
-    const run = [{ begin: 0, end: 3, reading: 'あいう' }]
-    expect(sliceSegments('一二三', run, 0, 1)[1].reading).toBeNull()
-    expect(sliceSegments('一二三', run, 1)[1].reading).toBe('あいう')
+  it('gives a reading cut in three to the part where its run begins', () => {
+    const run = [{ begin: 0, end: 5, reading: 'あいうえお' }]
+    const cuts = [0, 2, 4, 5]
+    const shown = cuts
+      .slice(0, -1)
+      .map((cut, i) => sliceSegments('一二三四五', run, cut, cuts[i + 1])[1])
+    expect(shown.map((segment) => segment.reading)).toEqual([
+      'あいうえお',
+      null,
+      null,
+    ])
   })
 })

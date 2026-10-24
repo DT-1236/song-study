@@ -37,8 +37,9 @@ def test_database():
     recreate_test_database()
     yield
     # A worker's database is named for a worker id that a later run may not
-    # have, so it goes at the end of the run instead of lingering. The single
-    # test database stays, to look into after a failure.
+    # have, so it goes at the end of the run (an interrupted run can still
+    # leave one behind). The single test database stays, to look into after
+    # a failure.
     if XDIST_WORKER is not None:
         drop_test_database()
 

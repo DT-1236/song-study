@@ -353,7 +353,7 @@ def _picks() -> list[tuple[int, int]]:
         ]
 
 
-def test_picking_a_word_for_tokens_not_all_sung_in_katakana_is_refused(
+def test_picking_a_word_for_tokens_not_all_with_a_katakana_gloss_is_refused(
     committed_engine,
 ):
     document_id = create_tokenized_document(text="ボクノアイタイ。ボクノアイタイ。")

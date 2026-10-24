@@ -19,6 +19,7 @@ import functools
 import inspect
 import json
 import os
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -73,7 +74,7 @@ def _test_database_url(url: str | None, app_url: str | None, worker: str | None)
     _refuse_unless_test_database(parsed.database, app_url)
     if worker is None:
         return url
-    if not worker.isalnum():
+    if not re.fullmatch(r"gw\d+", worker):
         raise RuntimeError(f"Unexpected pytest-xdist worker id {worker!r}.")
     database = parsed.database.removesuffix("_test") + f"_{worker}_test"
     _refuse_unless_test_database(database, app_url)

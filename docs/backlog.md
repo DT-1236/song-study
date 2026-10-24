@@ -8,8 +8,9 @@ so it can be picked up without re-deriving the reasoning.
 
 - **Cut a card line into its slices once.** `StudyCardView` calls
   `lineSlice` up to five times per card, and each call to `sliceSegments`
-  in `frontend/src/cardText.ts` decides on its own which side of a cut gets
-  a straddling reading. They agree only because the rule is deterministic.
+  in `frontend/src/cardText.ts` decides on its own whether it holds a
+  straddling reading (the slice where the reading's run begins). They agree
+  only because each applies the same rule.
   One function taking the line and its sorted cut points, returning every
   slice's segments with each reading placed once, makes "one slice shows
   each reading" explicit and lets the tests check a whole line at a time.
@@ -30,3 +31,12 @@ so it can be picked up without re-deriving the reasoning.
   with a file copy. Time the migrations first: it's only worth the
   coordination code if they're a noticeable share of a run. Sonnet 5,
   medium.
+- **LRCLIB timing compares the database's clock with the app's.**
+  `lrclib_checked_at` is set with Postgres's `now()`, but the refresh wait
+  (`main.py`, `max(checked_at + wait - datetime.now(UTC), …)`) and the
+  staleness checks measure it against Python's clock. Docker's Postgres
+  lags the Mac's clock by the length of a sleep until it resyncs (1,033s
+  after one on 2026-10-24), and then `test_lrclib.py`'s timing tests fail;
+  a deployment with the database on another host would skew the same way.
+  Compute the ages in SQL (`now() - lrclib_checked_at`) so one clock decides.
+  Sonnet 5, medium.
