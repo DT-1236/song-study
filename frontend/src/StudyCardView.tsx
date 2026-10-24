@@ -1,29 +1,12 @@
 import type { CardLine, QueuedCard } from './api'
-import { codePointSlice, optionText, wordLabel } from './cardText'
-import { renderSegments, type FuriganaSegment } from './furigana'
+import { optionText, sliceSegments, wordLabel } from './cardText'
+import { renderSegments } from './furigana'
 import { SenseList } from './SenseList'
 
 // The line's text from `begin` to `end`, with its furigana over the kanji
 // runs inside the range.
 function lineSlice(line: CardLine, begin: number, end?: number) {
-  const stop = end ?? Array.from(line.text).length
-  const segments: FuriganaSegment[] = []
-  let at = begin
-  // Each reading lies within one token, so none straddles the range's edges.
-  for (const reading of line.furigana) {
-    if (reading.begin < at || reading.end > stop) continue
-    segments.push({
-      text: codePointSlice(line.text, at, reading.begin),
-      reading: null,
-    })
-    segments.push({
-      text: codePointSlice(line.text, reading.begin, reading.end),
-      reading: reading.reading,
-    })
-    at = reading.end
-  }
-  segments.push({ text: codePointSlice(line.text, at, stop), reading: null })
-  return renderSegments(segments)
+  return renderSegments(sliceSegments(line.text, line.furigana, begin, end))
 }
 
 // The card's line, dimmed except its target until the reveal brightens it.
