@@ -16,6 +16,7 @@ from app.cards import (
     harvest,
 )
 from app.main import PhraseAcceptance, TokensIgnored
+from tests.fixtures import amazing_grace
 from tests.support import (
     TEST_USER_ID,
     accept_phrase_suggestions_endpoint,
@@ -105,6 +106,14 @@ def test_a_word_without_a_jmdict_headword_is_left_out(committed_engine):
     document_id = create_tokenized_document(text="yeah ゲーム、女神の涙")
 
     assert _harvest(committed_engine, document_id) == {word_key("ゲーム", "ゲーム"): 1}
+
+
+def test_english_lyrics_give_nothing(committed_engine):
+    # Even the words Sudachi normalizes to katakana that JMDict has (How
+    # -> ハウ, now -> ナウ).
+    document_id = create_tokenized_document(text=amazing_grace.TEXT)
+
+    assert _harvest(committed_engine, document_id) == {}
 
 
 def test_a_word_marked_as_needing_no_gloss_is_left_out(committed_engine):

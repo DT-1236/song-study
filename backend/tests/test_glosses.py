@@ -17,9 +17,12 @@ from app.glosses import (
     GroupGlossRequest,
     _group_pieces,
     alternate_reading_options,
+    citation_key,
     get_or_create_gloss_lookup,
+    gloss_key,
     gloss_piece,
     is_probably_english,
+    own_gloss_key,
     piece_lookups,
     plan_glosses,
     rank_senses,
@@ -28,7 +31,15 @@ from app.glosses import (
     shown_pieces,
 )
 from app.main import DocumentCreate
-from tests.support import create_document, get_document_tokens, jmdict_search
+from app.tokenization import tokenize_document
+from tests.fixtures import amazing_grace, kumo_no_ito
+from tests.support import (
+    clear_gloss_links,
+    create_document,
+    create_tokenized_document,
+    get_document_tokens,
+    jmdict_search,
+)
 
 
 class TestIsProbablyEnglish:
@@ -359,6 +370,55 @@ class TestGetOrCreateGlossLookup:
         ).one()
         assert row.source == "english_stub"
         assert row.entries == []
+
+
+class TestEnglishWordsKeyedBySurface:
+    def test_an_english_word_is_keyed_as_written_however_sudachi_normalizes_it(
+        self,
+    ):
+        records = tokenize_document(amazing_grace.TEXT)
+        keys = {r.surface: gloss_key(r) for r in records}
+
+        # Sudachi normalizes these to katakana (ハウ, ワンス, ナウ).
+        assert keys["How"] == ("How", "How")
+        assert keys["once"] == ("once", "once")
+        assert keys["now"] == ("now", "now")
+
+    def test_a_kana_or_kanji_word_keeps_its_citation_key(self):
+        records = tokenize_document(kumo_no_ito.FIRST_SENTENCE)
+
+        for r in records:
+            if (key := gloss_key(r)) is not None:
+                assert key == citation_key(r.normalized_form, r.dictionary_form), (
+                    r.surface
+                )
+
+    @pytest.mark.parametrize(
+        "text",
+        [amazing_grace.TEXT, kumo_no_ito.FIRST_SENTENCE],
+        ids=["english", "japanese"],
+    )
+    def test_a_stored_token_is_keyed_as_when_it_was_tokenized(self, text):
+        for r in tokenize_document(text):
+            assert own_gloss_key(r, None) == gloss_key(r), r.surface
+
+
+def test_english_lyrics_are_glossed_by_the_english_stub(committed_engine):
+    document_id = create_tokenized_document(text=amazing_grace.TEXT)
+
+    def english_sources():
+        return {
+            (t.surface, t.gloss.lookup_form, t.gloss.source)
+            for t in get_document_tokens(document_id)
+            if is_probably_english(t.surface)
+        }
+
+    processed = english_sources()
+    assert {source for _, _, source in processed} == {"english_stub"}
+    assert all(surface == form for surface, form, _ in processed)
+    # Relinked, as after migration 0039, under the same keys.
+    clear_gloss_links(document_id)
+    assert english_sources() == processed
 
 
 # JMDict's entry for する, "to do".
