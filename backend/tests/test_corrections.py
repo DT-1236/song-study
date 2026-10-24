@@ -9,6 +9,7 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from sqlalchemy import text
 
+from app.db import engine
 from app.glosses import with_picked_words
 from app.main import (
     CardReadingCorrection,
@@ -29,6 +30,7 @@ from tests.support import (
     as_user,
     correct_card_reading,
     correct_card_word,
+    correct_token_reading,
     create_tokenized_document,
     document_tokens,
     get_document_tokens,
@@ -337,6 +339,66 @@ def test_picking_a_word_a_piece_cant_be_is_refused(committed_engine, piece, idse
         _pick(document_id, [token.id], idseq, piece=piece)
 
     assert exc.value.status_code == 422
+    assert get_document_tokens(document_id)[0].gloss.pieces[AU].surface == "会う"
+
+
+def _picks() -> list[tuple[int, int]]:
+    with engine.begin() as conn:
+        return [
+            tuple(row)
+            for row in conn.execute(
+                text("SELECT token_id, piece FROM katakana_picks ORDER BY 1, 2")
+            )
+        ]
+
+
+def test_picking_a_word_for_tokens_not_all_sung_in_katakana_is_refused(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="ボクノアイタイ。ボクノアイタイ。")
+    first, second = document_tokens(document_id, "ボクノアイタイ")
+    # Alike enough to be picked for together, but one has no gloss.
+    with engine.begin() as conn:
+        conn.execute(
+            text("UPDATE tokens SET gloss_lookup_id = NULL WHERE id = :id"),
+            {"id": second.id},
+        )
+
+    with pytest.raises(HTTPException) as exc:
+        _pick(document_id, [first.id, second.id], TO_FIT)
+
+    assert exc.value.status_code == 422
+    assert _picks() == []
+    assert get_document_tokens(document_id)[0].gloss.pieces[AU].surface == "会う"
+
+
+def test_picking_a_word_for_tokens_that_read_the_piece_differently_is_refused(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="ボクノアイタイ。ボクノアイタイ。")
+    first, second = document_tokens(document_id, "ボクノアイタイ")
+    correct_token_reading(
+        document_id, second.id, ReadingCorrection(reading="ぼくのあうたい")
+    )
+    # A reading correction leaves a katakana word glossed as it was, so the
+    # second token's gloss is made to read the piece otherwise by hand.
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                UPDATE gloss_lookups SET entries = jsonb_set(
+                    entries, '{pieces,2,key}', CAST('["あい", "あい"]' AS JSONB))
+                WHERE id = (SELECT gloss_lookup_id FROM tokens WHERE id = :id)
+                """
+            ),
+            {"id": second.id},
+        )
+
+    with pytest.raises(HTTPException) as exc:
+        _pick(document_id, [first.id, second.id], TO_FIT)
+
+    assert exc.value.status_code == 422
+    assert _picks() == []
     assert get_document_tokens(document_id)[0].gloss.pieces[AU].surface == "会う"
 
 

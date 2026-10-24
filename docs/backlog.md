@@ -6,15 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## Test audit on PR #161 (the backend suite after PR #160)
 
-- **Picking a katakana piece's word for several tokens at once, refused.**
-  `pick_piece_word` raises `WordNotOffered` (422) when one of the tokens
-  isn't sung in katakana, and when the tokens read the piece differently
-  (`_piece_reading` and `_shared_reading` in `app/conflicts.py`). Neither is
-  tested. Add both next to
-  `test_picking_a_word_a_piece_cant_be_is_refused` in `test_corrections.py`,
-  checking nothing changes. The second needs two tokens spelled alike where
-  one was given another reading first. Sonnet 5, medium: building that
-  second case takes some reading of `_shared_reading`.
 - **A linked document unlinked while its LRCLIB check is in flight.**
   `_sync_with_lrclib` in `app/main.py` leaves the document alone when its
   `lrclib_uri` changed after the lyrics were fetched, and no test reaches
