@@ -1,5 +1,6 @@
 """Shared fixtures, all against the test database (see tests/support.py),
-which is dropped and re-created from the migrations once per session.
+which is dropped and re-created from the migrations once per session. Under
+pytest-xdist each worker has a database of its own, dropped again at the end.
 
 - `db_conn`: a connection wrapped in a transaction that's rolled back at
   teardown, for tests that only need isolation from each other.
@@ -22,12 +23,24 @@ import pytest
 from sqlalchemy import MetaData, text
 
 # Must be imported before anything that imports app.db.
-from tests.support import engine, insert_test_user, recreate_test_database
+from tests.support import (
+    XDIST_WORKER,
+    drop_test_database,
+    engine,
+    insert_test_user,
+    recreate_test_database,
+)
 
 
 @pytest.fixture(scope="session")
 def test_database():
     recreate_test_database()
+    yield
+    # A worker's database is named for a worker id that a later run may not
+    # have, so it goes at the end of the run instead of lingering. The single
+    # test database stays, to look into after a failure.
+    if XDIST_WORKER is not None:
+        drop_test_database()
 
 
 @pytest.fixture(scope="session")

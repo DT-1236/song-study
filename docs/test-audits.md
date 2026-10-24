@@ -24,6 +24,13 @@ on 2026-10-05). Measured after it:
   15.7–16.8s. The time is spread across the database-backed tests rather than
   concentrated in a few: each request through the test client costs about
   4ms, of which SQL is under half.
+- Since then the suite runs on four pytest-xdist workers, each with a
+  test database of its own (`make test`, `pytest -n 4`, and CI). With 695
+  tests collected, that took 6.0–7.3s (`pytest -q -n 4`, three runs) against
+  21.8–22.1s in one process on the same machine at the same time, which was
+  slower than when the audit measured. Two workers took 7.9–8.1s, three
+  6.6–6.7s, and `-n auto`'s eight 7.1–7.6s. Time the suite with `-n 4` for
+  the 20s threshold below.
 - The frontend has 25 Vitest tests in one file (`src/timing.test.ts`),
   covering only the line-timing logic in `src/timing.ts`. They run in well
   under a second.

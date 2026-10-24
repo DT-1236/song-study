@@ -128,5 +128,11 @@ and re-created from the migrations on every run. They never connect to
 
 ```bash
 cd backend
-pytest
+pytest -n 4
 ```
+
+`-n 4` runs the suite across four processes (pytest-xdist), each against a
+database of its own named after the test database (`song_study_gw0_test` and
+so on), which it drops again at the end of the run. Plain `pytest` runs it in
+one process against `TEST_DATABASE_URL` itself, which is quicker for a single
+test file. `make test` passes `-n 4`.
