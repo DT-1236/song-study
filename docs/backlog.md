@@ -6,14 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## Test audit on PR #161 (the backend suite after PR #160)
 
-- **resplit's two refusals.** `app/resplit.py` keeps Sudachi's split when
-  the rejoined head isn't one accepted morpheme, and when the head or the
-  rest has an out-of-vocabulary morpheme. Neither is reached, which is why
-  it's the least-covered file. Find real inputs for each (the tests use real
-  Sudachi output, as the file's docstring says), add them to
-  `test_leaves_other_boundaries_alone`, and confirm with coverage that each
-  case reaches its `return None`. Sonnet 5, medium: the work is the
-  searching, and coverage confirms the result.
 - **Run the backend suite in parallel.** The suite's time grows with its
   database-backed tests, about 20ms each, so pytest-xdist with one test
   database per worker is what keeps it well under 20s as it grows. Name

@@ -70,6 +70,12 @@ class TestClassicalAdjectiveBoundary:
                 "好き嫌いはない",
                 [("好き嫌い", "名詞"), ("は", "助詞"), ("ない", "形容詞")],
             ),
+            # 美き is no single morpheme (Sudachi reads it 美 + き), so
+            # there is no classical adjective to move the ending onto.
+            ("美き線", [("美", "名詞"), ("き線", "名詞")]),
+            # 青し is a classical adjective, but the しょー that follows it
+            # would be left as ょー, which Sudachi has no entry for.
+            ("青しょー", [("青", "名詞"), ("しょー", "名詞")]),
         ],
     )
     def test_leaves_other_boundaries_alone(self, text, split):
