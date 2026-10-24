@@ -242,3 +242,26 @@ def test_accepting_a_phrase_replaces_the_group_it_overlaps(committed_engine):
     tokens = get_document_tokens(document_id)
     assert all(t.phrase_start_position is None for t in tokens)
     assert any(c.kind == "predicate" for c in tokens[2].conflicts)
+
+
+def test_applying_a_reading_to_a_token_of_an_accepted_phrase_splits_the_phrase(
+    committed_engine,
+):
+    document_id, tokens = _tokens("真に受けてみて")
+    [suggestion] = [c.id for t in tokens for c in t.conflicts if c.kind == "phrase"]
+    accepted = accept_phrase_suggestions_endpoint(
+        document_id, PhraseAcceptance(conflict_ids=[suggestion])
+    )
+    members = _group(accepted, 0)
+    assert len(members) > 1
+    assert {t.group_kind for t in members} == {"phrase"}
+    first = members[0]
+
+    updated = apply_tokens_reading(
+        document_id, TokensReading(token_ids=[first.id], reading="しん")
+    )
+
+    assert {t.id for t in updated} == {t.id for t in members}
+    after = get_document_tokens(document_id)
+    assert all(t.phrase_start_position is None and t.group_kind is None for t in after)
+    assert next(t for t in after if t.id == first.id).gloss.reading == "しん"

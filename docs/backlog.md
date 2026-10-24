@@ -6,13 +6,6 @@ so it can be picked up without re-deriving the reasoning.
 
 ## Test audit on PR #161 (the backend suite after PR #160)
 
-- **Applying a reading to a token of an accepted phrase.** `/tokens/reading`
-  unmerges the phrase before applying it (`select_reading` in
-  `app/conflicts.py`, its `in_accepted_phrase` branch), and no test reaches
-  that.
-  Accept 真に受けてみて's phrase (as `test_card_content.py` does), apply a
-  reading to 真, and check the group is gone, the reading applies, and every
-  former member is returned. Sonnet 5, medium.
 - **Picking a katakana piece's word for several tokens at once, refused.**
   `pick_piece_word` raises `WordNotOffered` (422) when one of the tokens
   isn't sung in katakana, and when the tokens read the piece differently
