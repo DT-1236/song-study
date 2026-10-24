@@ -41,10 +41,6 @@ so it can be picked up without re-deriving the reasoning.
   it. In `test_lrclib.py`, make the fake's response unlink the document (a
   direct `UPDATE`) before returning new lyrics, then check the load keeps
   the stored text and stays unlinked. Sonnet 5, medium.
-- **A reading that isn't kana is refused.** `ReadingCorrection.kana_only` in
-  `app/main.py` (inherited by `TokensReading` and `CardReadingCorrection`)
-  has no test. Add a parametrized `ValidationError` test for a kanji, a
-  Latin and a mixed reading. Haiku 4.5, low.
 - **resplit's two refusals.** `app/resplit.py` keeps Sudachi's split when
   the rejoined head isn't one accepted morpheme, and when the head or the
   rest has an out-of-vocabulary morpheme. Neither is reached, which is why

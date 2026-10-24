@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sqlalchemy import text
 
 from app.glosses import with_picked_words
@@ -13,7 +14,9 @@ from app.main import (
     CardReadingCorrection,
     CardWordCorrection,
     PushOut,
+    ReadingCorrection,
     ReviewAnswer,
+    TokensReading,
 )
 from tests.support import (
     FORMER,
@@ -713,3 +716,27 @@ def test_correcting_an_accepted_phrases_reading_from_its_card_is_refused(
 
     assert exc.value.status_code == 422
     assert get_document_tokens(document_id)[0].group_kind == "phrase"
+
+
+# Validating reading input
+
+
+@pytest.mark.parametrize(
+    "reading",
+    [
+        "漢字",  # Kanji
+        "test",  # Latin
+        "漢あ",  # Mixed: kanji + hiragana
+    ],
+)
+def test_a_reading_that_isnt_kana_is_refused(reading):
+    with pytest.raises(ValidationError):
+        ReadingCorrection(reading=reading)
+
+    with pytest.raises(ValidationError):
+        TokensReading(reading=reading, token_ids=[1])
+
+    with pytest.raises(ValidationError):
+        CardReadingCorrection(
+            reading=reading, document_id=1, token_id=1, review_id=None
+        )
