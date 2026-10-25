@@ -177,6 +177,9 @@ BROWSER_WEB_PORT=5211`. The test database is shared, so don't run two
   asks for `videoDocument({ untimed: true })`, which clears them through a
   test-only route in `backend/tests/browser_server.py`. A check that only
   needs timed lines and no playing video makes its own with `h.document()`.
+- **The seed has no study cards.** `/study` shows "Nothing is due right
+  now", so a check of the study card has to enroll cards through `h.api`
+  first. The harness has no helper for that yet.
 - **Don't assume where the page is scrolled.** A closed gloss sheet takes
   its room with it, and the video sits below the lyrics unless it's sticky,
   so the end of the lyrics can stop halfway up the screen. Scroll what a

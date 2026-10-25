@@ -27,8 +27,10 @@ migrate: install
 start: migrate
 	$(BIN)/uvicorn app.main:app $(RELOAD) --port $(PORT)
 
+# Four workers, each with a test database of its own: past four, starting
+# each one costs more than it saves. Plain `pytest` stays single-process.
 test: install
-	$(BIN)/pytest
+	$(BIN)/pytest -n 4
 
 format: install
 	$(BIN)/ruff format --config ruff.toml app tests migrations ../scripts

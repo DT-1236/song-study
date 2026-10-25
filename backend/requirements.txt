@@ -17,5 +17,6 @@ ytmusicapi==1.12.3
 itsdangerous==2.2.0
 
 pytest==9.1.1
+pytest-xdist==3.8.0
 ruff==0.16.8
 pre-commit==4.6.2

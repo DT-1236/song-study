@@ -34,7 +34,9 @@ jobs:
           --health-retries 10
     env:
       # tests/support.py refuses a test database that shares the app's name
-      # or doesn't end in _test; it creates the test database itself.
+      # or doesn't end in _test; it creates the test database itself, and one
+      # per pytest-xdist worker (song_study_gw0_test, ...), which the
+      # superuser POSTGRES_USER above is allowed to.
       DATABASE_URL: postgresql+psycopg2://song_study:song_study@localhost:5432/song_study
       TEST_DATABASE_URL: postgresql+psycopg2://song_study:song_study@localhost:5432/song_study_test
     steps:
@@ -51,4 +53,4 @@ jobs:
           pip install -r requirements.txt
       - name: Run tests
         working-directory: backend
-        run: pytest
+        run: pytest -n 4

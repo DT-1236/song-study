@@ -15,11 +15,11 @@ from app.cards import (
     gloss_sources,
     harvest,
 )
-from app.main import PhraseAcceptance, TokensIgnored
+from app.main import TokensIgnored
 from tests.fixtures import amazing_grace
 from tests.support import (
     TEST_USER_ID,
-    accept_phrase_suggestions_endpoint,
+    accept_phrase_suggestion,
     add_token_card,
     as_user,
     clear_gloss_links,
@@ -178,15 +178,7 @@ def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engi
         _grammar("見る"): 1,
     }
 
-    [suggestion] = [
-        c.id
-        for t in get_document_tokens(document_id)
-        for c in t.conflicts
-        if c.kind == "phrase"
-    ]
-    accept_phrase_suggestions_endpoint(
-        document_id, PhraseAcceptance(conflict_ids=[suggestion])
-    )
+    accept_phrase_suggestion(document_id)
 
     # The phrase's own に is part of the headword, not grammar.
     assert _harvest(committed_engine, document_id) == {
@@ -194,6 +186,27 @@ def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engi
         _grammar("て"): 2,
         _grammar("見る"): 1,
     }
+
+
+def test_an_accepted_phrase_with_a_member_marked_as_needing_no_gloss_is_left_out(
+    committed_engine,
+):
+    document_id = create_tokenized_document(text="真に受けてみて")
+    accept_phrase_suggestion(document_id)
+    phrase = word_key("真に受ける", "まにうける")
+    assert phrase in _harvest(committed_engine, document_id)
+    set_tokens_ignored(
+        document_id,
+        TokensIgnored(
+            token_ids=[document_tokens(document_id, "真")[0].id], ignored=True
+        ),
+    )
+
+    harvested = _harvest(committed_engine, document_id)
+    # Still accepted, so it's the ignored member that leaves it out.
+    assert get_document_tokens(document_id)[0].group_kind == "phrase"
+    assert phrase not in harvested
+    assert harvested
 
 
 def test_a_harvest_after_the_gloss_cache_is_emptied_looks_its_words_up_again(

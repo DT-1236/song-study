@@ -10,7 +10,7 @@ from decimal import Decimal
 from itertools import pairwise
 from typing import Literal, NamedTuple
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import text
@@ -68,7 +68,7 @@ from app.tokenization import (
     dictionary_form_note,
     mixed_reading,
 )
-from app.users import CurrentUser, OwnedDocument
+from app.users import CurrentUser, OwnedDocument, current_user_id
 from app.youtube_music import Song, YouTubeMusicUnavailable, search_songs
 
 
@@ -236,8 +236,8 @@ def upstream_unavailable(
     return JSONResponse(status_code=502, content={"detail": str(exc)})
 
 
-api = APIRouter(prefix="/api")
-api.include_router(auth_router)
+# Every route needs a login except the auth router's, which sets one up.
+api = APIRouter(prefix="/api", dependencies=[Depends(current_user_id)])
 
 
 def _sanitize_lyrics(value: str) -> str | None:
@@ -836,7 +836,6 @@ def jmdict_search(
 
 @api.get("/songs/search", response_model=list[Song])
 def songs_search(
-    user_id: CurrentUser,
     q: str = Query(min_length=1),
     videos: bool = False,
 ):
@@ -845,7 +844,6 @@ def songs_search(
 
 @api.get("/lrclib/search", response_model=list[LrclibCandidate])
 def lrclib_search(
-    user_id: CurrentUser,
     title: str = "",
     artist: str = "",
     # In seconds; left out when the song's length isn't known.
@@ -863,7 +861,7 @@ class LrclibTrackLyrics(BaseModel):
 
 
 @api.get("/lrclib/tracks/{track_id}", response_model=LrclibTrackLyrics)
-def lrclib_track_lyrics(track_id: int, user_id: CurrentUser) -> LrclibTrackLyrics:
+def lrclib_track_lyrics(track_id: int) -> LrclibTrackLyrics:
     """The lyrics LRCLIB's track `track_id` has now, as linking it would
     load them — or a 422 if LRCLIB refuses it."""
     _, lyrics = _fetch_lrclib_for_link(str(track_id))
@@ -1708,3 +1706,4 @@ def save_song_study_settings(
 
 
 app.include_router(api)
+app.include_router(auth_router, prefix="/api")

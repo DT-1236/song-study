@@ -4,7 +4,8 @@ Database tests run against a dedicated test database named by
 TEST_DATABASE_URL (see .env.example). Importing this module overrides
 DATABASE_URL with it before anything imports app.db, so no test can reach
 the app's own database — import it (conftest.py does) before anything that
-imports app.db.
+imports app.db. Under pytest-xdist, each worker gets a database of its own
+named after TEST_DATABASE_URL's (`song_study_gw0_test` for worker gw0).
 
 The routes it re-exports are called over HTTP through a TestClient, so a test
 exercises the routing and the dependencies that a direct call to the route
@@ -18,6 +19,7 @@ import functools
 import inspect
 import json
 import os
+import re
 import threading
 import time
 from contextlib import contextmanager
@@ -40,31 +42,66 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent
 load_env()
 
 
-def _test_database_url() -> str:
-    """TEST_DATABASE_URL, refusing any database that could be the app's own
-    — recreate_test_database drops and re-creates whatever this names."""
-    url = os.environ.get("TEST_DATABASE_URL")
+def _refuse_unless_test_database(database: str | None, app_url: str | None) -> None:
+    """Raise unless `database` is a name that can't be the app's own: one
+    ending in `_test` and differing from `app_url`'s database."""
+    if (
+        not database
+        or not database.endswith("_test")
+        or (app_url and make_url(app_url).database == database)
+    ):
+        raise RuntimeError(
+            f"Refusing to use {database!r} as the test database: its name must end in '_test' "
+            "and differ from DATABASE_URL's."
+        )
+
+
+def _test_database_url(url: str | None, app_url: str | None, worker: str | None) -> str:
+    """The database URL tests run against, given TEST_DATABASE_URL, the app's
+    DATABASE_URL and the pytest-xdist worker id (None outside xdist): the
+    test database itself, or for a worker a copy of its own, with the worker
+    id before the `_test` suffix. Refuses any database that could be the
+    app's own — recreate_test_database drops and re-creates whatever this
+    names.
+    """
     if not url:
         raise RuntimeError(
             "TEST_DATABASE_URL is not set (see .env.example); tests never fall back to DATABASE_URL."
         )
-    test_db = make_url(url).database
-    app_url = os.environ.get("DATABASE_URL")
-    if (
-        not test_db
-        or not test_db.endswith("_test")
-        or (app_url and make_url(app_url).database == test_db)
-    ):
-        raise RuntimeError(
-            f"Refusing to use {test_db!r} as the test database: its name must end in '_test' "
-            "and differ from DATABASE_URL's."
-        )
-    return url
+    parsed = make_url(url)
+    # Checked before a worker's name is derived from it, so a base that's
+    # refused can't gain a `_test` suffix it never had.
+    _refuse_unless_test_database(parsed.database, app_url)
+    if worker is None:
+        return url
+    if not re.fullmatch(r"gw\d+", worker):
+        raise RuntimeError(f"Unexpected pytest-xdist worker id {worker!r}.")
+    database = parsed.database.removesuffix("_test") + f"_{worker}_test"
+    _refuse_unless_test_database(database, app_url)
+    return parsed.set(database=database).render_as_string(hide_password=False)
 
+
+# The worker id pytest-xdist gives this process, or None when the suite runs
+# in a single process.
+XDIST_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+
+# xdist's workers inherit the environment of the process that started them,
+# where DATABASE_URL has already been overridden below, so that process keeps
+# the app's own for the workers' check. A worker without it compares against
+# the inherited test database instead, which refuses that one too.
+if XDIST_WORKER is None:
+    _app_url = os.environ.get("DATABASE_URL")
+    os.environ["SONG_STUDY_APP_DATABASE_URL"] = _app_url or ""
+else:
+    _app_url = os.environ.get(
+        "SONG_STUDY_APP_DATABASE_URL", os.environ.get("DATABASE_URL")
+    )
 
 # app.db builds its engine from DATABASE_URL at import time, and load_env
 # never overrides a variable that's already set.
-os.environ["DATABASE_URL"] = _test_database_url()
+os.environ["DATABASE_URL"] = _test_database_url(
+    os.environ.get("TEST_DATABASE_URL"), _app_url, XDIST_WORKER
+)
 
 from app import main
 from app.cards import CardKey
@@ -85,16 +122,29 @@ def insert_test_user(conn) -> None:
     )
 
 
+def _admin(statement: str) -> None:
+    """Run `statement` on the test database's server, outside any database
+    it could drop."""
+    # Pooled connections still point at the database being dropped.
+    engine.dispose()
+    admin = create_engine(
+        engine.url.set(database="postgres"), isolation_level="AUTOCOMMIT"
+    )
+    with admin.connect() as conn:
+        conn.execute(text(statement))
+    admin.dispose()
+
+
+def drop_test_database() -> None:
+    """Drop the test database, as a pytest-xdist worker does with its own at
+    the end of a run: its name is only meaningful to that run."""
+    _admin(f'DROP DATABASE IF EXISTS "{engine.url.database}" WITH (FORCE)')
+
+
 def recreate_test_database() -> None:
     """Drop and re-create the test database, then migrate it to head."""
-    url = engine.url
-    admin = create_engine(url.set(database="postgres"), isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f'DROP DATABASE IF EXISTS "{url.database}" WITH (FORCE)'))
-        conn.execute(text(f'CREATE DATABASE "{url.database}"'))
-    admin.dispose()
-    # Pooled connections still point at the database that was just dropped.
-    engine.dispose()
+    drop_test_database()
+    _admin(f'CREATE DATABASE "{engine.url.database}"')
     command.upgrade(alembic_config(), "head")
     with engine.begin() as conn:
         insert_test_user(conn)
@@ -510,3 +560,17 @@ pick_piece_word_endpoint = _via_client(main.pick_piece_word_endpoint)
 get_document_words = _via_client(main.get_document_words)
 correct_card_reading = _via_client(main.correct_card_reading)
 correct_card_word = _via_client(main.correct_card_word)
+
+
+def accept_phrase_suggestion(document_id: int) -> list:
+    """Accept the document's one phrase suggestion, returning the tokens it
+    changed."""
+    [suggestion] = [
+        c.id
+        for t in get_document_tokens(document_id)
+        for c in t.conflicts
+        if c.kind == "phrase"
+    ]
+    return accept_phrase_suggestions_endpoint(
+        document_id, main.PhraseAcceptance(conflict_ids=[suggestion])
+    )

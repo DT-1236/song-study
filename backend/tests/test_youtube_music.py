@@ -8,7 +8,7 @@ from fastapi import HTTPException
 
 from app import youtube_music
 from app.youtube_music import Song, search_songs
-from tests.support import as_session_user, songs_search
+from tests.support import songs_search
 
 
 class FakeClient:
@@ -97,10 +97,3 @@ def test_endpoint_maps_unavailable_to_502(fake_client):
     with pytest.raises(HTTPException) as exc:
         songs_search(q="t")
     assert exc.value.status_code == 502
-
-
-def test_endpoint_requires_login(fake_client):
-    fake_client(results=[FULL])
-    with as_session_user(), pytest.raises(HTTPException) as exc:
-        songs_search(q="t")
-    assert exc.value.status_code == 401

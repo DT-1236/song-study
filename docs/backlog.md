@@ -4,78 +4,39 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
-## Test audit on PR #161 (the backend suite after PR #160)
+## /simplify on backlog sweep 13 (PR #165, with PRs #160 and #161)
 
-- **One test that every route needs a login.** Write it like
-  `test_every_route_keyed_by_a_document_is_owner_scoped` in
-  `backend/tests/test_users.py`: every route from `api_routes()` resolves
-  `current_user_id` among its dependencies, except the auth router's login,
-  callback and logout. Name the exceptions by path, so a new unauthenticated
-  route fails the test. Then delete the three per-route checks it replaces:
-  `test_search_endpoint_requires_login` and
-  `test_track_lyrics_endpoint_requires_login` in `test_lrclib.py`, and
-  `test_endpoint_requires_login` in `test_youtube_music.py`. Sonnet 5, low.
-- **Applying a reading to a token of an accepted phrase.** `/tokens/reading`
-  unmerges the phrase before applying it (`select_reading` in
-  `app/conflicts.py`, its `in_accepted_phrase` branch), and no test reaches
-  that.
-  Accept 真に受けてみて's phrase (as `test_card_content.py` does), apply a
-  reading to 真, and check the group is gone, the reading applies, and every
-  former member is returned. Sonnet 5, medium.
-- **Picking a katakana piece's word for several tokens at once, refused.**
-  `pick_piece_word` raises `WordNotOffered` (422) when one of the tokens
-  isn't sung in katakana, and when the tokens read the piece differently
-  (`_piece_reading` and `_shared_reading` in `app/conflicts.py`). Neither is
-  tested. Add both next to
-  `test_picking_a_word_a_piece_cant_be_is_refused` in `test_corrections.py`,
-  checking nothing changes. The second needs two tokens spelled alike where
-  one was given another reading first. Sonnet 5, medium: building that
-  second case takes some reading of `_shared_reading`.
-- **A phrase with a member marked as needing no gloss isn't harvested.**
-  `app/cards.py` drops an accepted phrase from the harvest when any of its
-  word's tokens is `gloss_ignored`, unless it was added by hand. Add it to
-  `test_cards.py`'s harvest tests with 真に受けてみて. Sonnet 5, low.
-- **A linked document unlinked while its LRCLIB check is in flight.**
-  `_sync_with_lrclib` in `app/main.py` leaves the document alone when its
-  `lrclib_uri` changed after the lyrics were fetched, and no test reaches
-  it. In `test_lrclib.py`, make the fake's response unlink the document (a
-  direct `UPDATE`) before returning new lyrics, then check the load keeps
-  the stored text and stays unlinked. Sonnet 5, medium.
-- **A reading that isn't kana is refused.** `ReadingCorrection.kana_only` in
-  `app/main.py` (inherited by `TokensReading` and `CardReadingCorrection`)
-  has no test. Add a parametrized `ValidationError` test for a kanji, a
-  Latin and a mixed reading. Haiku 4.5, low.
-- **resplit's two refusals.** `app/resplit.py` keeps Sudachi's split when
-  the rejoined head isn't one accepted morpheme, and when the head or the
-  rest has an out-of-vocabulary morpheme. Neither is reached, which is why
-  it's the least-covered file. Find real inputs for each (the tests use real
-  Sudachi output, as the file's docstring says), add them to
-  `test_leaves_other_boundaries_alone`, and confirm with coverage that each
-  case reaches its `return None`. Sonnet 5, medium: the work is the
-  searching, and coverage confirms the result.
-- **Run the backend suite in parallel.** The suite's time grows with its
-  database-backed tests, about 20ms each, so pytest-xdist with one test
-  database per worker is what keeps it well under 20s as it grows. Name
-  each worker's database from `TEST_DATABASE_URL` with the worker id before
-  the `_test` suffix (`song_study_gw0_test`), so `_test_database_url`'s
-  check still refuses anything that could be the app's database. Each
-  worker recreates its own in the session fixture. `wait_for_lock_wait`
-  already scopes to `current_database()`, and the browser server's
-  `_browser_test` database is unaffected. Add `pytest-xdist` to
-  `requirements.txt`, and record the new time in `docs/test-audits.md`.
-  Opus 5, medium: the change is to the guard that keeps tests off the app
-  database, and getting it wrong wipes real data.
-
-## /simplify on the kanji panel and line furigana branch
-
-- **Furigana is fetched by callers that never read it.**
-  `cards._token_rows` selects `furigana` for every caller, but only
-  `card_content` (the queue's lines and kanji) reads it. Give it a
-  `with_furigana` parameter that `units_by_document` passes through from
-  `load_songs`, and have `document_units`'s callers leave it off. Saves one
-  jsonb column per token on those paths. Sonnet 5, low.
-- **A ruby reading straddling a slice edge is dropped.** `lineSlice` in
-  `StudyCardView.tsx` skips a reading that crosses a cut between the dimmed
-  and focused parts, which holds only while focus and group edges fall on
-  token edges. Build the line's segments once with both the readings' and
-  the cuts' boundaries as cut points. Sonnet 5, medium.
+- **Cut a card line into its slices once.** `StudyCardView` calls
+  `lineSlice` up to five times per card, and each call to `sliceSegments`
+  in `frontend/src/cardText.ts` decides on its own whether it holds a
+  straddling reading (the slice where the reading's run begins). They agree
+  only because each applies the same rule.
+  One function taking the line and its sorted cut points, returning every
+  slice's segments with each reading placed once, makes "one slice shows
+  each reading" explicit and lets the tests check a whole line at a time.
+  Sonnet 5, medium.
+- **Build the app's engine from a settable URL instead of at import.**
+  `app/db.py` calls `create_engine(os.environ["DATABASE_URL"])` on import,
+  so `tests/support.py` overwrites `DATABASE_URL` and hands the app's real
+  URL to pytest-xdist workers in `SONG_STUDY_APP_DATABASE_URL`. A lazily
+  built engine (or one tests can point elsewhere) lets every process see the
+  real URL and drops the handoff and its fallback. Every importer of
+  `engine` changes. Opus 5, medium: it moves the guard that keeps tests off
+  the app database.
+- **Copy each worker's test database from a migrated template.** Under
+  `-n 4`, every worker replays all the migrations into its own database.
+  Migrating `song_study_test` once (from the controller's
+  `pytest_configure`, which has no `PYTEST_XDIST_WORKER`) and creating each
+  worker's with `CREATE DATABASE … TEMPLATE song_study_test` replaces that
+  with a file copy. Time the migrations first: it's only worth the
+  coordination code if they're a noticeable share of a run. Sonnet 5,
+  medium.
+- **LRCLIB timing compares the database's clock with the app's.**
+  `lrclib_checked_at` is set with Postgres's `now()`, but the refresh wait
+  (`main.py`, `max(checked_at + wait - datetime.now(UTC), …)`) and the
+  staleness checks measure it against Python's clock. Docker's Postgres
+  lags the Mac's clock by the length of a sleep until it resyncs (1,033s
+  after one on 2026-10-24), and then `test_lrclib.py`'s timing tests fail;
+  a deployment with the database on another host would skew the same way.
+  Compute the ages in SQL (`now() - lrclib_checked_at`) so one clock decides.
+  Sonnet 5, medium.
