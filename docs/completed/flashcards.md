@@ -1027,8 +1027,10 @@ DISTINCT`. Type C can become a third kind sharing a word's key, so its schedulin
 - The FSRS columns default to py-fsrs 6's new card: state 1 (Learning), step 0, due now.
 - `study_reviews` has no cascade from cards, so a card with history can't be deleted; it records
   `correct`, `duration_ms` and the `fast_ms` / `slow_ms` thresholds beside `rating`.
-- `enroll_new_words(conn, user_id, document_id, limit)` creates cards most-sung word first and
-  never restores a suspended card; step 3's per-song daily limit supplies `limit`.
+- `enroll_new_words(conn, user_id, document_id, limit)` creates cards in `enrollment_order` —
+  grammar terms, then words by JMDict frequency band (common-but-unbanded words ahead of nf01),
+  then rarest kanji's KANJIDIC2 rank, then times sung — and never restores a suspended card;
+  step 3's per-song daily limit supplies `limit`.
   `PUT /documents/{id}/tokens/{tid}/card` is the manual add/restore, which overrides
   `gloss_ignored` and an unreviewed reading but still needs a JMDict headword.
 

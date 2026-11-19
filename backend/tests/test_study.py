@@ -40,8 +40,9 @@ from tests.support import (
 )
 
 SONG = "君を呼ぶ。聞こえてる。聞こえた。"
-# In the order they enroll: most sung first, then in order of appearance.
-SONG_WORDS = ["聞こえる", "君", "呼ぶ", "てる", "た"]
+# In the order they enroll (see cards.enrollment_order): the grammar terms,
+# then 君 (JMDict common, no nf band), 呼ぶ (nf02), 聞こえる (nf25).
+SONG_WORDS = ["てる", "た", "君", "呼ぶ", "聞こえる"]
 
 
 def _lookup_forms(cards) -> list[str]:

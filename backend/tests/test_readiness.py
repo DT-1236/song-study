@@ -80,14 +80,14 @@ def test_words_without_a_card_pull_readiness_down(committed_engine):
     document_id = create_tokenized_document(SONG)
     save_song_study_settings(document_id, SongStudySettings(new_cards_per_day=1))
     start_song_session(document_id)
-    _recalled_now(committed_engine, "聞こえる")
+    _recalled_now(committed_engine, "てる")
 
     readiness = get_song_readiness(document_id)
 
-    # Only the card for the most sung word exists, so the rest count as zero
-    # rather than being left out of the mean.
+    # Only the card for the first to enroll, the grammar term てる, exists, so
+    # the rest count as zero rather than being left out of the mean.
     assert (readiness.words, readiness.enrolled) == (5, 1)
-    assert readiness.readiness == pytest.approx(2 / 6)
+    assert readiness.readiness == pytest.approx(1 / 6)
 
 
 def test_a_removed_card_is_no_longer_part_of_the_song(committed_engine):

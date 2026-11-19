@@ -317,14 +317,19 @@ def test_a_card_with_reviews_cant_be_deleted(committed_engine):
 # Enrolling
 
 
-def test_enrolling_creates_new_cards_for_the_most_sung_words_first(committed_engine):
+def test_enrolling_creates_new_cards_for_the_most_common_words_first(
+    committed_engine,
+):
     document_id = create_tokenized_document(text="君を呼ぶ。聞こえてる。聞こえた。")
 
-    first = _enroll(committed_engine, document_id, limit=2)
+    first = _enroll(committed_engine, document_id, limit=3)
     rest = _enroll(committed_engine, document_id)
 
-    assert first == [word_key("聞こえる", "きこえる"), word_key("君", "きみ")]
-    assert rest == [word_key("呼ぶ", "よぶ"), _grammar("てる"), _grammar("た")]
+    # Grammar terms first; then 君, which JMDict marks common without an nf
+    # band, ahead of 呼ぶ (nf02) and 聞こえる (nf25) though 聞こえる is sung
+    # twice.
+    assert first == [_grammar("てる"), _grammar("た"), word_key("君", "きみ")]
+    assert rest == [word_key("呼ぶ", "よぶ"), word_key("聞こえる", "きこえる")]
     assert _enroll(committed_engine, document_id) == []
 
 
