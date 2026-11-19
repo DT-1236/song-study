@@ -169,7 +169,8 @@ One bucket over is normal variance and needs no post-mortem.
 | 2026-10-24 | Backlog sweep 13: orchestrate subagents, review and commit items       | #165 | backlog sweep                          | Opus 5.5, medium            | —    | 59    | 5.6M       | 26k    | L    |
 | 2026-10-24 | Backlog sweep 13, with #160 and #161                                   | #165 | /simplify (4 subagents)                | Opus 5.5, medium            | —    | 75    | 7.1M       | 38k    | L    |
 | 2026-10-24 | Backlog sweep 13                                                       | #165 | /code-review (1 subagent) and fixes    | Opus 5.5, medium            | —    | 45    | 5.4M       | 23k    | L    |
-| 2026-11-19 | Enroll common words first (JMDict bands, kanji rank)                   | —    | initial pass                           | Opus 5.5, high              | M    | 46    | 4.2M       | 38k    | M    |
+| 2026-11-19 | Enroll common words first (JMDict bands, kanji rank)                   | #166 | initial pass                           | Opus 5.5, high              | M    | 52    | 5.0M       | 41k    | M    |
+| 2026-11-19 | Enroll common words first (JMDict bands, kanji rank)                   | #166 | /simplify (4 subagents)                | Opus 5.5, high              | S    | 43    | 3.4M       | 34k    | M    |
 
 ## Post-mortem log
 

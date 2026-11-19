@@ -4,6 +4,20 @@ Improvements a review turned up that weren't worth doing in the change that
 found them. Each entry says where it came from and what doing it would cost,
 so it can be picked up without re-deriving the reasoning.
 
+## /simplify on PR #166 (enrolling common words first)
+
+- **Take a word's frequency band from its cached gloss entries.**
+  `commonness.jmdict_bands` matches a word to its JMDict entries with its
+  own SQL, mirroring `glosses._lookup_entries` and `_lookup` by hand, so the
+  two can drift apart. `_lookup_entries` already reads the matching kana
+  forms' `pri` (for `has_priority`) and drops it. Keeping it in each
+  entry's JSON beside `kanji_forms`' would let the band come from the
+  word's cached `gloss_lookups.entries`, narrowed by `picked_entries` for a
+  card with an `idseq`. Costs: the gloss cache has to be emptied so its
+  rows gain kana `pri` (allowed: see `gloss_sources`), and enrolling reads
+  the heavy `entries` column from Postgres rather than querying SQLite.
+  Opus 5, medium: the gloss cache's shape is shared by every gloss path.
+
 ## /simplify on backlog sweep 13 (PR #165, with PRs #160 and #161)
 
 - **Cut a card line into its slices once.** `StudyCardView` calls
