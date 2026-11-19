@@ -28,16 +28,13 @@ from tests.support import (
     empty_gloss_cache,
     get_document_tokens,
     get_document_words,
+    grammar_key,
     pick_reading,
     set_tokens_ignored,
     suspend_card,
     user_cards,
     word_key,
 )
-
-
-def _grammar(term: str) -> CardKey:
-    return CardKey("grammar", term, None)
 
 
 def _harvest(engine, document_id: int) -> dict[CardKey, int]:
@@ -66,7 +63,7 @@ def _enroll(engine, document_id: int, limit: int | None = None) -> list[CardKey]
 # The harvest
 
 
-def test_a_predicate_group_gives_its_head_word_and_its_grammar(committed_engine):
+def test_a_predicate_group_gives_its_head_word_and_itsgrammar_key(committed_engine):
     # 声 is left out as an unreviewed heteronym; see below.
     document_id = create_tokenized_document(text="君の声が聞こえてるんだって。")
 
@@ -74,11 +71,11 @@ def test_a_predicate_group_gives_its_head_word_and_its_grammar(committed_engine)
         word_key("君", "きみ"): 1,
         # As the verb it is, not as the group's composite gloss.
         word_key("聞こえる", "きこえる"): 1,
-        _grammar("てる"): 1,
+        grammar_key("てる"): 1,
         # ん, as Sudachi normalizes it when it explains.
-        _grammar("の"): 1,
-        _grammar("だ"): 1,
-        _grammar("って"): 1,
+        grammar_key("の"): 1,
+        grammar_key("だ"): 1,
+        grammar_key("って"): 1,
     }
 
 
@@ -96,8 +93,8 @@ def test_a_word_counts_every_occurrence_under_one_card(committed_engine):
 
     assert _harvest(committed_engine, document_id) == {
         word_key("聞こえる", "きこえる"): 2,
-        _grammar("てる"): 1,
-        _grammar("た"): 1,
+        grammar_key("てる"): 1,
+        grammar_key("た"): 1,
     }
 
 
@@ -169,13 +166,13 @@ def test_an_unreviewed_token_is_harvested_only_if_its_reading_is_certain(
     assert bool(_harvest(committed_engine, document_id)) == harvested
 
 
-def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engine):
+def test_an_accepted_phrase_is_one_word_with_its_attachedgrammar_key(committed_engine):
     document_id = create_tokenized_document(text="真に受けてみて")
     # 真 is an unreviewed heteronym on its own.
     assert _harvest(committed_engine, document_id) == {
         word_key("受ける", "うける"): 1,
-        _grammar("て"): 2,
-        _grammar("見る"): 1,
+        grammar_key("て"): 2,
+        grammar_key("見る"): 1,
     }
 
     accept_phrase_suggestion(document_id)
@@ -183,8 +180,8 @@ def test_an_accepted_phrase_is_one_word_with_its_attached_grammar(committed_engi
     # The phrase's own に is part of the headword, not grammar.
     assert _harvest(committed_engine, document_id) == {
         word_key("真に受ける", "まにうける"): 1,
-        _grammar("て"): 2,
-        _grammar("見る"): 1,
+        grammar_key("て"): 2,
+        grammar_key("見る"): 1,
     }
 
 
@@ -247,7 +244,7 @@ def test_a_katakana_word_belongs_to_the_cards_of_the_words_it_splits_into(
         word_key("会う", "あう"),
         # Attached to 会う. The の between the two words is grammar on its
         # own, which gives nothing.
-        _grammar("たい"),
+        grammar_key("たい"),
     }
 
 
@@ -264,7 +261,7 @@ def test_a_katakana_word_unlinked_from_its_gloss_links_to_no_card(committed_engi
     assert not _song_keys(committed_engine, document_id) & {
         word_key("僕", "ぼく"),
         word_key("会う", "あう"),
-        _grammar("たい"),
+        grammar_key("たい"),
     }
 
 
@@ -317,14 +314,19 @@ def test_a_card_with_reviews_cant_be_deleted(committed_engine):
 # Enrolling
 
 
-def test_enrolling_creates_new_cards_for_the_most_sung_words_first(committed_engine):
+def test_enrolling_creates_new_cards_for_the_most_common_words_first(
+    committed_engine,
+):
     document_id = create_tokenized_document(text="君を呼ぶ。聞こえてる。聞こえた。")
 
-    first = _enroll(committed_engine, document_id, limit=2)
+    first = _enroll(committed_engine, document_id, limit=3)
     rest = _enroll(committed_engine, document_id)
 
-    assert first == [word_key("聞こえる", "きこえる"), word_key("君", "きみ")]
-    assert rest == [word_key("呼ぶ", "よぶ"), _grammar("てる"), _grammar("た")]
+    # Grammar terms first; then 君, which JMDict marks common without an nf
+    # band, ahead of 呼ぶ (nf02) and 聞こえる (nf25) though 聞こえる is sung
+    # twice.
+    assert first == [grammar_key("てる"), grammar_key("た"), word_key("君", "きみ")]
+    assert rest == [word_key("呼ぶ", "よぶ"), word_key("聞こえる", "きこえる")]
     assert _enroll(committed_engine, document_id) == []
 
 

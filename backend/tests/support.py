@@ -407,6 +407,11 @@ def word_key(lookup_form: str, reading: str, idseq: int | None = None) -> CardKe
     return CardKey("recognition", lookup_form, reading, idseq)
 
 
+def grammar_key(term: str) -> CardKey:
+    """The key of the card for a grammar term."""
+    return CardKey("grammar", term, None)
+
+
 def user_cards(user_id: int = TEST_USER_ID) -> dict[CardKey, object]:
     """The user's card rows, removed or not, by key."""
     with engine.connect() as conn:

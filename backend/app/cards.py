@@ -18,6 +18,7 @@ from typing import Literal
 from fsrs import State
 from sqlalchemy import text
 
+from app.commonness import jmdict_bands, rarest_kanji_ranks
 from app.conflicts import NON_READING_KINDS, TokenNotFound
 from app.glosses import (
     KATAKANA_GLOSS_COLUMNS,
@@ -571,20 +572,42 @@ def enroll_new_words(
     )
 
 
+def enrollment_order(words: list[HarvestedWord]) -> list[HarvestedWord]:
+    """`words` in the order they enroll: grammar terms first, then words by
+    how common JMDict says they are, then by how common their rarest kanji
+    is, each then by how often the song sings them and where it first does.
+    A common word pays off beyond the one song, so a day's limit goes to
+    those first."""
+    # Grammar terms aren't looked up: they're the most common items there
+    # are, and JMDict's tags for them (ない nf45, ます none) say otherwise.
+    vocabulary = [w for w in words if w.key.kind != "grammar"]
+    # Lower is more common in both.
+    bands = jmdict_bands(vocabulary)
+    kanji = rarest_kanji_ranks([w.key.lookup_form for w in vocabulary])
+    commonness = {w.key: (b, k) for w, b, k in zip(vocabulary, bands, kanji)}
+    return sorted(
+        words,
+        key=lambda w: (
+            w.key.kind != "grammar",
+            commonness.get(w.key, ()),
+            -w.occurrences,
+            w.first_position,
+        ),
+    )
+
+
 def _enroll_units(
     conn, user_id: int, document_id: int, units: list[list], limit: int | None
 ) -> list[int]:
     """Give the user a card for each of up to `limit` (all if None) of the
     harvested words in `units`, the document's (see _units), that they have
-    no card for yet, the most often sung first, and return the new cards'
-    ids. A card they removed still counts as one they have: only adding it
-    by hand restores it."""
-    words = sorted(
-        harvest(conn, units, user_id),
-        key=lambda w: (-w.occurrences, w.first_position),
-    )
+    no card for yet, in enrollment_order, and return the new cards' ids. A
+    card they removed still counts as one they have: only adding it by hand
+    restores it."""
+    words = harvest(conn, units, user_id)
     if not words:
         return []
+    words = enrollment_order(words)
     return (
         conn.execute(
             text(
