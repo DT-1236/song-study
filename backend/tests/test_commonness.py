@@ -4,7 +4,7 @@ The expected bands are JMDict's own tags as jamdict-data pins them."""
 
 from __future__ import annotations
 
-from app.cards import CardKey, HarvestedWord, enrollment_order
+from app.cards import HarvestedWord, enrollment_order
 from app.commonness import (
     COMMON_UNRANKED_BAND,
     UNRANKED_KANJI,
@@ -12,11 +12,15 @@ from app.commonness import (
     jmdict_bands,
     rarest_kanji_ranks,
 )
-from tests.support import word_key
+from tests.support import grammar_key, word_key
+
+
+def _word(key, occurrences: int = 1, first_position: int = 0, alt: str | None = None):
+    return HarvestedWord(key, alt, occurrences, first_position)
 
 
 def _band(lookup_form: str, reading: str, idseq: int | None = None) -> int:
-    [band] = jmdict_bands([(lookup_form, None, reading, idseq)])
+    [band] = jmdict_bands([_word(word_key(lookup_form, reading, idseq))])
     return band
 
 
@@ -50,9 +54,15 @@ def test_a_word_with_no_jmdict_entry_ranks_last():
     assert _band("無い言葉", "ないことば") == UNTAGGED_BAND
 
 
-def test_the_alternate_spelling_is_tried_too():
-    [band] = jmdict_bands([("無い言葉", "夢", "ゆめ", None)])
+def test_the_alternate_spelling_is_tried_when_the_word_s_own_matches_nothing():
+    [band] = jmdict_bands([_word(word_key("無い言葉", "ゆめ"), alt="夢")])
     assert band == 2
+
+
+def test_the_alternate_spelling_isn_t_tried_when_the_word_s_own_matches():
+    # 藍 is nf18; 愛, read あい too, is nf02.
+    [band] = jmdict_bands([_word(word_key("藍", "あい"), alt="愛")])
+    assert band == 18
 
 
 def test_a_kana_word_takes_its_most_common_entry():
@@ -66,7 +76,7 @@ def test_a_word_keyed_by_its_entry_takes_only_that_entry_s_band():
 
 def test_bands_come_back_in_the_order_asked():
     assert jmdict_bands(
-        [("煌めく", None, "きらめく", None), ("夢", None, "ゆめ", None)]
+        [_word(word_key("煌めく", "きらめく")), _word(word_key("夢", "ゆめ"))]
     ) == [UNTAGGED_BAND, 2]
 
 
@@ -93,10 +103,6 @@ def test_the_repeat_mark_doesn_t_count():
 # Enrollment order
 
 
-def _word(key, occurrences: int, first_position: int) -> HarvestedWord:
-    return HarvestedWord(key, None, occurrences, first_position)
-
-
 def test_enrollment_order():
     yume = _word(word_key("夢", "ゆめ"), 1, 0)  # nf02, 夢 943rd
     yobu = _word(word_key("呼ぶ", "よぶ"), 1, 1)  # nf02, 呼 498th
@@ -104,7 +110,7 @@ def test_enrollment_order():
     kimi = _word(word_key("君", "きみ"), 1, 3)  # common, 君 947th
     zutto = _word(word_key("ずっと", "ずっと"), 1, 4)  # common, no kanji
     mou = _word(word_key("もう", "もう"), 2, 5)  # common, no kanji
-    teru = _word(CardKey("grammar", "てる", None), 1, 6)
+    teru = _word(grammar_key("てる"), 1, 6)
 
     assert enrollment_order([yume, yobu, kirameku, kimi, zutto, mou, teru]) == [
         # Grammar first, whatever its count.
